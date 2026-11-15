@@ -207,7 +207,8 @@ client.on('interactionCreate', async interaction => {
                 content: `✅ Mua thành công! (Đã trừ 10 xu)\n📧 \`${mail}\`\n🔑 \`${passParts.join('|')}\`\n💰 Số dư còn lại: **${newBalance} xu**` 
             });
         } catch (error) { 
-            await interaction.editReply({ content: `❌ ${error.message} (Chưa bị trừ xu).` }); 
+            console.error('[reg] lỗi:', error, error.cause);
+            await interaction.editReply({ content: `❌ ${error.message}${error.cause ? ' - ' + (error.cause.code || error.cause.message) : ''} (Chưa bị trừ xu).` }); 
         }
     }
 
@@ -263,7 +264,8 @@ client.on('interactionCreate', async interaction => {
                 files: [{ attachment: Buffer.from(giftCodes.join('\n')), name: `giftcodes_${count}.txt` }]
             });
         } catch (error) {
-            await interaction.editReply({ content: '❌ Lỗi tạo code.' });
+            console.error('[gen] lỗi:', error, error.cause);
+            await interaction.editReply({ content: `❌ Lỗi tạo code: ${error.message}${error.cause ? ' - ' + (error.cause.code || error.cause.message) : ''}`.slice(0, 1800) });
         }
     }
 
