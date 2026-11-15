@@ -73,6 +73,22 @@ app.get('/redeem', async (req, res) => {
 
 app.listen(PORT, () => console.log(`\n✅ Web Server đang chạy: http://localhost:${PORT}`));
 
+// In IP outbound mỗi lần khởi động (để đưa vào whitelist) + thử xem KingDev có bị Cloudflare chặn không
+(async () => {
+    try {
+        const ip = await (await fetch('https://api.ipify.org?format=json')).json();
+        console.log(`[IP] IP outbound hiện tại: ${ip.ip}`);
+    } catch (e) { console.log('[IP] Không lấy được IP:', e.message); }
+    try {
+        const r = await fetch('https://kingdev.shop/api/v2/buy-vmos.php', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+            body: JSON.stringify({ api_key: 'probe', account: 'probe' })
+        });
+        const t = await r.text();
+        console.log(`[IP] Thử KingDev: HTTP ${r.status} - ${t.trim().startsWith('{') ? 'JSON (không bị chặn)' : 'HTML (bị Cloudflare chặn)'}`);
+    } catch (e) { console.log('[IP] Thử KingDev lỗi:', e.message); }
+})();
+
 // ==========================================
 // PHẦN 2: DISCORD BOT
 // ==========================================
