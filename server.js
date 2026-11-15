@@ -1,8 +1,10 @@
 require('dotenv').config();
 const express = require('express');
 const crypto = require('crypto');
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
 const db = require('./database');
+const HANAMI_URL = 'https://hanaminikata.com/dev/buy_device_cloud';
+const CLOUD_NAMES = { UG: 'UGPhone', VM: 'VMOS', VS: 'VSPhone' };
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -80,13 +82,13 @@ app.listen(PORT, () => console.log(`\n✅ Web Server đang chạy: http://localh
         console.log(`[IP] IP outbound hiện tại: ${ip.ip}`);
     } catch (e) { console.log('[IP] Không lấy được IP:', e.message); }
     try {
-        const r = await fetch('https://kingdev.shop/api/v2/buy-vmos.php', {
+        const r = await fetch(HANAMI_URL, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-            body: JSON.stringify({ api_key: 'probe', account: 'probe' })
+            body: JSON.stringify({ token: 'probe', cloud_id: 'VM', input_data: 'probe' })
         });
         const t = await r.text();
-        console.log(`[IP] Thử KingDev: HTTP ${r.status} - ${t.trim().startsWith('{') ? 'JSON (không bị chặn)' : 'HTML (bị Cloudflare chặn)'}`);
-    } catch (e) { console.log('[IP] Thử KingDev lỗi:', e.message); }
+        console.log(`[IP] Thử Hanami: HTTP ${r.status} - ${t.trim().startsWith('{') ? 'JSON (không bị chặn)' : 'HTML (bị Cloudflare chặn)'}`);
+    } catch (e) { console.log('[IP] Thử Hanami lỗi:', e.message); }
 })();
 
 // ==========================================
@@ -103,8 +105,11 @@ client.once('ready', async () => {
         new SlashCommandBuilder().setName('vi').setDescription('Xem số dư xu của bạn'),
         new SlashCommandBuilder().setName('code').setDescription('Nhập Gift Code để nhận xu')
             .addStringOption(o => o.setName('gift_code').setDescription('Mã quà tặng').setRequired(true)),
-        new SlashCommandBuilder().setName('buycloud').setDescription('Mua VMOS (Miễn phí)')
-            .addStringOption(o => o.setName('account').setDescription('Nhập email|password').setRequired(true)),
+        new SlashCommandBuilder().setName('buycloud').setDescription('Mua máy Cloud (Miễn phí)')
+            .addStringOption(o => o.setName('provider').setDescription('Loại cloud').setRequired(true)
+                .addChoices({ name: 'UGPhone', value: 'UG' }, { name: 'VMOS', value: 'VM' }, { name: 'VSPhone', value: 'VS' }))
+            .addStringOption(o => o.setName('server').setDescription('Khu vực (bắt buộc với UGPhone)').setRequired(false)
+                .addChoices({ name: 'Singapore', value: 'SG' }, { name: 'Hong Kong', value: 'HK' }, { name: 'Japan', value: 'JP' }, { name: 'Germany', value: 'DE' }, { name: 'US', value: 'US' })),
         new SlashCommandBuilder().setName('gen').setDescription('Tạo Gift Code (Admin)')
             .addIntegerOption(o => o.setName('soluong').setDescription('Số lượng code').setRequired(true))
             .addIntegerOption(o => o.setName('xuthuong').setDescription('Số xu mỗi code').setRequired(true)),
@@ -121,7 +126,50 @@ client.once('ready', async () => {
     }
 });
 
+// ===== MUA CLOUD QUA HANAMI =====
+
+async function buyHanami(cloudId, server, inputData) {
+    const body = { token: process.env.HANAMI_TOKEN, cloud_id: cloudId, input_data: inputData };
+    if (server) body.server = server;
+    const response = await fetch(HANAMI_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+        body: JSON.stringify(body)
+    });
+    const raw = await response.text();
+    let data;
+    try { data = JSON.parse(raw); } catch (e) {
+        console.error(`[buycloud] Hanami trả về không phải JSON (HTTP ${response.status}):`, raw.slice(0, 300));
+        const snippet = raw.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+        return { ok: false, message: `Hanami trả về HTML thay vì JSON (HTTP ${response.status}): ${snippet.replace(/`/g, "'")}` };
+    }
+    return { ok: data.code === 0, message: data.message || 'Không rõ' };
+}
+
+async function handleBuycloudModal(interaction) {
+    const [, cloudId, serverRaw] = interaction.customId.split(':');
+    const server = serverRaw === '-' ? null : serverRaw;
+    const inputData = interaction.fields.getTextInputValue('input_data').trim();
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+        if (!process.env.HANAMI_TOKEN) return await interaction.editReply({ content: '❌ Bot chưa cấu hình HANAMI_TOKEN.' });
+        if (cloudId !== 'UG' && !inputData.includes('|')) {
+            return await interaction.editReply({ content: '❌ Sai định dạng. Nhập theo dạng: `tài khoản|mật khẩu`' });
+        }
+        const result = await buyHanami(cloudId, server, inputData);
+        if (result.ok) {
+            await interaction.editReply({ content: `✅ **Mua ${CLOUD_NAMES[cloudId]} thành công!**${server ? ` (${server})` : ''}\n${result.message}` });
+        } else {
+            await interaction.editReply({ content: `❌ Lỗi từ Hanami: ${result.message}`.slice(0, 1900) });
+        }
+    } catch (error) {
+        console.error('[buycloud] lỗi:', error, error.cause);
+        await interaction.editReply({ content: `❌ Lỗi kết nối: ${error.message}${error.cause ? ' - ' + (error.cause.code || error.cause.message) : ''}` });
+    }
+}
+
 client.on('interactionCreate', async interaction => {
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('buycloud:')) return handleBuycloudModal(interaction);
     if (!interaction.isChatInputCommand()) return;
     const adminIds = getAdminIds();
     const userId = interaction.user.id;
@@ -228,37 +276,26 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // LỆNH /buycloud
+    // LỆNH /buycloud (mở bảng nhập dữ liệu)
     if (interaction.commandName === 'buycloud') {
-        const accountInfo = interaction.options.getString('account').trim();
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        try {
-            if (!accountInfo.includes('|')) {
-                return await interaction.editReply({ content: '❌ Sai định dạng. Vui lòng nhập theo dạng: `email|password`' });
-            }
-
-            const response = await fetch('https://kingdev.shop/api/v2/buy-vmos.php', {
-                method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-                body: JSON.stringify({ api_key: process.env.KINGDEV_API_KEY, account: accountInfo })
-            });
-            const raw = await response.text();
-            let data;
-            try { data = JSON.parse(raw); } catch (e) {
-                console.error(`[buycloud] KingDev trả về không phải JSON (HTTP ${response.status}):`, raw.slice(0, 300));
-                const snippet = raw.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
-                return await interaction.editReply({ content: `❌ KingDev trả về HTML thay vì JSON (HTTP ${response.status}).\n\`${snippet.replace(/`/g, "'")}\`` });
-            }
-
-            if (data.success === true) {
-                await interaction.editReply({ 
-                    content: `✅ **Mua VMOS thành công!**\n🆔 Mã đơn hàng: \`${data.data.order_id}\`\n📧 Tài khoản: \`${data.data.credential}\``
-                });
-            } else {
-                await interaction.editReply({ content: `❌ Lỗi từ KingDev: ${data.message || 'Không rõ'}` });
-            }
-        } catch (error) {
-            await interaction.editReply({ content: `❌ Lỗi kết nối: ${error.message}` });
+        const cloudId = interaction.options.getString('provider');
+        const server = interaction.options.getString('server');
+        if (cloudId === 'UG' && !server) {
+            return interaction.reply({ content: '❌ UGPhone cần chọn thêm **server** (khu vực).', flags: MessageFlags.Ephemeral });
         }
+        const isUG = cloudId === 'UG';
+        const input = new TextInputBuilder()
+            .setCustomId('input_data')
+            .setLabel(isUG ? 'Local Storage (cookie) của UGPhone' : 'Tài khoản|Mật khẩu')
+            .setStyle(isUG ? TextInputStyle.Paragraph : TextInputStyle.Short)
+            .setPlaceholder(isUG ? 'Dán chuỗi Local Storage vào đây' : 'mail|matkhau hoặc user|matkhau')
+            .setRequired(true)
+            .setMaxLength(4000);
+        const modal = new ModalBuilder()
+            .setCustomId(`buycloud:${cloudId}:${isUG ? server : '-'}`)
+            .setTitle(`Mua ${CLOUD_NAMES[cloudId]}${isUG ? ' - ' + server : ''}`)
+            .addComponents(new ActionRowBuilder().addComponents(input));
+        return interaction.showModal(modal);
     }
 
     // LỆNH /gen
