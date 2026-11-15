@@ -5,6 +5,10 @@ const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuild
 const db = require('./database');
 const HANAMI_URL = 'https://hanaminikata.com/dev/buy_device_cloud';
 const CLOUD_NAMES = { UG: 'UGPhone', VM: 'VMOS', VS: 'VSPhone' };
+const PAY_MIN = 10;          // số xu tối thiểu mỗi lần /pay
+const PAY_FEE_RATE = 0.05;   // phí chuyển 5%
+const LEADERBOARD_INTERVAL_MS = 10 * 60 * 1000; // cập nhật bảng xếp hạng mỗi 10 phút
+const busyUsers = new Set(); // chặn bấm lệnh đồng thời (tránh nhận/chuyển xu 2 lần)
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -94,6 +98,50 @@ app.listen(PORT, () => console.log(`\n✅ Web Server đang chạy: http://localh
 // ==========================================
 // PHẦN 2: DISCORD BOT
 // ==========================================
+// ===== ADMIN: Owner (env ADMIN_DISCORD_ID) + admin cấp bằng /op (bảng admins) =====
+async function isAdmin(userId) {
+    if (getAdminIds().includes(userId)) return true;
+    try { return await db.isAdmin(userId); } catch (e) { console.error('[admin] không đọc được bảng admins:', e.message); return false; }
+}
+
+// ===== BẢNG XẾP HẠNG COIN QUA WEBHOOK =====
+async function updateLeaderboard() {
+    const url = process.env.LEADERBOARD_WEBHOOK_URL;
+    if (!url) return;
+    try {
+        const top = await db.getTopCoins(10);
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = top.length
+            ? top.map((u, i) => `${medals[i] || `**${i + 1}.**`} <@${u.user_id}> — **${Number(u.balance).toLocaleString('en-US')}** xu`)
+            : ['Chưa có ai trong bảng xếp hạng.'];
+        const payload = {
+            allowed_mentions: { parse: [] },
+            embeds: [{
+                title: '🏆 Bảng xếp hạng Coin',
+                description: lines.join('\n'),
+                color: 0xF1C40F,
+                footer: { text: 'Cập nhật mỗi 10 phút' },
+                timestamp: new Date().toISOString()
+            }]
+        };
+        const headers = { 'Content-Type': 'application/json' };
+        let msgId = null;
+        try { msgId = await db.getKv('leaderboard_message_id'); } catch (e) { console.error('[BXH] không đọc được bảng kv:', e.message); }
+
+        if (msgId) {
+            const res = await fetch(`${url}/messages/${msgId}`, { method: 'PATCH', headers, body: JSON.stringify(payload) });
+            if (res.ok) return;
+            if (res.status !== 404) return console.error(`[BXH] sửa tin nhắn lỗi HTTP ${res.status}`);
+        }
+        const res = await fetch(`${url}?wait=true`, { method: 'POST', headers, body: JSON.stringify(payload) });
+        if (!res.ok) return console.error(`[BXH] gửi webhook lỗi HTTP ${res.status}`);
+        const msg = await res.json();
+        try { await db.setKv('leaderboard_message_id', msg.id); } catch (e) { console.error('[BXH] không lưu được message id (bảng kv):', e.message); }
+    } catch (e) {
+        console.error('[BXH] lỗi cập nhật bảng xếp hạng:', e.message);
+    }
+}
+
 client.once('ready', async () => {
     const commands = [
         new SlashCommandBuilder().setName('getlink').setDescription('Lấy link nhiệm vụ để nhận 50 xu (Tối đa 2 lần/ngày)')
@@ -110,6 +158,16 @@ client.once('ready', async () => {
                 .addChoices({ name: 'UGPhone', value: 'UG' }, { name: 'VMOS', value: 'VM' }, { name: 'VSPhone', value: 'VS' }))
             .addStringOption(o => o.setName('server').setDescription('Khu vực (bắt buộc với UGPhone)').setRequired(false)
                 .addChoices({ name: 'Singapore', value: 'SG' }, { name: 'Hong Kong', value: 'HK' }, { name: 'Japan', value: 'JP' }, { name: 'Germany', value: 'DE' }, { name: 'US', value: 'US' })),
+        new SlashCommandBuilder().setName('daily').setDescription('Nhận quà hàng ngày (ngẫu nhiên 1-20 xu)'),
+        new SlashCommandBuilder().setName('pay').setDescription('Chuyển xu cho người khác (phí 5%)')
+            .addUserOption(o => o.setName('nguoinhan').setDescription('Người nhận').setRequired(true))
+            .addIntegerOption(o => o.setName('sotien').setDescription(`Số xu muốn chuyển (tối thiểu ${PAY_MIN})`).setRequired(true).setMinValue(PAY_MIN)),
+        new SlashCommandBuilder().setName('op').setDescription('Cấp quyền admin (Owner)')
+            .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
+            .addStringOption(o => o.setName('id').setDescription('Hoặc nhập ID Discord').setRequired(false)),
+        new SlashCommandBuilder().setName('unop').setDescription('Thu hồi quyền admin (Owner)')
+            .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
+            .addStringOption(o => o.setName('id').setDescription('Hoặc nhập ID Discord').setRequired(false)),
         new SlashCommandBuilder().setName('gen').setDescription('Tạo Gift Code (Admin)')
             .addIntegerOption(o => o.setName('soluong').setDescription('Số lượng code').setRequired(true))
             .addIntegerOption(o => o.setName('xuthuong').setDescription('Số xu mỗi code').setRequired(true)),
@@ -123,6 +181,11 @@ client.once('ready', async () => {
         console.log(`✅ Đã đăng ký lệnh Slash!`);
     } catch (error) {
         console.error('Lỗi đăng ký lệnh:', error);
+    }
+
+    if (process.env.LEADERBOARD_WEBHOOK_URL) {
+        updateLeaderboard();
+        setInterval(updateLeaderboard, LEADERBOARD_INTERVAL_MS);
     }
 });
 
@@ -298,9 +361,99 @@ client.on('interactionCreate', async interaction => {
         return interaction.showModal(modal);
     }
 
+    // LỆNH /daily
+    if (interaction.commandName === 'daily') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (busyUsers.has(userId)) return interaction.editReply({ content: '⏳ Bạn đang có thao tác khác, thử lại sau giây lát.' });
+        busyUsers.add(userId);
+        try {
+            const today = getTodayString();
+            const claimed = await db.checkDailyLimit(userId, 'daily', today);
+            if (claimed > 0) {
+                return await interaction.editReply({ content: '⏰ Hôm nay bạn đã nhận quà rồi. Quay lại vào ngày mai (sau 0h giờ VN) nhé!' });
+            }
+            const reward = crypto.randomInt(1, 21); // 1-20
+            await db.increaseDailyLimit(userId, 'daily', today); // đánh dấu đã nhận trước để chống nhận 2 lần
+            const newBalance = await db.updateCoins(userId, reward);
+            await interaction.editReply({ content: `🎁 Quà hàng ngày: bạn nhận được **${reward} xu**!\n💰 Số dư: **${newBalance} xu**` });
+        } catch (error) {
+            console.error('[daily] lỗi:', error);
+            await interaction.editReply({ content: '❌ Lỗi khi nhận quà hàng ngày.' });
+        } finally {
+            busyUsers.delete(userId);
+        }
+    }
+
+    // LỆNH /pay (phí 5%, người gửi bị trừ đủ số xu, người nhận được số xu sau khi trừ phí)
+    if (interaction.commandName === 'pay') {
+        const target = interaction.options.getUser('nguoinhan');
+        const amount = interaction.options.getInteger('sotien');
+        if (target.bot) return interaction.reply({ content: '❌ Không thể chuyển xu cho bot.', flags: MessageFlags.Ephemeral });
+        if (target.id === userId) return interaction.reply({ content: '❌ Bạn không thể tự chuyển xu cho chính mình.', flags: MessageFlags.Ephemeral });
+        if (amount < PAY_MIN) return interaction.reply({ content: `❌ Số xu tối thiểu mỗi lần chuyển là **${PAY_MIN}**.`, flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (busyUsers.has(userId) || busyUsers.has(target.id)) {
+            return interaction.editReply({ content: '⏳ Một trong hai người đang có giao dịch khác, thử lại sau giây lát.' });
+        }
+        busyUsers.add(userId); busyUsers.add(target.id);
+        try {
+            const balance = await db.getCoins(userId);
+            if (balance < amount) {
+                return await interaction.editReply({ content: `❌ Bạn không đủ xu. Số dư: **${balance} xu**.` });
+            }
+            const fee = Math.ceil(amount * PAY_FEE_RATE);
+            const received = amount - fee;
+            const newBalance = await db.updateCoins(userId, -amount);
+            try {
+                await db.updateCoins(target.id, received);
+            } catch (e) {
+                await db.updateCoins(userId, amount).catch(() => {}); // hoàn xu nếu cộng cho người nhận thất bại
+                throw e;
+            }
+            await interaction.editReply({ content: `✅ Đã chuyển **${amount} xu** (phí ${fee} xu).\n💰 Số dư còn lại: **${newBalance} xu**` });
+            await interaction.followUp({ content: `💸 <@${userId}> đã chuyển cho <@${target.id}> **${received} xu** (phí 5%: ${fee} xu).` }).catch(() => {});
+        } catch (error) {
+            console.error('[pay] lỗi:', error);
+            await interaction.editReply({ content: '❌ Lỗi khi chuyển xu, giao dịch đã được hủy.' });
+        } finally {
+            busyUsers.delete(userId); busyUsers.delete(target.id);
+        }
+    }
+
+    // LỆNH /op và /unop (chỉ Owner trong ADMIN_DISCORD_ID)
+    if (interaction.commandName === 'op' || interaction.commandName === 'unop') {
+        if (!adminIds.includes(userId)) {
+            return interaction.reply({ content: '❌ Chỉ Owner mới dùng được lệnh này.', flags: MessageFlags.Ephemeral });
+        }
+        const pickedUser = interaction.options.getUser('user');
+        const targetId = pickedUser ? pickedUser.id : (interaction.options.getString('id') || '').trim();
+        if (!/^\d{15,25}$/.test(targetId)) {
+            return interaction.reply({ content: '❌ Hãy chọn user hoặc nhập ID Discord hợp lệ (chỉ gồm số).', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            if (adminIds.includes(targetId)) {
+                return await interaction.editReply({ content: `❗ <@${targetId}> là Owner (cấu hình ở ADMIN_DISCORD_ID), không đổi được bằng lệnh này.` });
+            }
+            const already = await db.isAdmin(targetId);
+            if (interaction.commandName === 'op') {
+                if (already) return await interaction.editReply({ content: `❗ <@${targetId}> đã là admin rồi.` });
+                await db.addAdmin(targetId, userId);
+                await interaction.editReply({ content: `✅ Đã cấp quyền admin cho <@${targetId}>.` });
+            } else {
+                if (!already) return await interaction.editReply({ content: `❗ <@${targetId}> không phải admin.` });
+                await db.removeAdmin(targetId);
+                await interaction.editReply({ content: `✅ Đã thu hồi quyền admin của <@${targetId}>.` });
+            }
+        } catch (error) {
+            console.error('[op/unop] lỗi:', error);
+            await interaction.editReply({ content: `❌ Lỗi: ${error.message}`.slice(0, 1900) });
+        }
+    }
+
     // LỆNH /gen
     if (interaction.commandName === 'gen') {
-        if (!adminIds.includes(userId)) {
+        if (!(await isAdmin(userId))) {
             return interaction.reply({ content: '❌ Không có quyền.', flags: MessageFlags.Ephemeral });
         }
         const count = interaction.options.getInteger('soluong');
@@ -330,7 +483,7 @@ client.on('interactionCreate', async interaction => {
 
     // LỆNH /clear
     if (interaction.commandName === 'clear') {
-        if (!adminIds.includes(userId)) {
+        if (!(await isAdmin(userId))) {
             return interaction.reply({ content: '❌ Không có quyền.', flags: MessageFlags.Ephemeral });
         }
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });

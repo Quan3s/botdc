@@ -31,9 +31,10 @@ module.exports = {
 
     // Cộng/Trừ xu
     async updateCoins(userId, amount) {
-        const current = await this.getCoins(userId);
+        const rows = await supabaseFetch(`user_coins?user_id=eq.${userId}`);
+        const current = rows.length > 0 ? rows[0].balance : 0;
         const newBalance = current + amount;
-        if (current === 0) {
+        if (rows.length === 0) {
             await supabaseFetch('user_coins', 'POST', { user_id: userId, balance: newBalance });
         } else {
             await supabaseFetch(`user_coins?user_id=eq.${userId}`, 'PATCH', { balance: newBalance });
@@ -81,5 +82,33 @@ module.exports = {
         } else {
             await supabaseFetch(`daily_limits?user_id=eq.${userId}&provider=eq.${provider}&date_str=eq.${dateStr}`, 'PATCH', { count: current + 1 });
         }
+    },
+
+    // Bảng xếp hạng coin
+    async getTopCoins(limit = 10) {
+        return await supabaseFetch(`user_coins?select=user_id,balance&balance=gt.0&order=balance.desc&limit=${parseInt(limit, 10) || 10}`);
+    },
+
+    // Admin lưu trong DB (bảng admins)
+    async isAdmin(userId) {
+        const res = await supabaseFetch(`admins?user_id=eq.${encodeURIComponent(userId)}`);
+        return res.length > 0;
+    },
+    async addAdmin(userId, addedBy) {
+        await supabaseFetch('admins', 'POST', { user_id: userId, added_by: addedBy });
+    },
+    async removeAdmin(userId) {
+        await supabaseFetch(`admins?user_id=eq.${encodeURIComponent(userId)}`, 'DELETE');
+    },
+
+    // Lưu cặp key-value nhỏ (bảng kv)
+    async getKv(key) {
+        const res = await supabaseFetch(`kv?key=eq.${encodeURIComponent(key)}`);
+        return res.length > 0 ? res[0].value : null;
+    },
+    async setKv(key, value) {
+        const res = await supabaseFetch(`kv?key=eq.${encodeURIComponent(key)}`);
+        if (res.length === 0) await supabaseFetch('kv', 'POST', { key, value });
+        else await supabaseFetch(`kv?key=eq.${encodeURIComponent(key)}`, 'PATCH', { value });
     }
 };
