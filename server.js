@@ -1,18 +1,14 @@
 require('dotenv').config();
 const express = require('express');
 const crypto = require('crypto');
-const Redis = require('ioredis');
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
+const db = require('./database');
 
-// ==========================================
-// KHỞI TẠO CHUNG
-// ==========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-const redis = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379');
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-// Hàm sinh mã Gift Code (8 ký tự, bao gồm cả ký tự đặc biệt)
+// Hàm sinh Gift Code (8 ký tự bao gồm ký tự đặc biệt)
 function generateGiftCode() {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
     let result = '';
@@ -36,11 +32,10 @@ function getTodayString() {
 }
 
 // ==========================================
-// PHẦN 1: WEB SERVER (NHẬN XU SAU KHI VƯỢT LINK)
+// PHẦN 1: WEB SERVER (NHẬN XU)
 // ==========================================
 app.get('/redeem', async (req, res) => {
     const { sid } = req.query;
-
     const renderError = (msg) => res.status(403).send(`
         <body style="background:#080d0b; color:#ff6b81; text-align:center; padding-top:100px; font-family:sans-serif;">
             <h1>❌ LỖI TRUY CẬP</h1>
@@ -52,18 +47,13 @@ app.get('/redeem', async (req, res) => {
     if (!sid) return renderError("Bạn phải lấy link từ lệnh /getlink trên Discord.");
 
     try {
-        // Lấy dữ liệu session (bao gồm userId và provider)
-        const sessionData = await redis.getdel(`session_${sid}`); 
+        const sessionData = await db.getAndDeleteSession(sid);
         if (!sessionData) return renderError("Link này đã được sử dụng hoặc đã hết hạn.");
 
-        const { userId, provider } = JSON.parse(sessionData);
+        const { user_id, provider } = sessionData;
+        const newBalance = await db.updateCoins(user_id, 50);
 
-        // Cộng 50 xu cho user
-        const userCoinKey = `coins_${userId}`;
-        await redis.incrby(userCoinKey, 50);
-        const newBalance = await redis.get(userCoinKey);
-
-        console.log(`[WEB] User ${userId} vượt link ${provider} thành công. +50 xu. Số dư: ${newBalance}`);
+        console.log(`[WEB] User ${user_id} vượt link ${provider}. +50 xu. Số dư: ${newBalance}`);
 
         res.send(`
             <body style="background:#080d0b; color:#fff; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; margin:0;">
@@ -88,38 +78,20 @@ app.listen(PORT, () => console.log(`\n✅ Web Server đang chạy: http://localh
 // ==========================================
 client.once('ready', async () => {
     const commands = [
-        new SlashCommandBuilder()
-            .setName('getlink')
-            .setDescription('Lấy link nhiệm vụ để nhận 50 xu (Tối đa 2 lần/ngày)')
-            .addStringOption(opt => 
-                opt.setName('provider')
-                   .setDescription('Chọn dịch vụ rút gọn link')
-                   .addChoices(
-                       { name: 'Link4M', value: 'link4m' },
-                       { name: 'LayMa', value: 'layma' }
-                   )
-                   .setRequired(false)
-            ),
-        
-        new SlashCommandBuilder()
-            .setName('reg')
-            .setDescription('Lấy mail|pass (Tốn 10 xu)'),
-        
-        new SlashCommandBuilder()
-            .setName('vi')
-            .setDescription('Xem số dư xu của bạn'),
-
-        new SlashCommandBuilder()
-            .setName('code')
-            .setDescription('Nhập Gift Code để nhận xu')
+        new SlashCommandBuilder().setName('getlink').setDescription('Lấy link nhiệm vụ để nhận 50 xu (Tối đa 2 lần/ngày)')
+            .addStringOption(opt => opt.setName('provider').setDescription('Chọn dịch vụ rút gọn link').addChoices(
+                { name: 'Link4M', value: 'link4m' },
+                { name: 'LayMa', value: 'layma' }
+            ).setRequired(false)),
+        new SlashCommandBuilder().setName('reg').setDescription('Lấy mail|pass (Tốn 10 xu)'),
+        new SlashCommandBuilder().setName('vi').setDescription('Xem số dư xu của bạn'),
+        new SlashCommandBuilder().setName('code').setDescription('Nhập Gift Code để nhận xu')
             .addStringOption(o => o.setName('gift_code').setDescription('Mã quà tặng').setRequired(true)),
-
-        new SlashCommandBuilder()
-            .setName('gen')
-            .setDescription('Tạo Gift Code (Admin)')
+        new SlashCommandBuilder().setName('buycloud').setDescription('Mua VMOS (Miễn phí)')
+            .addStringOption(o => o.setName('account').setDescription('Nhập email|password').setRequired(true)),
+        new SlashCommandBuilder().setName('gen').setDescription('Tạo Gift Code (Admin)')
             .addIntegerOption(o => o.setName('soluong').setDescription('Số lượng code').setRequired(true))
             .addIntegerOption(o => o.setName('xuthuong').setDescription('Số xu mỗi code').setRequired(true)),
-        
         new SlashCommandBuilder().setName('clear').setDescription('Xóa tin nhắn của Bot cũ hơn 2 giờ (Admin)')
     ].map(c => c.toJSON());
 
@@ -138,27 +110,20 @@ client.on('interactionCreate', async interaction => {
     const adminIds = getAdminIds();
     const userId = interaction.user.id;
 
-    // ==========================================
-    // LỆNH /getlink (Vượt link lấy 50 xu)
-    // ==========================================
+    // LỆNH /getlink
     if (interaction.commandName === 'getlink') {
         const provider = interaction.options.getString('provider') || 'link4m';
         const today = getTodayString();
-        const limitKey = `limit_${userId}_${provider}_${today}`;
-
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
-            const currentCount = await redis.get(limitKey) || 0;
-            if (parseInt(currentCount) >= 2) {
-                return await interaction.editReply({ 
-                    content: `❌ Bạn đã đạt giới hạn **2 lần/ngày** cho dịch vụ **${provider === 'link4m' ? 'Link4M' : 'LayMa'}**. Vui lòng quay lại vào ngày mai!` 
-                });
+            const currentCount = await db.checkDailyLimit(userId, provider, today);
+            if (currentCount >= 2) {
+                return await interaction.editReply({ content: `❌ Bạn đã đạt giới hạn **2 lần/ngày** cho dịch vụ này.` });
             }
 
             const sessionId = crypto.randomBytes(16).toString('hex');
-            // Lưu cả userId và provider vào session để web biết ai vượt và cộng xu
-            await redis.set(`session_${sessionId}`, JSON.stringify({ userId, provider }), 'EX', 300);
+            await db.createSession(sessionId, userId, provider);
 
             const targetUrl = `${process.env.RENDER_DOMAIN}/redeem?sid=${sessionId}`;
             let finalUrl = '';
@@ -167,14 +132,10 @@ client.on('interactionCreate', async interaction => {
             if (provider === 'link4m') {
                 providerName = 'Link4M';
                 const apiUrl = `https://link4m.co/api-shorten/v2?api=${process.env.LINK4M_API_KEY}&url=${encodeURIComponent(targetUrl)}`;
-                const res = await fetch(apiUrl, {
-                    method: 'GET',
-                    headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }
-                });
+                const res = await fetch(apiUrl, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } });
                 const data = await res.json();
                 if (data.status === "success" && data.shortenedUrl) finalUrl = data.shortenedUrl;
                 else throw new Error("Lỗi từ Link4M");
-
             } else if (provider === 'layma') {
                 providerName = 'LayMa';
                 const apiUrl = `https://api.layma.net/api/admin/shortlink/quicklink?tokenUser=${process.env.LAYMA_TOKEN}&format=json&url=${encodeURIComponent(targetUrl)}`;
@@ -184,86 +145,64 @@ client.on('interactionCreate', async interaction => {
                 else throw new Error("Lỗi từ LayMa");
             }
 
-            // Tăng biến đếm
-            await redis.incr(limitKey);
-            const now = new Date();
-            const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-            await redis.expire(limitKey, Math.floor((endOfDay - now) / 1000));
+            await db.increaseDailyLimit(userId, provider, today);
 
             const embed = new EmbedBuilder()
                 .setColor(provider === 'link4m' ? 0xffc107 : 0x8b5cf6)
                 .setTitle(`🔗 LINK NHẬN XU (${providerName})`)
-                .setDescription(`Bấm vào link để vượt nhiệm vụ và nhận **50 xu**.\nBạn còn **${2 - (parseInt(currentCount) + 1)}** lượt cho hôm nay.`)
+                .setDescription(`Bấm vào link để vượt nhiệm vụ và nhận **50 xu**.\nBạn còn **${1 - currentCount}** lượt cho hôm nay.`)
                 .addFields({ name: 'Link nhiệm vụ', value: finalUrl });
             await interaction.editReply({ embeds: [embed] });
-
         } catch (e) {
-            console.error(`Lỗi /getlink:`, e.message);
             await interaction.editReply({ content: `❌ ${e.message}` });
         }
     }
 
-    // ==========================================
-    // LỆNH /vi (Xem số dư)
-    // ==========================================
+    // LỆNH /vi
     if (interaction.commandName === 'vi') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         try {
-            const coins = await redis.get(`coins_${userId}`) || 0;
+            const coins = await db.getCoins(userId);
             await interaction.editReply({ content: `💰 Số dư của bạn: **${coins} xu**` });
         } catch (error) {
             await interaction.editReply({ content: `❌ Lỗi khi lấy số dư.` });
         }
     }
 
-    // ==========================================
-    // LỆNH /code (Nhập Gift Code)
-    // ==========================================
+    // LỆNH /code
     if (interaction.commandName === 'code') {
         const giftCode = interaction.options.getString('gift_code').trim();
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
         try {
-            const codeData = await redis.getdel(`gift_${giftCode}`); // Lấy và xóa code
-            if (!codeData) {
-                return await interaction.editReply({ content: `❌ Gift Code không hợp lệ hoặc đã được sử dụng.` });
-            }
+            const amount = await db.redeemGiftCode(giftCode);
+            if (!amount) return await interaction.editReply({ content: `❌ Gift Code không hợp lệ hoặc đã được sử dụng.` });
 
-            const amount = parseInt(codeData);
-            await redis.incrby(`coins_${userId}`, amount);
-            const newBalance = await redis.get(`coins_${userId}`);
-
+            const newBalance = await db.updateCoins(userId, amount);
             await interaction.editReply({ content: `✅ Nhập code thành công! Bạn nhận được **${amount} xu**.\n💰 Số dư mới: **${newBalance} xu**` });
         } catch (error) {
             await interaction.editReply({ content: `❌ Lỗi khi nhập code.` });
         }
     }
 
-    // ==========================================
-    // LỆNH /reg (Tốn 10 xu)
-    // ==========================================
+    // LỆNH /reg
     if (interaction.commandName === 'reg') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         try {
-            const currentCoins = parseInt(await redis.get(`coins_${userId}`) || 0);
+            const currentCoins = await db.getCoins(userId);
             if (currentCoins < 10) {
-                return await interaction.editReply({ content: `❌ Bạn không đủ xu để mua (Cần 10 xu). Số dư hiện tại: **${currentCoins} xu**.` });
+                return await interaction.editReply({ content: `❌ Bạn không đủ xu (Cần 10 xu). Số dư: **${currentCoins} xu**.` });
             }
 
-            // Gọi Supabase
             const response = await fetch('https://wxygtmfttyidwnhjdwdw.supabase.co/functions/v1/get-key', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': process.env.APIKEY },
                 body: JSON.stringify({ clientId: crypto.randomUUID() })
             });
             const data = await response.json();
-            
-            if (!data.content) throw new Error("Không lấy được dữ liệu từ server.");
+            if (!data.content) throw new Error("Không lấy được dữ liệu.");
 
-            // Trừ 10 xu
-            await redis.decrby(`coins_${userId}`, 10);
-            const newBalance = currentCoins - 10;
-
+            const newBalance = await db.updateCoins(userId, -10);
             const [mail, ...passParts] = data.content.split('|');
+            
             await interaction.editReply({ 
                 content: `✅ Mua thành công! (Đã trừ 10 xu)\n📧 \`${mail}\`\n🔑 \`${passParts.join('|')}\`\n💰 Số dư còn lại: **${newBalance} xu**` 
             });
@@ -272,9 +211,34 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // ==========================================
-    // LỆNH /gen (Admin - Tạo Gift Code)
-    // ==========================================
+    // LỆNH /buycloud
+    if (interaction.commandName === 'buycloud') {
+        const accountInfo = interaction.options.getString('account').trim();
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            if (!accountInfo.includes('|')) {
+                return await interaction.editReply({ content: '❌ Sai định dạng. Vui lòng nhập theo dạng: `email|password`' });
+            }
+
+            const response = await fetch('https://kingdev.shop/api/v2/buy-vmos.php', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: process.env.KINGDEV_API_KEY, account: accountInfo })
+            });
+            const data = await response.json();
+
+            if (data.success === true) {
+                await interaction.editReply({ 
+                    content: `✅ **Mua VMOS thành công!**\n🆔 Mã đơn hàng: \`${data.data.order_id}\`\n📧 Tài khoản: \`${data.data.credential}\``
+                });
+            } else {
+                await interaction.editReply({ content: `❌ Lỗi từ KingDev: ${data.message || 'Không rõ'}` });
+            }
+        } catch (error) {
+            await interaction.editReply({ content: `❌ Lỗi kết nối: ${error.message}` });
+        }
+    }
+
+    // LỆNH /gen
     if (interaction.commandName === 'gen') {
         if (!adminIds.includes(userId)) {
             return interaction.reply({ content: '❌ Không có quyền.', flags: MessageFlags.Ephemeral });
@@ -283,7 +247,7 @@ client.on('interactionCreate', async interaction => {
         const coinAmount = interaction.options.getInteger('xuthuong');
 
         if (count <= 0 || count > 50 || coinAmount <= 0) {
-            return interaction.reply({ content: '❌ Số lượng từ 1-50, số xu phải > 0.', flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: '❌ Số lượng từ 1-50, số xu > 0.', flags: MessageFlags.Ephemeral });
         }
 
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -292,8 +256,7 @@ client.on('interactionCreate', async interaction => {
             for (let i = 0; i < count; i++) {
                 const code = generateGiftCode();
                 giftCodes.push(`${code} (${coinAmount} xu)`);
-                // Lưu code vào Redis, giá trị là số xu, hạn 30 ngày
-                await redis.set(`gift_${code}`, coinAmount.toString(), 'EX', 30 * 24 * 60 * 60);
+                await db.createGiftCode(code, coinAmount);
             }
             await interaction.editReply({
                 content: `✅ Đã tạo **${count}** Gift Code (Mỗi code ${coinAmount} xu):`,
@@ -304,9 +267,7 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // ==========================================
-    // LỆNH /clear (Admin)
-    // ==========================================
+    // LỆNH /clear
     if (interaction.commandName === 'clear') {
         if (!adminIds.includes(userId)) {
             return interaction.reply({ content: '❌ Không có quyền.', flags: MessageFlags.Ephemeral });
