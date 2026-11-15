@@ -222,10 +222,15 @@ client.on('interactionCreate', async interaction => {
             }
 
             const response = await fetch('https://kingdev.shop/api/v2/buy-vmos.php', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' },
                 body: JSON.stringify({ api_key: process.env.KINGDEV_API_KEY, account: accountInfo })
             });
-            const data = await response.json();
+            const raw = await response.text();
+            let data;
+            try { data = JSON.parse(raw); } catch (e) {
+                console.error(`[buycloud] KingDev trả về không phải JSON (HTTP ${response.status}):`, raw.slice(0, 300));
+                return await interaction.editReply({ content: `❌ KingDev trả về HTML thay vì JSON (HTTP ${response.status}). Có thể server bị chặn IP/Cloudflare hoặc sai KINGDEV_API_KEY.` });
+            }
 
             if (data.success === true) {
                 await interaction.editReply({ 
