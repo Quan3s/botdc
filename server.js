@@ -229,7 +229,8 @@ client.on('interactionCreate', async interaction => {
             let data;
             try { data = JSON.parse(raw); } catch (e) {
                 console.error(`[buycloud] KingDev trả về không phải JSON (HTTP ${response.status}):`, raw.slice(0, 300));
-                return await interaction.editReply({ content: `❌ KingDev trả về HTML thay vì JSON (HTTP ${response.status}). Có thể server bị chặn IP/Cloudflare hoặc sai KINGDEV_API_KEY.` });
+                const snippet = raw.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+                return await interaction.editReply({ content: `❌ KingDev trả về HTML thay vì JSON (HTTP ${response.status}).\n\`${snippet.replace(/`/g, "'")}\`` });
             }
 
             if (data.success === true) {
