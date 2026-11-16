@@ -158,13 +158,12 @@ client.once('ready', async () => {
                 .addChoices({ name: 'UGPhone', value: 'UG' }, { name: 'VMOS', value: 'VM' }, { name: 'VSPhone', value: 'VS' }))
             .addStringOption(o => o.setName('server').setDescription('Khu vực (bắt buộc với UGPhone)').setRequired(false)
                 .addChoices({ name: 'Singapore', value: 'SG' }, { name: 'Hong Kong', value: 'HK' }, { name: 'Japan', value: 'JP' }, { name: 'Germany', value: 'DE' }, { name: 'US', value: 'US' })),
-        new SlashCommandBuilder().setName('admin').setDescription('Lệnh quản trị (Admin)')
-            .addSubcommand(sub => sub.setName('coin').setDescription('Chỉnh số xu của người dùng')
-                .addStringOption(o => o.setName('hanhdong').setDescription('Hành động').setRequired(true)
-                    .addChoices({ name: 'set (đặt bằng)', value: 'set' }, { name: 'cộng', value: 'cong' }, { name: 'trừ', value: 'tru' }))
-                .addIntegerOption(o => o.setName('sotien').setDescription('Số xu').setRequired(true).setMinValue(0))
-                .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
-                .addStringOption(o => o.setName('id').setDescription('Hoặc nhập ID Discord').setRequired(false))),
+        new SlashCommandBuilder().setName('adcoin').setDescription('Chỉnh số xu của người dùng (Admin)')
+            .addStringOption(o => o.setName('hanhdong').setDescription('Hành động').setRequired(true)
+                .addChoices({ name: 'set (đặt bằng)', value: 'set' }, { name: 'cộng', value: 'cong' }, { name: 'trừ', value: 'tru' }))
+            .addIntegerOption(o => o.setName('sotien').setDescription('Số xu').setRequired(true).setMinValue(0))
+            .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
+            .addStringOption(o => o.setName('id').setDescription('Hoặc nhập ID Discord').setRequired(false)),
         new SlashCommandBuilder().setName('daily').setDescription('Nhận quà hàng ngày (ngẫu nhiên 1-20 xu)'),
         new SlashCommandBuilder().setName('pay').setDescription('Chuyển xu cho người khác (phí 5%)')
             .addUserOption(o => o.setName('nguoinhan').setDescription('Người nhận').setRequired(true))
@@ -458,8 +457,8 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // LỆNH /admin coin <set|cong|tru> <số> (Admin)
-    if (interaction.commandName === 'admin' && interaction.options.getSubcommand() === 'coin') {
+    // LỆNH /adcoin <set|cong|tru> <số> (Admin)
+    if (interaction.commandName === 'adcoin') {
         if (!(await isAdmin(userId))) {
             return interaction.reply({ content: '❌ Không có quyền.', flags: MessageFlags.Ephemeral });
         }
@@ -489,7 +488,7 @@ client.on('interactionCreate', async interaction => {
             const verb = action === 'set' ? 'Đặt' : (action === 'cong' ? 'Cộng' : 'Trừ');
             await interaction.editReply({ content: `✅ ${verb} **${action === 'set' ? amount : Math.abs(delta)} xu** cho <@${targetId}>.\n💰 Số dư: **${current} → ${newBalance} xu**` });
         } catch (error) {
-            console.error('[admin coin] lỗi:', error);
+            console.error('[adcoin] lỗi:', error);
             await interaction.editReply({ content: `❌ Lỗi: ${error.message}`.slice(0, 1900) });
         } finally {
             busyUsers.delete(targetId);
