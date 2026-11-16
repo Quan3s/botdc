@@ -486,7 +486,7 @@ client.on('interactionCreate', async interaction => {
                     `**Bước 1:** Truy cập kênh YouTube: ${ytbUrl}`,
                     `**Bước 2:** Bấm nút **Đăng ký** (Subscribe) 🔔`,
                     `**Bước 3:** Chụp màn hình xác nhận đã đăng ký`,
-                    `**Bước 4:** Gửi ảnh chụp vào kênh <#${process.env.STAR_CHANNEL_ID || 'star'}> để admin duyệt`,
+                    `**Bước 4:** Gửi ảnh chụp vào kênh **#${process.env.STAR_CHANNEL_NAME || 'star'}** để admin duyệt`,
                     ``,
                     `💰 Phần thưởng: **${STAR_REWARD} xu** sau khi admin xác nhận`,
                     `📆 Hạn mức: **${STAR_DAILY_MAX - done} lần** còn lại hôm nay`,
