@@ -158,6 +158,13 @@ client.once('ready', async () => {
                 .addChoices({ name: 'UGPhone', value: 'UG' }, { name: 'VMOS', value: 'VM' }, { name: 'VSPhone', value: 'VS' }))
             .addStringOption(o => o.setName('server').setDescription('Khu vực (bắt buộc với UGPhone)').setRequired(false)
                 .addChoices({ name: 'Singapore', value: 'SG' }, { name: 'Hong Kong', value: 'HK' }, { name: 'Japan', value: 'JP' }, { name: 'Germany', value: 'DE' }, { name: 'US', value: 'US' })),
+        new SlashCommandBuilder().setName('admin').setDescription('Lệnh quản trị (Admin)')
+            .addSubcommand(sub => sub.setName('coin').setDescription('Chỉnh số xu của người dùng')
+                .addStringOption(o => o.setName('hanhdong').setDescription('Hành động').setRequired(true)
+                    .addChoices({ name: 'set (đặt bằng)', value: 'set' }, { name: 'cộng', value: 'cong' }, { name: 'trừ', value: 'tru' }))
+                .addIntegerOption(o => o.setName('sotien').setDescription('Số xu').setRequired(true).setMinValue(0))
+                .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
+                .addStringOption(o => o.setName('id').setDescription('Hoặc nhập ID Discord').setRequired(false))),
         new SlashCommandBuilder().setName('daily').setDescription('Nhận quà hàng ngày (ngẫu nhiên 1-20 xu)'),
         new SlashCommandBuilder().setName('pay').setDescription('Chuyển xu cho người khác (phí 5%)')
             .addUserOption(o => o.setName('nguoinhan').setDescription('Người nhận').setRequired(true))
@@ -448,6 +455,44 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error('[op/unop] lỗi:', error);
             await interaction.editReply({ content: `❌ Lỗi: ${error.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /admin coin <set|cong|tru> <số> (Admin)
+    if (interaction.commandName === 'admin' && interaction.options.getSubcommand() === 'coin') {
+        if (!(await isAdmin(userId))) {
+            return interaction.reply({ content: '❌ Không có quyền.', flags: MessageFlags.Ephemeral });
+        }
+        const action = interaction.options.getString('hanhdong');
+        const amount = interaction.options.getInteger('sotien');
+        const pickedUser = interaction.options.getUser('user');
+        const targetId = pickedUser ? pickedUser.id : (interaction.options.getString('id') || '').trim();
+        if (!/^\d{15,25}$/.test(targetId)) {
+            return interaction.reply({ content: '❌ Hãy chọn user hoặc nhập ID Discord hợp lệ (chỉ gồm số).', flags: MessageFlags.Ephemeral });
+        }
+        if (action !== 'set' && amount < 1) {
+            return interaction.reply({ content: '❌ Số xu phải lớn hơn 0.', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (busyUsers.has(targetId)) {
+            return interaction.editReply({ content: '⏳ Người này đang có giao dịch khác, thử lại sau giây lát.' });
+        }
+        busyUsers.add(targetId);
+        try {
+            const current = await db.getCoins(targetId);
+            let delta;
+            if (action === 'set') delta = amount - current;
+            else if (action === 'cong') delta = amount;
+            else delta = -Math.min(amount, current); // trừ không xuống dưới 0
+            const newBalance = delta === 0 ? current : await db.updateCoins(targetId, delta);
+            console.log(`[ADMIN] ${userId} ${action} ${amount} -> ${targetId} (${current} => ${newBalance})`);
+            const verb = action === 'set' ? 'Đặt' : (action === 'cong' ? 'Cộng' : 'Trừ');
+            await interaction.editReply({ content: `✅ ${verb} **${action === 'set' ? amount : Math.abs(delta)} xu** cho <@${targetId}>.\n💰 Số dư: **${current} → ${newBalance} xu**` });
+        } catch (error) {
+            console.error('[admin coin] lỗi:', error);
+            await interaction.editReply({ content: `❌ Lỗi: ${error.message}`.slice(0, 1900) });
+        } finally {
+            busyUsers.delete(targetId);
         }
     }
 
