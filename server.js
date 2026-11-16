@@ -8,7 +8,11 @@ const CLOUD_NAMES = { UG: 'UGPhone', VM: 'VMOS', VS: 'VSPhone' };
 const PAY_MIN = 10;          // số xu tối thiểu mỗi lần /pay
 const PAY_FEE_RATE = 0.05;   // phí chuyển 5%
 const LEADERBOARD_INTERVAL_MS = 10 * 60 * 1000; // cập nhật bảng xếp hạng mỗi 10 phút
-const busyUsers = new Set(); // chặn bấm lệnh đồng thời (tránh nhận/chuyển xu 2 lần)
+const busyUsers = new Set();
+const pendingStarUsers = new Set(); // userId đang chờ admin duyệt nhiệm vụ /star
+const STAR_REWARD = 10;
+const STAR_DAILY_MAX = 3;
+ // chặn bấm lệnh đồng thời (tránh nhận/chuyển xu 2 lần)
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -158,6 +162,10 @@ client.once('ready', async () => {
                 .addChoices({ name: 'UGPhone', value: 'UG' }, { name: 'VMOS', value: 'VM' }, { name: 'VSPhone', value: 'VS' }))
             .addStringOption(o => o.setName('server').setDescription('Khu vực (bắt buộc với UGPhone)').setRequired(false)
                 .addChoices({ name: 'Singapore', value: 'SG' }, { name: 'Hong Kong', value: 'HK' }, { name: 'Japan', value: 'JP' }, { name: 'Germany', value: 'DE' }, { name: 'US', value: 'US' })),
+        new SlashCommandBuilder().setName('star').setDescription('Nhận nhiệm vụ đăng ký kênh YouTube để nhận xu'),
+        new SlashCommandBuilder().setName('sdone').setDescription('(Admin) Xác nhận user hoàn thành nhiệm vụ /star')
+            .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
+            .addStringOption(o => o.setName('id').setDescription('Hoặc nhập ID Discord').setRequired(false)),
         new SlashCommandBuilder().setName('adcoin').setDescription('Chỉnh số xu của người dùng (Admin)')
             .addStringOption(o => o.setName('hanhdong').setDescription('Hành động').setRequired(true)
                 .addChoices({ name: 'set (đặt bằng)', value: 'set' }, { name: 'cộng', value: 'cong' }, { name: 'trừ', value: 'tru' }))
@@ -454,6 +462,83 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error('[op/unop] lỗi:', error);
             await interaction.editReply({ content: `❌ Lỗi: ${error.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /star - nhận nhiệm vụ đăng ký kênh YouTube
+    if (interaction.commandName === 'star') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const today = getTodayString();
+            const done = await db.checkDailyLimit(userId, 'star', today);
+            if (done >= STAR_DAILY_MAX) {
+                return await interaction.editReply({ content: `⏰ Hôm nay bạn đã hoàn thành tối đa **${STAR_DAILY_MAX} nhiệm vụ** rồi. Quay lại vào ngày mai nhé!` });
+            }
+            if (pendingStarUsers.has(userId)) {
+                return await interaction.editReply({ content: '⏳ Bạn đang có nhiệm vụ chờ duyệt. Hãy đợi admin xác nhận trước khi nhận thêm.' });
+            }
+            const ytbUrl = process.env.YTB_CHANNEL_URL || 'https://youtube.com';
+            pendingStarUsers.add(userId);
+            await interaction.editReply({
+                content: [
+                    `📋 **NHIỆM VỤ: Đăng ký kênh YouTube**`,
+                    ``,
+                    `**Bước 1:** Truy cập kênh YouTube: ${ytbUrl}`,
+                    `**Bước 2:** Bấm nút **Đăng ký** (Subscribe) 🔔`,
+                    `**Bước 3:** Chụp màn hình xác nhận đã đăng ký`,
+                    `**Bước 4:** Gửi ảnh chụp vào kênh này để admin duyệt`,
+                    ``,
+                    `💰 Phần thưởng: **${STAR_REWARD} xu** sau khi admin xác nhận`,
+                    `📆 Hạn mức: **${STAR_DAILY_MAX - done} lần** còn lại hôm nay`,
+                    ``,
+                    `⚠️ **Cảnh báo:** Gian lận (ảnh fake/chỉnh sửa) sẽ bị **trừ 20 xu** và hủy nhiệm vụ.`,
+                ].join('\n')
+            });
+        } catch (error) {
+            console.error('[star] lỗi:', error);
+            pendingStarUsers.delete(userId);
+            await interaction.editReply({ content: '❌ Lỗi khi nhận nhiệm vụ.' });
+        }
+    }
+
+    // LỆNH /sdone - admin xác nhận hoàn thành nhiệm vụ /star
+    if (interaction.commandName === 'sdone') {
+        if (!(await isAdmin(userId))) {
+            return interaction.reply({ content: '❌ Không có quyền.', flags: MessageFlags.Ephemeral });
+        }
+        const pickedUser = interaction.options.getUser('user');
+        const targetId = pickedUser ? pickedUser.id : (interaction.options.getString('id') || '').trim();
+        if (!/^\d{15,25}$/.test(targetId)) {
+            return interaction.reply({ content: '❌ Hãy chọn user hoặc nhập ID Discord hợp lệ.', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (busyUsers.has(targetId)) {
+            return interaction.editReply({ content: '⏳ Người này đang có giao dịch khác, thử lại sau giây lát.' });
+        }
+        busyUsers.add(targetId);
+        try {
+            if (!pendingStarUsers.has(targetId)) {
+                return await interaction.editReply({ content: `❗ <@${targetId}> không có nhiệm vụ nào đang chờ duyệt.` });
+            }
+            const today = getTodayString();
+            const done = await db.checkDailyLimit(targetId, 'star', today);
+            if (done >= STAR_DAILY_MAX) {
+                pendingStarUsers.delete(targetId);
+                return await interaction.editReply({ content: `❗ <@${targetId}> đã đạt giới hạn **${STAR_DAILY_MAX} nhiệm vụ** hôm nay.` });
+            }
+            await db.increaseDailyLimit(targetId, 'star', today);
+            const newBalance = await db.updateCoins(targetId, STAR_REWARD);
+            pendingStarUsers.delete(targetId);
+            console.log(`[sdone] ${userId} duyệt ${targetId} (+${STAR_REWARD} xu, hôm nay: ${done + 1}/${STAR_DAILY_MAX})`);
+            await interaction.editReply({ content: `✅ Đã xác nhận nhiệm vụ cho <@${targetId}>. Cộng **${STAR_REWARD} xu**. (Hôm nay: ${done + 1}/${STAR_DAILY_MAX})` });
+            await interaction.followUp({
+                content: `🎉 <@${targetId}> đã hoàn thành nhiệm vụ đăng ký kênh YouTube! Nhận **${STAR_REWARD} xu**. 💰 Số dư: **${newBalance} xu**`
+            }).catch(() => {});
+        } catch (error) {
+            console.error('[sdone] lỗi:', error);
+            await interaction.editReply({ content: `❌ Lỗi: ${error.message}`.slice(0, 1900) });
+        } finally {
+            busyUsers.delete(targetId);
         }
     }
 
