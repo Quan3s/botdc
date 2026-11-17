@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const crypto = require('crypto');
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db = require('./database');
 const HANAMI_URL = 'https://hanaminikata.com/dev/buy_device_cloud';
 const CLOUD_NAMES = { UG: 'UGPhone', VM: 'VMOS', VS: 'VSPhone' };
@@ -173,7 +173,7 @@ client.once('ready', async () => {
                 { name: 'Link4M', value: 'link4m' },
                 { name: 'LayMa', value: 'layma' }
             ).setRequired(false)),
-        new SlashCommandBuilder().setName('reg').setDescription('Lấy mail|pass (Tốn 10 xu)'),
+        new SlashCommandBuilder().setName('reg').setDescription('Tạo tài khoản cloud nhanh (Panel chọn dịch vụ)'),
         new SlashCommandBuilder().setName('vi').setDescription('Xem số dư xu của bạn'),
         new SlashCommandBuilder().setName('code').setDescription('Nhập Gift Code để nhận xu')
             .addStringOption(o => o.setName('gift_code').setDescription('Mã quà tặng').setRequired(true)),
@@ -265,8 +265,125 @@ async function handleBuycloudModal(interaction) {
     }
 }
 
+// ===== /reg PANEL (VMOS / VSPhone / UGPhone) =====
+const REG_COST = 10;
+
+// Logo nút: đặt ID emoji (Developer Portal -> Emojis) hoặc <:ten:id> vào env; không có thì dùng emoji mặc định
+function regEmoji(envName, fallback) {
+    const v = (process.env[envName] || '').trim();
+    if (/^\d{15,25}$/.test(v)) return { id: v, name: 'logo' };
+    if (/^<a?:\w+:\d+>$/.test(v)) return v;
+    return fallback;
+}
+function regButton(customId, label, style, envName, fallbackEmoji, disabled) {
+    const btn = new ButtonBuilder().setCustomId(customId).setLabel(label).setStyle(style).setDisabled(disabled);
+    try { btn.setEmoji(regEmoji(envName, fallbackEmoji)); } catch (e) { btn.setEmoji(fallbackEmoji); }
+    return btn;
+}
+function vsphoneReady() { return !!(process.env.VSPHONE_API_URL && process.env.VSPHONE_API_KEY); }
+
+function buildRegPanel(ownerId) {
+    const vsReady = vsphoneReady();
+    const embed = new EmbedBuilder()
+        .setTitle('📋 Reg Panel')
+        .setDescription([
+            'Chọn dịch vụ bên dưới để tạo tài khoản nhanh gọn.',
+            '',
+            '**Dịch vụ cloud**',
+            '• 🌐 VMOS Cloud — Đang hoạt động',
+            `• 🥽 VSPhone — ${vsReady ? 'Đang hoạt động' : 'Sắp có'}`,
+            '• 🔴 UGPhone — Sắp có',
+            '',
+            `💰 Phí: **${REG_COST} xu** mỗi lần (chỉ trừ khi tạo thành công)`,
+            '',
+            '*Panel chỉ dùng được bởi người đã mở lệnh.*'
+        ].join('\n'))
+        .setColor(0x00B0F4)
+        .setFooter({ text: 'ASYNCTAS • Reg System' });
+    const row = new ActionRowBuilder().addComponents(
+        regButton(`reg:vmos:${ownerId}`, 'VMOS Cloud', ButtonStyle.Success, 'REG_EMOJI_VMOS', '🌐', false),
+        regButton(`reg:vsphone:${ownerId}`, vsReady ? 'VSPhone' : 'VSPhone • Sắp có', vsReady ? ButtonStyle.Success : ButtonStyle.Secondary, 'REG_EMOJI_VSPHONE', '🥽', !vsReady),
+        regButton(`reg:ugphone:${ownerId}`, 'UGPhone • Sắp có', ButtonStyle.Secondary, 'REG_EMOJI_UGPHONE', '🔴', true)
+    );
+    return { embeds: [embed], components: [row] };
+}
+
+async function regVmos(interaction, userId) {
+    const currentCoins = await db.getCoins(userId);
+    if (currentCoins < REG_COST) {
+        return interaction.editReply({ content: `❌ Bạn không đủ xu (Cần ${REG_COST} xu). Số dư: **${currentCoins} xu**.` });
+    }
+    const response = await fetch('https://wxygtmfttyidwnhjdwdw.supabase.co/functions/v1/get-key', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': process.env.APIKEY },
+        body: JSON.stringify({ clientId: crypto.randomUUID() })
+    });
+    const data = await response.json();
+    if (!data.content) throw new Error('Không lấy được dữ liệu.');
+
+    const newBalance = await db.updateCoins(userId, -REG_COST);
+    const [mail, ...passParts] = data.content.split('|');
+    return interaction.editReply({
+        content: `✅ Tạo VMOS thành công! (Đã trừ ${REG_COST} xu)\n📧 \`${mail}\`\n🔑 \`${passParts.join('|')}\`\n💰 Số dư còn lại: **${newBalance} xu**`
+    });
+}
+
+async function regVsphone(interaction, userId) {
+    if (!vsphoneReady()) {
+        return interaction.editReply({ content: '❌ VSPhone chưa được cấu hình (thiếu VSPHONE_API_URL / VSPHONE_API_KEY).' });
+    }
+    const currentCoins = await db.getCoins(userId);
+    if (currentCoins < REG_COST) {
+        return interaction.editReply({ content: `❌ Bạn không đủ xu (Cần ${REG_COST} xu). Số dư: **${currentCoins} xu**.` });
+    }
+    const response = await fetch(process.env.VSPHONE_API_URL, {
+        headers: { 'x-api-key': process.env.VSPHONE_API_KEY },
+        signal: AbortSignal.timeout(90000)
+    });
+    const raw = await response.text();
+    let data;
+    try { data = JSON.parse(raw); } catch (e) { throw new Error(`API VSPhone không trả JSON (HTTP ${response.status})`); }
+    if (!data.ok || !data.email || !data.password) {
+        throw new Error(data.error || data.message || `API VSPhone trả lỗi (HTTP ${response.status})`);
+    }
+
+    const newBalance = await db.updateCoins(userId, -REG_COST);
+    const lines = [
+        `✅ Tạo VSPhone thành công! (Đã trừ ${REG_COST} xu)`,
+        `📧 \`${data.email}\``,
+        `🔑 \`${data.password}\``
+    ];
+    if (data.token) lines.push(`🎫 Token: \`${data.token}\``);
+    if (data.userId) lines.push(`🆔 User ID: \`${data.userId}\``);
+    lines.push(`💰 Số dư còn lại: **${newBalance} xu**`);
+    return interaction.editReply({ content: lines.join('\n') });
+}
+
+async function handleRegButton(interaction) {
+    const [, service, ownerId] = interaction.customId.split(':');
+    const userId = interaction.user.id;
+    if (userId !== ownerId) {
+        return interaction.reply({ content: '❌ Panel này không phải của bạn. Dùng `/reg` để mở panel riêng.', flags: MessageFlags.Ephemeral });
+    }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (busyUsers.has(userId)) {
+        return interaction.editReply({ content: '⏳ Bạn đang có thao tác khác, thử lại sau giây lát.' });
+    }
+    busyUsers.add(userId);
+    try {
+        if (service === 'vmos') await regVmos(interaction, userId);
+        else if (service === 'vsphone') await regVsphone(interaction, userId);
+        else await interaction.editReply({ content: '🚧 Dịch vụ này sắp có.' });
+    } catch (error) {
+        console.error(`[reg:${service}] lỗi:`, error, error.cause);
+        await interaction.editReply({ content: `❌ ${error.message}${error.cause ? ' - ' + (error.cause.code || error.cause.message) : ''} (Chưa bị trừ xu).` }).catch(() => {});
+    } finally {
+        busyUsers.delete(userId);
+    }
+}
+
 client.on('interactionCreate', async interaction => {
     if (interaction.isModalSubmit() && interaction.customId.startsWith('buycloud:')) return handleBuycloudModal(interaction);
+    if (interaction.isButton() && interaction.customId.startsWith('reg:')) return handleRegButton(interaction);
     if (!interaction.isChatInputCommand()) return;
     const adminIds = getAdminIds();
     const userId = interaction.user.id;
@@ -345,32 +462,9 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // LỆNH /reg
+    // LỆNH /reg - mở panel chọn dịch vụ
     if (interaction.commandName === 'reg') {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        try {
-            const currentCoins = await db.getCoins(userId);
-            if (currentCoins < 10) {
-                return await interaction.editReply({ content: `❌ Bạn không đủ xu (Cần 10 xu). Số dư: **${currentCoins} xu**.` });
-            }
-
-            const response = await fetch('https://wxygtmfttyidwnhjdwdw.supabase.co/functions/v1/get-key', {
-                method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': process.env.APIKEY },
-                body: JSON.stringify({ clientId: crypto.randomUUID() })
-            });
-            const data = await response.json();
-            if (!data.content) throw new Error("Không lấy được dữ liệu.");
-
-            const newBalance = await db.updateCoins(userId, -10);
-            const [mail, ...passParts] = data.content.split('|');
-            
-            await interaction.editReply({ 
-                content: `✅ Mua thành công! (Đã trừ 10 xu)\n📧 \`${mail}\`\n🔑 \`${passParts.join('|')}\`\n💰 Số dư còn lại: **${newBalance} xu**` 
-            });
-        } catch (error) { 
-            console.error('[reg] lỗi:', error, error.cause);
-            await interaction.editReply({ content: `❌ ${error.message}${error.cause ? ' - ' + (error.cause.code || error.cause.message) : ''} (Chưa bị trừ xu).` }); 
-        }
+        return interaction.reply({ ...buildRegPanel(userId), flags: MessageFlags.Ephemeral });
     }
 
     // LỆNH /buycloud (mở bảng nhập dữ liệu)
