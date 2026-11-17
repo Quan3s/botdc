@@ -16,7 +16,21 @@ const STAR_DAILY_MAX = 3;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    rest: { timeout: 15000, retries: 5 },
+});
+// heartbeat watchdog: nếu bot im lặng quá 2 phút -> relogin
+const HEARTBEAT_TIMEOUT = 2 * 60 * 1000;
+let _heartbeatTimer = null;
+function resetHeartbeat() {
+    if (_heartbeatTimer) clearTimeout(_heartbeatTimer);
+    _heartbeatTimer = setTimeout(() => {
+        console.warn('[BOT] Heartbeat timeout — bot có thể offline, relogin...');
+        safeRelogin();
+    }, HEARTBEAT_TIMEOUT);
+}
+
 
 // Hàm sinh Gift Code (8 ký tự bao gồm ký tự đặc biệt)
 function generateGiftCode() {
@@ -146,7 +160,13 @@ async function updateLeaderboard() {
     }
 }
 
+client.on('shardReady', () => resetHeartbeat());
+client.on('shardResume', (id, r) => { console.log(`[BOT] Shard ${id} resume OK (${r} events).`); resetHeartbeat(); });
+client.on('interactionCreate', () => resetHeartbeat());
+client.on('messageCreate', () => resetHeartbeat());
+
 client.once('ready', async () => {
+    resetHeartbeat(); // bắt đầu watchdog ngay khi bot sẵn sàng
     const commands = [
         new SlashCommandBuilder().setName('getlink').setDescription('Lấy link nhiệm vụ để nhận 50 xu (Tối đa 2 lần/ngày)')
             .addStringOption(opt => opt.setName('provider').setDescription('Chọn dịch vụ rút gọn link').addChoices(
