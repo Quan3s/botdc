@@ -634,3 +634,57 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
+
+// ==========================================
+// AUTO REJOIN — tự reconnect khi bị disconnect
+// ==========================================
+client.on('disconnect', () => {
+    console.warn('[BOT] Bị disconnect. Đang thử reconnect...');
+});
+
+client.on('shardDisconnect', (event, shardId) => {
+    console.warn(`[BOT] Shard ${shardId} disconnect (code ${event.code}). Đang thử reconnect...`);
+});
+
+client.on('shardReconnecting', (shardId) => {
+    console.log(`[BOT] Shard ${shardId} đang reconnect...`);
+});
+
+client.on('shardResume', (shardId, replayedEvents) => {
+    console.log(`[BOT] Shard ${shardId} resume OK (${replayedEvents} events replayed).`);
+});
+
+client.on('error', (err) => {
+    console.error('[BOT] Lỗi client:', err.message);
+});
+
+// fallback: nếu ws chết hoàn toàn thì destroy + login lại
+async function safeRelogin(attempt = 1) {
+    const MAX = 10;
+    const delay = Math.min(5000 * attempt, 60000); // 5s, 10s, ... tối đa 60s
+    console.log(`[BOT] Thử relogin lần ${attempt}/${MAX} sau ${delay / 1000}s...`);
+    await new Promise(r => setTimeout(r, delay));
+    try {
+        await client.destroy();
+        await client.login(process.env.DISCORD_TOKEN);
+        console.log('[BOT] Relogin thành công.');
+    } catch (err) {
+        console.error(`[BOT] Relogin thất bại (lần ${attempt}):`, err.message);
+        if (attempt < MAX) return safeRelogin(attempt + 1);
+        console.error('[BOT] Hết lần thử, dừng relogin.');
+    }
+}
+
+client.ws.on('INVALIDATED', () => {
+    console.error('[BOT] Session bị invalidate — relogin...');
+    safeRelogin();
+});
+
+// bắt unhandledRejection để bot không crash
+process.on('unhandledRejection', (err) => {
+    console.error('[BOT] unhandledRejection:', err?.message || err);
+});
+process.on('uncaughtException', (err) => {
+    console.error('[BOT] uncaughtException:', err?.message || err);
+});
