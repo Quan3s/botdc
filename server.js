@@ -250,7 +250,7 @@ async function handleBuycloudModal(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     try {
         if (!process.env.HANAMI_TOKEN) return await interaction.editReply({ content: '❌ Bot chưa cấu hình HANAMI_TOKEN.' });
-        if (cloudId !== 'UG' && !inputData.includes('|')) {
+        if (cloudId !== 'UG' && cloudId !== 'VS' && !inputData.includes('|')) {
             return await interaction.editReply({ content: '❌ Sai định dạng. Nhập theo dạng: `tài khoản|mật khẩu`' });
         }
         const result = await buyHanami(cloudId, server, inputData);
@@ -381,16 +381,18 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: '❌ UGPhone cần chọn thêm **server** (khu vực).', flags: MessageFlags.Ephemeral });
         }
         const isUG = cloudId === 'UG';
+        const isVS = cloudId === 'VS';
+        const usesLocalStorage = isUG || isVS;
         const input = new TextInputBuilder()
             .setCustomId('input_data')
-            .setLabel(isUG ? 'Local Storage (cookie) của UGPhone' : 'Tài khoản|Mật khẩu')
-            .setStyle(isUG ? TextInputStyle.Paragraph : TextInputStyle.Short)
-            .setPlaceholder(isUG ? 'Dán chuỗi Local Storage vào đây' : 'mail|matkhau hoặc user|matkhau')
+            .setLabel(usesLocalStorage ? `Local Storage (cookie) của ${CLOUD_NAMES[cloudId]}` : 'Tài khoản|Mật khẩu')
+            .setStyle(usesLocalStorage ? TextInputStyle.Paragraph : TextInputStyle.Short)
+            .setPlaceholder(usesLocalStorage ? 'Dán chuỗi Local Storage vào đây' : 'mail|matkhau hoặc user|matkhau')
             .setRequired(true)
             .setMaxLength(4000);
         const modal = new ModalBuilder()
-            .setCustomId(`buycloud:${cloudId}:${isUG ? server : '-'}`)
-            .setTitle(`Mua ${CLOUD_NAMES[cloudId]}${isUG ? ' - ' + server : ''}`)
+            .setCustomId(`buycloud:${cloudId}:${usesLocalStorage ? (server || '-') : '-'}`)
+            .setTitle(`Mua ${CLOUD_NAMES[cloudId]}${usesLocalStorage && server ? ' - ' + server : ''}`)
             .addComponents(new ActionRowBuilder().addComponents(input));
         return interaction.showModal(modal);
     }
