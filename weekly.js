@@ -1,0 +1,93 @@
+/**
+ * Thưởng bảng xếp hạng "vượt link" hàng tuần.
+ *
+ * Giải thưởng:
+ *   Top 1     : 300 coin
+ *   Top 2     : 150 coin
+ *   Top 3     :  75 coin
+ *   Top 4-10  :  40 coin
+ *
+ * Tự động chạy vào Chủ nhật hằng tuần (giờ VN). Sau khi trả thưởng, kỳ mới
+ * được bắt đầu (bộ đếm vượt link reset theo kỳ).
+ */
+const crypto = require('crypto');
+const db = require('./database');
+const { vnNow, getTodayString } = require('./utils');
+
+const REWARDS = [300, 150, 75, 40, 40, 40, 40, 40, 40, 40];
+const PERIOD_KEY = 'link_period_start';
+const LAST_PAYOUT_KEY = 'link_last_payout';
+
+async function getLinkPeriod() {
+    const stored = await db.getKv(PERIOD_KEY);
+    return stored || getTodayString();
+}
+
+function isSundayVn() {
+    return vnNow().getUTCDay() === 0;
+}
+
+async function notifyWebhook(lines) {
+    const url = process.env.LEADERBOARD_WEBHOOK_URL;
+    if (!url) return;
+    try {
+        await fetch(`${url}?wait=true`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                allowed_mentions: { parse: [] },
+                embeds: [{
+                    title: '🏆 Thưởng bảng xếp hạng vượt link',
+                    description: lines.join('\n') || 'Chưa có ai trong bảng xếp hạng tuần này.',
+                    color: 0xF1C40F,
+                    timestamp: new Date().toISOString(),
+                }],
+            }),
+        });
+    } catch (e) {
+        console.error('[weekly] gửi webhook lỗi:', e.message);
+    }
+}
+
+async function runWeeklyPayout({ force = false } = {}) {
+    const today = getTodayString();
+
+    if (!force && !isSundayVn()) return { skipped: 'not-sunday' };
+
+    const lastPayout = await db.getKv(LAST_PAYOUT_KEY);
+    if (!force && lastPayout === today) return { skipped: 'already-paid' };
+
+    const period = await getLinkPeriod();
+    const top = await db.getLinkLeaderboard(period, 10);
+    const details = [];
+
+    for (let i = 0; i < top.length; i++) {
+        const reward = REWARDS[i] || 0;
+        if (reward <= 0) continue;
+        let userId = top[i].user_id;
+        // Nếu user đã liên kết Discord thì cộng vào coin Discord (key = discord id)
+        if (String(userId).startsWith('web_')) {
+            try {
+                const webUser = await db.getWebUserById(String(userId).slice(4));
+                if (webUser && webUser.discord_id) userId = String(webUser.discord_id);
+            } catch (e) { /* giữ nguyên key web */ }
+        }
+        const newBalance = await db.updateCoins(userId, reward);
+        details.push({ rank: i + 1, user_id: userId, count: Number(top[i].count), reward, balance: newBalance });
+    }
+
+    const total = details.reduce((sum, d) => sum + d.reward, 0);
+    await db.createPayout({ id: crypto.randomUUID(), period, total, details });
+    await db.setKv(PERIOD_KEY, today);
+    await db.setKv(LAST_PAYOUT_KEY, today);
+
+    const lines = details.length
+        ? details.map(d => `#${d.rank} — ${d.user_id} — **${d.count}** link — +${d.reward} coin`)
+        : ['Chưa có ai trong bảng xếp hạng tuần này.'];
+    await notifyWebhook([`Kỳ: **${period}** → **${today}**`, ...lines]);
+
+    console.log(`[weekly] Đã trả thưởng kỳ ${period}: ${details.length} người, tổng ${total} coin.`);
+    return { period, date: today, total, details };
+}
+
+module.exports = { REWARDS, getLinkPeriod, runWeeklyPayout, isSundayVn };

@@ -1,13 +1,17 @@
 require('dotenv').config();
 const express = require('express');
 const crypto = require('crypto');
+const path = require('path');
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db = require('./database');
-const HANAMI_URL = 'https://hanaminikata.com/dev/buy_device_cloud';
-const CLOUD_NAMES = { UG: 'UGPhone', VM: 'VMOS', VS: 'VSPhone' };
+const services = require('./services');
+const web = require('./web');
+const weekly = require('./weekly');
+const { HANAMI_URL, CLOUD_NAMES, REG_COST, vsphoneReady, buyHanami, regVmosAccount, regVsphoneAccount } = services;
 const PAY_MIN = 10;          // số xu tối thiểu mỗi lần /pay
 const PAY_FEE_RATE = 0.05;   // phí chuyển 5%
 const LEADERBOARD_INTERVAL_MS = 10 * 60 * 1000; // cập nhật bảng xếp hạng mỗi 10 phút
+const WEEKLY_PAYOUT_INTERVAL_MS = 10 * 60 * 1000; // kiểm tra trả thưởng tuần mỗi 10 phút
 const busyUsers = new Set();
 const pendingStarUsers = new Set(); // userId đang chờ admin duyệt nhiệm vụ /star
 const STAR_REWARD = 10;
@@ -16,6 +20,11 @@ const STAR_DAILY_MAX = 3;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Dashboard web + API
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(web.router);
+
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
     rest: { timeout: 15000, retries: 5 },
@@ -76,15 +85,23 @@ app.get('/redeem', async (req, res) => {
 
         const { user_id, provider } = sessionData;
         const newBalance = await db.updateCoins(user_id, 50);
+        let weeklyCount = 0;
+        try {
+            const period = await weekly.getLinkPeriod();
+            weeklyCount = await db.incrementLinkCount(user_id, period);
+        } catch (e) {
+            console.error('[WEB] không cập nhật được BXH vượt link:', e.message);
+        }
 
-        console.log(`[WEB] User ${user_id} vượt link ${provider}. +50 xu. Số dư: ${newBalance}`);
+        console.log(`[WEB] User ${user_id} vượt link ${provider}. +50 xu. Số dư: ${newBalance} | tuần này: ${weeklyCount}`);
 
         res.send(`
             <body style="background:#080d0b; color:#fff; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; margin:0;">
                 <div style="background:#101a14; padding:30px; border-radius:16px; border:1px solid #39f58a; text-align:center; max-width:400px; width:100%;">
                     <h2 style="color:#39f58a;">✅ VƯỢT LINK THÀNH CÔNG!</h2>
                     <p style="font-size:16px; margin-bottom:20px;">Bạn đã nhận được <b style="color:#ffc107;">+50 xu</b>.</p>
-                    <p style="color:#91a096; font-size:14px; margin-bottom:20px;">Số dư hiện tại: <b style="color:#39f58a;">${newBalance} xu</b></p>
+                    <p style="color:#91a096; font-size:14px; margin-bottom:6px;">Số dư hiện tại: <b style="color:#39f58a;">${newBalance} xu</b></p>
+                    <p style="color:#91a096; font-size:14px; margin-bottom:20px;">Vượt link tuần này: <b style="color:#ffc107;">${weeklyCount}</b></p>
                     <a href="https://discord.com/app" style="background:#39f58a; color:#000; text-decoration:none; padding:10px 20px; border-radius:8px; font-weight:bold; display:inline-block;">Quay lại Discord</a>
                 </div>
             </body>
@@ -96,6 +113,12 @@ app.get('/redeem', async (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`\n✅ Web Server đang chạy: http://localhost:${PORT}`));
+
+// Trả thưởng bảng xếp hạng vượt link tự động vào Chủ nhật hàng tuần (giờ VN)
+setInterval(() => {
+    weekly.runWeeklyPayout().catch(e => console.error('[weekly] lỗi:', e.message));
+}, WEEKLY_PAYOUT_INTERVAL_MS);
+weekly.runWeeklyPayout().catch(e => console.error('[weekly] lỗi:', e.message));
 
 // In IP outbound mỗi lần khởi động (để đưa vào whitelist) + thử xem KingDev có bị Cloudflare chặn không
 (async () => {
@@ -182,6 +205,9 @@ client.once('ready', async () => {
                 .addChoices({ name: 'UGPhone', value: 'UG' }, { name: 'VMOS', value: 'VM' }, { name: 'VSPhone', value: 'VS' }))
             .addStringOption(o => o.setName('server').setDescription('Khu vực (bắt buộc với UGPhone)').setRequired(false)
                 .addChoices({ name: 'Singapore', value: 'SG' }, { name: 'Hong Kong', value: 'HK' }, { name: 'Japan', value: 'JP' }, { name: 'Germany', value: 'DE' }, { name: 'US', value: 'US' })),
+        new SlashCommandBuilder().setName('shop').setDescription('Xem danh sách hàng hoá và giá trong shop'),
+        new SlashCommandBuilder().setName('connect').setDescription('Liên kết tài khoản web với Discord để đồng bộ coin')
+            .addStringOption(o => o.setName('token').setDescription('Token 64 ký tự lấy trong mục Hồ sơ trên web').setRequired(true)),
         new SlashCommandBuilder().setName('star').setDescription('Nhận nhiệm vụ đăng ký kênh YouTube để nhận xu'),
         new SlashCommandBuilder().setName('sdone').setDescription('(Admin) Xác nhận user hoàn thành nhiệm vụ /star')
             .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
@@ -223,25 +249,7 @@ client.once('ready', async () => {
     }
 });
 
-// ===== MUA CLOUD QUA HANAMI =====
-
-async function buyHanami(cloudId, server, inputData) {
-    const body = { token: process.env.HANAMI_TOKEN, cloud_id: cloudId, input_data: inputData };
-    if (server) body.server = server;
-    const response = await fetch(HANAMI_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-        body: JSON.stringify(body)
-    });
-    const raw = await response.text();
-    let data;
-    try { data = JSON.parse(raw); } catch (e) {
-        console.error(`[buycloud] Hanami trả về không phải JSON (HTTP ${response.status}):`, raw.slice(0, 300));
-        const snippet = raw.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
-        return { ok: false, message: `Hanami trả về HTML thay vì JSON (HTTP ${response.status}): ${snippet.replace(/`/g, "'")}` };
-    }
-    return { ok: data.code === 0, message: data.message || 'Không rõ' };
-}
+// ===== MUA CLOUD QUA HANAMI (dùng services.buyHanami) =====
 
 async function handleBuycloudModal(interaction) {
     const [, cloudId, serverRaw] = interaction.customId.split(':');
@@ -266,7 +274,6 @@ async function handleBuycloudModal(interaction) {
 }
 
 // ===== /reg PANEL (VMOS / VSPhone / UGPhone) =====
-const REG_COST = 10;
 
 // Logo nút: đặt ID emoji (Developer Portal -> Emojis) hoặc <:ten:id> vào env; không có thì dùng emoji mặc định
 function regEmoji(envName, fallback) {
@@ -280,8 +287,6 @@ function regButton(customId, label, style, envName, fallbackEmoji, disabled) {
     try { btn.setEmoji(regEmoji(envName, fallbackEmoji)); } catch (e) { btn.setEmoji(fallbackEmoji); }
     return btn;
 }
-function vsphoneReady() { return !!(process.env.VSPHONE_API_URL && process.env.VSPHONE_API_KEY); }
-
 function buildRegPanel(ownerId) {
     const vsReady = vsphoneReady();
     const embed = new EmbedBuilder()
@@ -308,22 +313,39 @@ function buildRegPanel(ownerId) {
     return { embeds: [embed], components: [row] };
 }
 
+// Lưu tài khoản tạm vào KV để nút "Copy" gửi lại đúng định dạng account|password
+async function sendAccountWithCopy(interaction, { header, copyText, lines }) {
+    const copyId = crypto.randomBytes(8).toString('hex');
+    try {
+        await db.setKv(`copyacc:${copyId}`, JSON.stringify({ text: copyText, exp: Date.now() + 24 * 60 * 60 * 1000 }));
+    } catch (e) {
+        console.error('[copy] không lưu được dữ liệu copy:', e.message);
+    }
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`copy:${copyId}`)
+            .setLabel('Copy acc|pass')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('📋')
+    );
+    return interaction.editReply({ content: [`✅ ${header}`, ...lines].join('\n'), components: [row] });
+}
+
 async function regVmos(interaction, userId) {
     const currentCoins = await db.getCoins(userId);
     if (currentCoins < REG_COST) {
         return interaction.editReply({ content: `❌ Bạn không đủ xu (Cần ${REG_COST} xu). Số dư: **${currentCoins} xu**.` });
     }
-    const response = await fetch('https://wxygtmfttyidwnhjdwdw.supabase.co/functions/v1/get-key', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': process.env.APIKEY },
-        body: JSON.stringify({ clientId: crypto.randomUUID() })
-    });
-    const data = await response.json();
-    if (!data.content) throw new Error('Không lấy được dữ liệu.');
-
+    const result = await regVmosAccount();
     const newBalance = await db.updateCoins(userId, -REG_COST);
-    const [mail, ...passParts] = data.content.split('|');
-    return interaction.editReply({
-        content: `✅ Tạo VMOS thành công! (Đã trừ ${REG_COST} xu)\n📧 \`${mail}\`\n🔑 \`${passParts.join('|')}\`\n💰 Số dư còn lại: **${newBalance} xu**`
+    return sendAccountWithCopy(interaction, {
+        header: `Tạo VMOS thành công! (Đã trừ ${REG_COST} xu)`,
+        copyText: result.copyText,
+        lines: [
+            `📧 \`${result.account}\``,
+            `🔑 \`${result.password}\``,
+            `💰 Số dư còn lại: **${newBalance} xu**`,
+        ],
     });
 }
 
@@ -335,27 +357,39 @@ async function regVsphone(interaction, userId) {
     if (currentCoins < REG_COST) {
         return interaction.editReply({ content: `❌ Bạn không đủ xu (Cần ${REG_COST} xu). Số dư: **${currentCoins} xu**.` });
     }
-    const response = await fetch(process.env.VSPHONE_API_URL, {
-        headers: { 'x-api-key': process.env.VSPHONE_API_KEY },
-        signal: AbortSignal.timeout(90000)
-    });
-    const raw = await response.text();
-    let data;
-    try { data = JSON.parse(raw); } catch (e) { throw new Error(`API VSPhone không trả JSON (HTTP ${response.status})`); }
-    if (!data.ok || !data.email || !data.password) {
-        throw new Error(data.error || data.message || `API VSPhone trả lỗi (HTTP ${response.status})`);
-    }
-
+    const result = await regVsphoneAccount();
     const newBalance = await db.updateCoins(userId, -REG_COST);
     const lines = [
-        `✅ Tạo VSPhone thành công! (Đã trừ ${REG_COST} xu)`,
-        `📧 \`${data.email}\``,
-        `🔑 \`${data.password}\``
+        `📧 \`${result.account}\``,
+        `🔑 \`${result.password}\``,
     ];
-    if (data.token) lines.push(`🎫 Token: \`${data.token}\``);
-    if (data.userId) lines.push(`🆔 User ID: \`${data.userId}\``);
+    if (result.token) lines.push(`🎫 Token: \`${result.token}\``);
+    if (result.userId) lines.push(`🆔 User ID: \`${result.userId}\``);
     lines.push(`💰 Số dư còn lại: **${newBalance} xu**`);
-    return interaction.editReply({ content: lines.join('\n') });
+    return sendAccountWithCopy(interaction, {
+        header: `Tạo VSPhone thành công! (Đã trừ ${REG_COST} xu)`,
+        copyText: result.copyText,
+        lines,
+    });
+}
+
+// Xử lý nút Copy acc|pass
+async function handleCopyButton(interaction) {
+    const id = interaction.customId.split(':')[1];
+    let data = null;
+    try {
+        const raw = await db.getKv(`copyacc:${id}`);
+        if (raw) data = JSON.parse(raw);
+    } catch (e) {
+        console.error('[copy] lỗi đọc dữ liệu:', e.message);
+    }
+    if (!data || !data.text || (data.exp && data.exp < Date.now())) {
+        return interaction.reply({ content: '❌ Dữ liệu copy đã hết hạn. Hãy tạo lại.', flags: MessageFlags.Ephemeral });
+    }
+    return interaction.reply({
+        content: `📋 **Tài khoản của bạn** (bấm giữ / Ctrl+C để copy):\n\`\`\`\n${data.text}\n\`\`\``,
+        flags: MessageFlags.Ephemeral,
+    });
 }
 
 async function handleRegButton(interaction) {
@@ -384,9 +418,89 @@ async function handleRegButton(interaction) {
 client.on('interactionCreate', async interaction => {
     if (interaction.isModalSubmit() && interaction.customId.startsWith('buycloud:')) return handleBuycloudModal(interaction);
     if (interaction.isButton() && interaction.customId.startsWith('reg:')) return handleRegButton(interaction);
+    if (interaction.isButton() && interaction.customId.startsWith('copy:')) return handleCopyButton(interaction);
     if (!interaction.isChatInputCommand()) return;
     const adminIds = getAdminIds();
     const userId = interaction.user.id;
+
+    // LỆNH /shop
+    if (interaction.commandName === 'shop') {
+        await interaction.deferReply();
+        try {
+            const items = (await db.getShopItems(true)).filter(i => i.active !== false);
+            const base = (process.env.RENDER_DOMAIN || `http://localhost:${PORT}`).replace(/\/$/, '');
+            if (!items.length) {
+                return interaction.editReply({ content: `🛒 Shop hiện chưa có sản phẩm nào. Quay lại sau nhé!\n👉 Mở dashboard: ${base}` });
+            }
+            const embeds = items.slice(0, 10).map(item => {
+                const e = new EmbedBuilder()
+                    .setTitle(`${item.name} — ${Number(item.price).toLocaleString('en-US')} xu`)
+                    .setDescription((item.description || 'Không có mô tả.').slice(0, 300))
+                    .addFields({ name: '📦 Kho', value: `${Number(item.stock) || 0} sản phẩm`, inline: true });
+                const logo = String(item.logo_url || '');
+                if (/^https?:\/\//i.test(logo)) {
+                    try { e.setThumbnail(logo); } catch (err) { /* logo không hợp lệ */ }
+                }
+                return e;
+            });
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setLabel('Mua trên Web').setStyle(ButtonStyle.Link).setURL(`${base}/#shop`).setEmoji('🛒')
+            );
+            return interaction.editReply({ embeds, components: [row] });
+        } catch (error) {
+            console.error('[shop] lỗi:', error);
+            return interaction.editReply({ content: `❌ Lỗi tải shop: ${error.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /connect <token>
+    if (interaction.commandName === 'connect') {
+        const token = interaction.options.getString('token').trim();
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            if (!/^[A-Za-z0-9]{64}$/.test(token)) {
+                return interaction.editReply({ content: '❌ Token phải gồm đúng 64 ký tự chữ và số.' });
+            }
+            const webUser = await db.getWebUserByLinkToken(token);
+            if (!webUser) return interaction.editReply({ content: '❌ Token không tồn tại. Hãy kiểm tra lại trong mục Hồ sơ trên web.' });
+            if (webUser.discord_id && String(webUser.discord_id) !== userId) {
+                return interaction.editReply({ content: '❌ Token này đã được liên kết với một tài khoản Discord khác.' });
+            }
+            const existingLink = await db.getWebUserByDiscordId(userId);
+            if (existingLink && existingLink.id !== webUser.id) {
+                return interaction.editReply({ content: '❌ Tài khoản Discord này đã liên kết với một tài khoản web khác.' });
+            }
+            if (String(webUser.discord_id) === userId) {
+                return interaction.editReply({ content: `✅ Tài khoản web **${webUser.username}** đã liên kết với Discord này rồi.` });
+            }
+
+            // Gộp coin: coin web (web_<id>) + coin Discord -> coin Discord
+            const webKey = `web_${webUser.id}`;
+            const webBalance = await db.getCoins(webKey);
+            let newBalance = await db.getCoins(userId);
+            if (webBalance > 0) {
+                newBalance = await db.updateCoins(userId, webBalance);
+                await db.updateCoins(webKey, -webBalance);
+            }
+            await db.updateWebUser(webUser.id, { discord_id: userId });
+
+            // Gộp số link đã vượt của tài khoản web vào Discord trong kỳ hiện tại
+            try {
+                const period = await weekly.getLinkPeriod();
+                await db.mergeLinkStats(`web_${webUser.id}`, userId, period);
+            } catch (e) {
+                console.error('[connect] không gộp được BXH vượt link:', e.message);
+            }
+
+            const adminNote = (await isAdmin(userId)) ? '\n🛡️ Bạn là **admin**, mục Quản trị đã mở trên web.' : '';
+            return interaction.editReply({
+                content: `✅ Liên kết thành công với tài khoản web **${webUser.username}**!\n💰 Coin đã đồng bộ: **${newBalance} xu**${adminNote}`
+            });
+        } catch (error) {
+            console.error('[connect] lỗi:', error);
+            return interaction.editReply({ content: `❌ Lỗi liên kết: ${error.message}`.slice(0, 1900) });
+        }
+    }
 
     // LỆNH /getlink
     if (interaction.commandName === 'getlink') {
@@ -749,7 +863,11 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+if (process.env.DISABLE_BOT === '1') {
+    console.log('[BOT] DISABLE_BOT=1 — bỏ qua đăng nhập Discord (chỉ chạy web).');
+} else {
+    client.login(process.env.DISCORD_TOKEN);
+}
 
 
 // ==========================================
