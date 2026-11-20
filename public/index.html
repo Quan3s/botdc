@@ -403,8 +403,8 @@
               <p class="muted" style="margin-top:14px">Dùng ở mục <b>Buy Device</b> hoặc lệnh mua nhanh trong Discord. Cookie hết hạn → cập nhật tại đây.</p>
             </div>
             <div class="card">
-              <div class="card-head"><h3>🌐 Proxy status (WARP / Worker)</h3><span id="status-proxy-source" class="pill">—</span></div>
-              <p class="muted">Render không cài được WARP, nên dùng <b>Cloudflare Worker</b> (dán URL https://...) hoặc SOCKS5 có <code>user:pass@host:port</code> từ máy chạy WARP. Biến <code>MEOWS_STATUS_PROXY</code> ưu tiên hơn ô này.</p>
+              <div class="card-head"><h3>🌐 Proxy API (WARP / Worker)</h3><span id="status-proxy-source" class="pill">—</span></div>
+              <p class="muted">Dùng chung cho <b>Cloud Status</b>, <b>Mua nhanh</b> và <b>mua UGPhone</b>. Render không cài được WARP, nên dùng <b>Cloudflare Worker</b> (URL https://...) hoặc SOCKS5 <code>user:pass@host:port</code> từ máy chạy WARP. Env <code>MEOWS_API_PROXY</code> ưu tiên hơn ô này.</p>
               <label>Proxy URL / SOCKS5<input id="admin-status-proxy" placeholder="https://worker.example.com/status" autocomplete="off" /></label>
               <div class="device-actions">
                 <button id="admin-status-proxy-save-btn" class="btn btn-primary">💾 Lưu proxy</button>

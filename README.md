@@ -98,30 +98,28 @@ Vào **Quản trị → Cookie**, dán cookie lấy từ trang cung cấp dịch
 Server tự lưu vào bảng `kv` (key `meows_cookie`) dạng `.COOKIESECURITY=<cookie>`; **không cần tạo bảng mới**.
 Cookie hết hạn chỉ cần cập nhật ở đây, không deploy lại. Dùng cho `/meows` và mục **Buy Device → Mua nhanh**.
 
-### Proxy cho Cloud Status (Render / WARP / Worker)
-IP Render bị Meows/Cloudflare chặn (`403 - Just a moment...`), nhưng **IP Cloudflare (WARP / Worker)** thì dùng được.
+### Proxy API (Render / WARP / Worker) — dùng chung
+IP Render bị Meows/Cloudflare chặn (`403 - Just a moment...`), nhưng **IP Cloudflare (WARP / Worker)** thì dùng được. Proxy này áp dụng cho:
 
-**Render không cài được `warp-cli`** (cần `NET_ADMIN` + `/dev/net/tun`), nên chọn 1 trong 2:
+- **Cloud Status**
+- **Mua nhanh** Meows (UGPhone 49 xu / VSPhone VIP 15 xu)
+- **Mua UGPhone** qua Hanami (`Buy Device` / lệnh `reg`)
 
-**A. Cloudflare Worker (khuyến nghị trên Render)** — tạo Worker:
+**Render không cài được `warp-cli`** (cần `NET_ADMIN` + `/dev/net/tun`), nên dùng Cloudflare Worker.
 
-```js
-export default {
-  async fetch() {
-    const r = await fetch('https://meows.vn/api/cloud-status', {
-      headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
-    });
-    return new Response(await r.text(), {
-      status: r.status,
-      headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
-    });
-  },
-};
+**A. Cloudflare Worker (khuyến nghị trên Render)**
+
+Copy nội dung file [`cloudflare-proxy-worker.js`](./cloudflare-proxy-worker.js) → Cloudflare Dashboard → **Workers & Pages → Create Worker** → dán → Deploy. Worker chỉ forward tới `meows.vn` và `hanaminikata.com`, nên không thành open proxy.
+
+Rồi dán URL Worker vào **Quản trị → Cookie → Proxy API**, hoặc set env:
+
+```text
+MEOWS_API_PROXY=https://xxx.your-subdomain.workers.dev
 ```
 
-Rồi dán URL Worker vào **Quản trị → Cookie → Proxy status**, hoặc env `MEOWS_STATUS_PROXY=https://worker.example.com/status`.
+Nếu đặt secret `PROXY_KEY` trên Worker, set thêm `MEOWS_PROXY_KEY` trên Render để bot gửi header `x-proxy-key`.
 
-**B. SOCKS5 từ máy chạy WARP 1.1.1.1** — dán `socks5h://user:pass@host:1080` (nhớ bảo mật user/pass và firewall). Nếu tự host được VPS có `warp-cli`, dùng proxy mode:
+**B. SOCKS5 từ máy chạy WARP 1.1.1.1** — dán `socks5h://user:pass@host:1080` (nhớ firewall). Với VPS tự host có `warp-cli`:
 
 ```bash
 warp-cli --accept-tos set-mode proxy
@@ -129,11 +127,11 @@ warp-cli --accept-tos set-proxy-port 40000
 warp-cli --accept-tos connect
 ```
 
-Thứ tự fallback: `worker`/`warp` → direct → `www` → reader proxy. Ô thời gian trên **Cloud Status** hiện `worker` / `warp` / `www` / `proxy` tương ứng.
+Ưu tiên env: `MEOWS_API_PROXY` → `MEOWS_STATUS_PROXY` → ô trong DB → gọi trực tiếp. Riêng Cloud Status có thêm fallback `www` → reader proxy; ô thời gian hiện `worker` / `warp` / `www` / `proxy`.
 
 ## Biến môi trường
 Xem `.env.example`. Các biến quan trọng: `DISCORD_TOKEN`, `ADMIN_DISCORD_ID`,
-`SUPABASE_URL`, `SUPABASE_KEY`, `RENDER_DOMAIN`, `GITHUB_TOKEN`, `HANAMI_TOKEN`, `LINK4M_API_KEY`, `LAYMA_TOKEN`, `MEOWS_STATUS_PROXY` (tuỳ chọn, SOCKS5/WARP cho Cloud Status).
+`SUPABASE_URL`, `SUPABASE_KEY`, `RENDER_DOMAIN`, `GITHUB_TOKEN`, `HANAMI_TOKEN`, `LINK4M_API_KEY`, `LAYMA_TOKEN`, `MEOWS_API_PROXY` / `MEOWS_STATUS_PROXY` (tuỳ chọn, Worker hoặc SOCKS5/WARP), `MEOWS_PROXY_KEY` (tuỳ chọn, secret của Worker).
 
 ## Bảo mật
 - Token GitHub/Hanami chỉ nằm ở server, không bao giờ gửi xuống trình duyệt.

@@ -23,7 +23,7 @@ function vsphoneReady() {
 async function buyHanami(cloudId, server, inputData) {
     const body = { token: process.env.HANAMI_TOKEN, cloud_id: cloudId, input_data: inputData };
     if (server) body.server = server;
-    const response = await fetch(HANAMI_URL, {
+    const response = await requestViaProxy(HANAMI_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
         body: JSON.stringify(body),
@@ -176,7 +176,7 @@ async function buyMeows(provider) {
     const cookie = await getMeowsCookie();
     if (!cookie) throw new Error('Admin chưa lưu cookie dịch vụ nhanh (Quản trị → Cookie).');
 
-    const response = await fetch(config.url, {
+    const response = await requestViaProxy(config.url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -188,6 +188,7 @@ async function buyMeows(provider) {
         },
         body: JSON.stringify(config.body),
         signal: AbortSignal.timeout(60000),
+        timeout: 60000,
     });
     const raw = await response.text();
     let data = null;
@@ -249,14 +250,43 @@ function normalizeStatusProxy(value) {
     return `socks5h://${raw.replace(/^\/+/, '')}`;
 }
 
-async function getStatusProxyUrl() {
-    const fromEnv = normalizeStatusProxy(process.env.MEOWS_STATUS_PROXY);
+function proxyKeyHeaders() {
+    const key = String(process.env.MEOWS_PROXY_KEY || '').trim();
+    return key ? { 'x-proxy-key': key } : {};
+}
+
+async function getProxyUrl() {
+    const fromEnv = normalizeStatusProxy(process.env.MEOWS_API_PROXY || process.env.MEOWS_STATUS_PROXY);
     if (fromEnv) return fromEnv;
     try {
         return normalizeStatusProxy(await db.getKv('meows_status_proxy'));
     } catch (e) {
         return '';
     }
+}
+
+/** Gọi API qua Worker (https://...) hoặc SOCKS5/WARP. Dùng cho cả status lẫn mua. */
+async function requestViaProxy(url, options = {}) {
+    const proxyUrl = await getProxyUrl();
+    if (!proxyUrl) return fetch(url, options);
+
+    if (/^https?:\/\//i.test(proxyUrl)) {
+        const target = new URL(proxyUrl);
+        target.searchParams.set('url', url);
+        return fetch(target.toString(), {
+            ...options,
+            headers: { ...proxyKeyHeaders(), ...(options.headers || {}) },
+            redirect: 'manual',
+        });
+    }
+
+    const nodeOptions = { ...options };
+    delete nodeOptions.signal; // node-fetch v2 dùng timeout thay vì AbortSignal.timeout
+    return nodeFetch(url, {
+        ...nodeOptions,
+        agent: new SocksProxyAgent(proxyUrl),
+        timeout: Number(nodeOptions.timeout) || 60000,
+    });
 }
 
 async function fetchMeowsStatus(source) {
@@ -269,6 +299,7 @@ async function fetchMeowsStatus(source) {
             Referer: 'https://meows.vn/client/cloud-manager',
             'User-Agent': MEOWS_UA,
         };
+    if (source.proxyHttp) Object.assign(headers, proxyKeyHeaders());
 
     const response = source.proxyUrl
         ? await nodeFetch(source.url, {
@@ -313,10 +344,10 @@ async function getCloudStatus({ force = false } = {}) {
         let data = null;
         let source = null;
         let lastError = null;
-        const proxyUrl = await getStatusProxyUrl();
+        const proxyUrl = await getProxyUrl();
         const firstSource = proxyUrl
             ? /^https?:\/\//i.test(proxyUrl)
-                ? { name: 'worker', url: proxyUrl }
+                ? { name: 'worker', url: proxyUrl, proxyHttp: true }
                 : { name: 'warp', url: 'https://meows.vn/api/cloud-status', proxyUrl }
             : null;
         const sources = firstSource ? [firstSource, ...CLOUD_STATUS_BASE_SOURCES] : CLOUD_STATUS_BASE_SOURCES;
