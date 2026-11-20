@@ -9,7 +9,7 @@ const web = require('./web');
 const weekly = require('./weekly');
 const pluginEngine = require('./plugin-engine');
 const { generateUniqueLinkToken, randomId, hashPassword } = require('./utils');
-const { HANAMI_URL, CLOUD_NAMES, REG_COST, vsphoneReady, buyHanami, regVmosAccount, regVsphoneAccount } = services;
+const { HANAMI_URL, CLOUD_NAMES, REG_COST, MEOWS_COSTS, MEOWS_NAMES, vsphoneReady, buyHanami, regVmosAccount, regVsphoneAccount } = services;
 const PAY_MIN = 10;          // số xu tối thiểu mỗi lần /pay
 const PAY_FEE_RATE = 0.05;   // phí chuyển 5%
 const LEADERBOARD_INTERVAL_MS = 10 * 60 * 1000; // cập nhật bảng xếp hạng mỗi 10 phút
@@ -213,6 +213,12 @@ client.once('ready', async () => {
                 .addChoices({ name: 'UGPhone', value: 'UG' }, { name: 'VMOS', value: 'VM' }, { name: 'VSPhone', value: 'VS' }))
             .addStringOption(o => o.setName('server').setDescription('Khu vực (bắt buộc với UGPhone)').setRequired(false)
                 .addChoices({ name: 'Singapore', value: 'SG' }, { name: 'Hong Kong', value: 'HK' }, { name: 'Japan', value: 'JP' }, { name: 'Germany', value: 'DE' }, { name: 'US', value: 'US' })),
+        new SlashCommandBuilder().setName('meows').setDescription('Mua device nhanh qua Meows (UGPhone 49 xu / VSPhone VIP 15 xu)')
+            .addStringOption(o => o.setName('provider').setDescription('Chọn dịch vụ').setRequired(true)
+                .addChoices(
+                    { name: 'UGPhone — 49 xu', value: 'UG' },
+                    { name: 'VSPhone VIP — 15 xu', value: 'VSVIP' }
+                )),
         new SlashCommandBuilder().setName('shop').setDescription('Xem danh sách hàng hoá và giá trong shop'),
         new SlashCommandBuilder().setName('connect').setDescription('Liên kết tài khoản web với Discord để đồng bộ coin')
             .addStringOption(o => o.setName('token').setDescription('Token 64 ký tự lấy trong mục Hồ sơ trên web').setRequired(true)),
@@ -652,6 +658,45 @@ client.on('interactionCreate', async interaction => {
             await interaction.editReply({ content: `✅ Nhập code thành công! Bạn nhận được **${amount} xu**.\n💰 Số dư mới: **${newBalance} xu**` });
         } catch (error) {
             await interaction.editReply({ content: `❌ Lỗi khi nhập code.` });
+        }
+    }
+
+    // LỆNH /meows — mua UGPhone / VSPhone VIP qua API Meows
+    if (interaction.commandName === 'meows') {
+        const provider = String(interaction.options.getString('provider') || '').toUpperCase();
+        const cost = MEOWS_COSTS[provider];
+        if (!cost) return interaction.reply({ content: '❌ Dịch vụ không hợp lệ.', flags: MessageFlags.Ephemeral });
+
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (busyUsers.has(userId)) {
+            return interaction.editReply({ content: '⏳ Bạn đang có thao tác khác, thử lại sau giây lát.' });
+        }
+        const balance = await db.getCoins(userId);
+        if (balance < cost) {
+            return interaction.editReply({ content: `❌ Bạn không đủ xu (cần ${cost} xu). Số dư: **${balance} xu**.` });
+        }
+        busyUsers.add(userId);
+        try {
+            const result = await services.buyMeows(provider);
+            const newBalance = await db.updateCoins(userId, -cost);
+            const lines = [
+                `🎯 Dịch vụ: **${MEOWS_NAMES[provider]}**`,
+                `💰 Đã trừ: **${cost} xu** · Số dư: **${newBalance} xu**`,
+            ];
+            if (result.account) lines.push(`📧 \`${result.account}\``);
+            if (result.password) lines.push(`🔑 \`${result.password}\``);
+            if (result.token) lines.push(`🎫 Token: \`${result.token}\``);
+            if (!result.account && !result.password) lines.push(`📄 Dữ liệu: \`\`\`${String(result.copyText).slice(0, 600)}\`\`\``);
+            return await sendAccountWithCopy(interaction, {
+                header: `Mua ${MEOWS_NAMES[provider]} thành công!`,
+                copyText: result.copyText,
+                lines,
+            });
+        } catch (error) {
+            console.error(`[meows:${provider}] lỗi:`, error);
+            return interaction.editReply({ content: `❌ ${error.message}`.slice(0, 1900) });
+        } finally {
+            busyUsers.delete(userId);
         }
     }
 

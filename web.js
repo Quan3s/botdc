@@ -517,6 +517,40 @@ router.post('/api/device/reg', requireAuth, ah(async (req, res) => {
     }
 }));
 
+// Mua device qua Meows (UGPhone 49 xu / VSPhone VIP 15 xu)
+router.post('/api/device/meows', requireAuth, ah(async (req, res) => {
+    const provider = String(req.body.provider || '').toUpperCase();
+    const cost = services.MEOWS_COSTS[provider];
+    if (!cost) return res.status(400).json({ error: 'Dịch vụ Meows không hợp lệ.' });
+
+    const key = balanceKey(req.webUser);
+    if (busyUsers.has(key)) return res.status(409).json({ error: 'Bạn đang có thao tác khác, thử lại sau.' });
+
+    const balance = await db.getCoins(key);
+    if (balance < cost) return res.status(400).json({ error: `Bạn không đủ coin (cần ${cost}). Số dư: ${balance}.` });
+
+    busyUsers.add(key);
+    try {
+        const result = await services.buyMeows(provider);
+        const newBalance = await db.updateCoins(key, -cost);
+        res.json({
+            ok: true,
+            provider: services.MEOWS_NAMES[provider],
+            cost,
+            account: result.account,
+            password: result.password,
+            token: result.token || null,
+            userId: result.userId || null,
+            copyText: result.copyText,
+            details: result.details,
+            message: result.message,
+            newBalance,
+        });
+    } finally {
+        busyUsers.delete(key);
+    }
+}));
+
 // ==================== NHIỆM VỤ VƯỢT LINK ====================
 router.get('/api/tasks', requireAuth, ah(async (req, res) => {
     const key = balanceKey(req.webUser);
@@ -782,6 +816,32 @@ router.get('/api/admin/payouts', requireAdmin, ah(async (req, res) => {
 router.post('/api/admin/payout', requireAdmin, ah(async (req, res) => {
     const result = await weekly.runWeeklyPayout({ force: true });
     res.json({ ok: true, result });
+}));
+
+// ==================== ADMIN: MEOWS COOKIE ====================
+router.get('/api/admin/meows/cookie', requireAdmin, ah(async (req, res) => {
+    const cookie = await db.getKv(services.MEOWS_COOKIE_KEY);
+    res.json({
+        cookie: cookie || '',
+        configured: Boolean(cookie),
+        updatedAt: (await db.getKv('meows_cookie_updated_at')) || null,
+        format: '.COOKIESECURITY=<cookie>',
+    });
+}));
+
+router.post('/api/admin/meows/cookie', requireAdmin, ah(async (req, res) => {
+    const cookie = services.normalizeMeowsCookie(req.body.cookie);
+    if (!cookie) return res.status(400).json({ error: 'Nhập cookie Meows (có thể dán cả .COOKIESECURITY=...).' });
+    await db.setKv(services.MEOWS_COOKIE_KEY, cookie);
+    const updatedAt = new Date().toISOString();
+    await db.setKv('meows_cookie_updated_at', updatedAt);
+    res.json({ ok: true, cookie, configured: true, updatedAt });
+}));
+
+router.delete('/api/admin/meows/cookie', requireAdmin, ah(async (req, res) => {
+    await db.setKv(services.MEOWS_COOKIE_KEY, '');
+    await db.setKv('meows_cookie_updated_at', new Date().toISOString());
+    res.json({ ok: true, configured: false });
 }));
 
 // ==================== ADMIN: PLUGIN ====================

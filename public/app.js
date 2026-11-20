@@ -494,6 +494,33 @@ $$('[data-reg]').forEach(btn => btn.addEventListener('click', async () => {
   }
 }));
 
+// ==================== MEOWS DEVICE ====================
+$$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
+  const provider = btn.dataset.meows;
+  const box = $('#meows-result');
+  const cost = provider === 'UG' ? 49 : 15;
+  if (!confirm(`Xác nhận mua ${provider === 'UG' ? 'UGPhone' : 'VSPhone VIP'} với ${cost} xu?`)) return;
+  btn.disabled = true;
+  try {
+    const data = await api('/api/device/meows', { method: 'POST', body: JSON.stringify({ provider }) });
+    box.className = 'result-box';
+    box.innerHTML = `
+      <div>✅ Mua <b>${esc(data.provider)}</b> thành công! Đã trừ <b>${num(data.cost)} xu</b>.</div>
+      ${data.account ? `<div>📧 ${esc(data.account)}</div>` : ''}
+      ${data.password ? `<div>🔑 ${esc(data.password)}</div>` : ''}
+      <div class="accounts-box" id="meows-acc">${esc(data.copyText)}</div>
+      <div class="copy-row"><button class="btn btn-soft btn-sm" id="meows-copy">📋 Copy thông tin</button></div>
+      <div class="muted" style="margin-top:8px">Số dư mới: <b>${num(data.newBalance)} xu</b></div>`;
+    box.classList.remove('hidden');
+    $('#meows-copy').addEventListener('click', (ev) => copyText(data.copyText, ev.target));
+    await refreshUser();
+  } catch (err) {
+    box.className = 'result-box error';
+    box.textContent = `❌ ${err.message}`;
+    box.classList.remove('hidden');
+  } finally { btn.disabled = false; }
+}));
+
 // ==================== TASKS ====================
 async function loadTasks() {
   try {
@@ -689,7 +716,7 @@ async function loadAdmin() {
     $('#admin-payouts').innerHTML = data.payouts.length
       ? data.payouts.map(p => `<div class="mini-row"><span>Kỳ ${esc(p.period)}</span><b>${num(p.total)} coin</b></div>`).join('')
       : '<div class="empty">Chưa trả thưởng lần nào.</div>';
-    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins()]);
+    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie()]);
   } catch (err) { toast(err.message, 'error'); }
 }
 
@@ -702,6 +729,7 @@ function switchAdminTab(tabName) {
   if (tabName === 'shop') loadAdminItems();
   else if (tabName === 'user') loadAdminUsers().catch(() => {});
   else if (tabName === 'plugin') loadAdminPlugins();
+  else if (tabName === 'meows') loadMeowsCookie();
 }
 
 async function loadAdminItems() {
@@ -735,6 +763,47 @@ async function loadAdminUsers() {
     </div>`).join('') : '<div class="empty">Chưa có người dùng.</div>';
   $$('[data-coins]').forEach(b => b.addEventListener('click', () => coinsModal(b.dataset.coins)));
 }
+
+// ==================== ADMIN: MEOWS ====================
+async function loadMeowsCookie() {
+  const data = await api('/api/admin/meows/cookie');
+  $('#admin-meows-cookie').value = data.cookie || '';
+  const status = $('#meows-status');
+  status.textContent = data.configured ? '✅ Đã lưu' : '⚠️ Chưa có cookie';
+  status.title = data.updatedAt ? `Cập nhật: ${data.updatedAt}` : '';
+}
+
+$('#admin-meows-save-btn').addEventListener('click', async (e) => {
+  const btn = e.target;
+  const box = $('#admin-meows-result');
+  btn.disabled = true;
+  try {
+    await api('/api/admin/meows/cookie', {
+      method: 'POST',
+      body: JSON.stringify({ cookie: $('#admin-meows-cookie').value }),
+    });
+    box.className = 'result-box';
+    box.textContent = '✅ Đã lưu cookie Meows vào database. Có thể đổi bất cứ lúc nào.';
+    box.classList.remove('hidden');
+    await loadMeowsCookie();
+  } catch (err) {
+    box.className = 'result-box error';
+    box.textContent = `❌ ${err.message}`;
+    box.classList.remove('hidden');
+  } finally { btn.disabled = false; }
+});
+
+$('#admin-meows-clear-btn').addEventListener('click', async (e) => {
+  if (!confirm('Xoá cookie Meows? Các lệnh mua Meows sẽ không chạy cho đến khi lưu cookie mới.')) return;
+  const btn = e.target;
+  btn.disabled = true;
+  try {
+    await api('/api/admin/meows/cookie', { method: 'DELETE' });
+    toast('Đã xoá cookie Meows.');
+    await loadMeowsCookie();
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
 
 // ==================== ADMIN: PLUGIN ====================
 async function loadAdminPlugins() {

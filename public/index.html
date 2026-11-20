@@ -164,6 +164,15 @@
             </div>
             <div id="reg-result" class="result-box hidden"></div>
           </div>
+          <div class="card">
+            <div class="card-head"><h3>🐱 Meows nhanh</h3></div>
+            <p class="muted">Mua trực tiếp qua Meows, tài khoản trả về ngay. Chỉ trừ coin khi mua thành công.</p>
+            <div class="device-actions">
+              <button class="btn btn-soft" data-meows="UG">📱 UGPhone — 49 xu</button>
+              <button class="btn btn-soft" data-meows="VSVIP">⭐ VSPhone VIP — 15 xu</button>
+            </div>
+            <div id="meows-result" class="result-box hidden"></div>
+          </div>
         </div>
       </section>
 
@@ -285,6 +294,7 @@
           <button class="tab active" data-admin="user">👥 User</button>
           <button class="tab" data-admin="shop">🛍️ Shop</button>
           <button class="tab" data-admin="plugin">🧩 Plugin</button>
+          <button class="tab" data-admin="meows">🐱 Meows</button>
         </div>
 
         <div id="admin-sub-user" class="admin-sub">
@@ -342,6 +352,29 @@
             <div class="card">
               <div class="card-head"><h3>📦 Plugin đã cài</h3><button id="admin-plugin-refresh" class="btn btn-ghost">Làm mới</button></div>
               <div id="admin-plugins" class="admin-items"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="admin-sub-meows" class="admin-sub hidden">
+          <div class="grid two-col">
+            <div class="card">
+              <div class="card-head"><h3>🐱 Cookie Meows</h3><span id="meows-status" class="pill">Chưa kiểm tra</span></div>
+              <p class="muted">Dán cookie lấy từ meows.vn. Hệ thống tự chuẩn hoá thành <code>.COOKIESECURITY=&lt;cookie&gt;</code> rồi lưu vào database, đổi không cần deploy lại.</p>
+              <label>Cookie<input id="admin-meows-cookie" type="password" placeholder=".COOKIESECURITY=..." autocomplete="off" /></label>
+              <div class="device-actions">
+                <button id="admin-meows-save-btn" class="btn btn-primary">💾 Lưu cookie</button>
+                <button id="admin-meows-clear-btn" class="btn btn-danger">Xoá cookie</button>
+              </div>
+              <div id="admin-meows-result" class="result-box hidden"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>💰 Dịch vụ Meows</h3></div>
+              <ul class="reward-list">
+                <li><span>UGPhone</span><b>49 xu</b></li>
+                <li><span>VSPhone VIP</span><b>15 xu</b></li>
+              </ul>
+              <p class="muted" style="margin-top:14px">Dùng ở mục <b>Buy Device</b> hoặc lệnh <code>/meows</code> trong Discord. Cookie hết hạn → cập nhật tại đây.</p>
             </div>
           </div>
         </div>

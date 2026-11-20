@@ -12,6 +12,7 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 - `/shop` — xem danh sách sản phẩm, giá, logo và tồn kho.
 - `/connect <token>` — liên kết tài khoản web với Discord để **cộng dồn coin** (coin web + coin Discord).
 - `/token` — lấy **token cố định** của tài khoản (bằng `web_users.link_token`); dùng để đăng nhập web hoặc `/connect`.
+- `/meows` — mua nhanh **UGPhone (49 xu)** hoặc **VSPhone VIP (15 xu)** qua API Meows.
 - `/plugin ten:lenh` — gọi lệnh do plugin đăng ký.
 - `/vi`, `/daily`, `/code`, `/pay`, `/star`, `/sdone`, `/adcoin`, `/gen`, `/op`, `/unop`, `/clear`.
 - Sau khi tạo tài khoản, bot gửi kèm nút **📋 Copy acc|pass** (bấm để nhận lại đúng định dạng `tài khoản|mật_khẩu`).
@@ -22,7 +23,7 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 - Số dư coin hiển thị ở góc trên; nút bấm trực quan cho mọi chức năng.
 - **Shop**: mua hàng, xem đồ đã mua, copy tài khoản.
 - **Giftcode**: nhập mã quà để nhận coin (mã tạo từ lệnh `/gen`).
-- **Buy Device**: mua cloud (Hanami) và reg tài khoản.
+- **Buy Device**: mua cloud (Hanami), reg tài khoản và mua nhanh Meows (UGPhone 49 xu / VSPhone VIP 15 xu).
 - **Nhiệm vụ**: lấy link vượt link, theo dõi lượt trong ngày & trong tuần.
 - **Xếp hạng**: coin · vượt link **7 ngày** (có thưởng, reset sau mỗi kỳ) · vượt link **tổng** (không thưởng). Tên hiển thị là username, không phải ID số.
 - **Chuyển tiền**: chuyển coin cho người khác (phí 5%).
@@ -31,6 +32,7 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
   - **User**: danh sách người dùng, đơn hàng, lịch sử trả thưởng.
   - **Shop**: tạo sản phẩm, upload kho lên GitHub Gist, đặt giá, thêm kho, sửa/xoá.
   - **Plugin**: dán link raw script → tự lưu Gist → lưu gist_id vào DB → load chạy ngay (không deploy lại).
+  - **Meows**: nhập/lưu cookie dùng cho 2 dịch vụ mua nhanh; tự chuẩn hoá `.COOKIESECURITY=<cookie>`, đổi không cần deploy.
 
 ### Thưởng bảng xếp hạng vượt link (tự động mỗi Chủ nhật)
 | Hạng | Thưởng |
@@ -89,6 +91,11 @@ Chỉ admin mới được cài/sửa plugin; sandbox chỉ để hạn chế, k
 3. Mục **Quản trị** sẽ hiện trên dashboard.
 
 Admin được xác định bởi `ADMIN_DISCORD_ID` (owner) hoặc bảng `admins` (cấp qua `/op`).
+
+### Meows cookie
+Vào **Quản trị → Meows**, dán cookie lấy từ meows.vn (có thể dán cả chuỗi `.COOKIESECURITY=...` hoặc cả header `Cookie: ...`).
+Server tự lưu vào bảng `kv` (key `meows_cookie`) dạng `.COOKIESECURITY=<cookie>`; **không cần tạo bảng mới**.
+Cookie hết hạn chỉ cần cập nhật ở đây, không deploy lại. Dùng cho `/meows` và mục **Buy Device → Meows nhanh**.
 
 ## Biến môi trường
 Xem `.env.example`. Các biến quan trọng: `DISCORD_TOKEN`, `ADMIN_DISCORD_ID`,
