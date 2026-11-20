@@ -552,6 +552,7 @@ router.post('/api/device/meows', requireAuth, ah(async (req, res) => {
             copyText: result.copyText,
             details: result.details,
             message: result.message,
+            source: result.source,
             newBalance,
         });
     } finally {

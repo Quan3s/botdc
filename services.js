@@ -23,21 +23,22 @@ function vsphoneReady() {
 async function buyHanami(cloudId, server, inputData) {
     const body = { token: process.env.HANAMI_TOKEN, cloud_id: cloudId, input_data: inputData };
     if (server) body.server = server;
-    const response = await requestViaProxy(HANAMI_URL, {
+    const result = await requestWithFallback(HANAMI_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
         body: JSON.stringify(body),
+        timeout: 60000,
     });
-    const raw = await response.text();
+    const raw = result.raw;
     let data;
     try {
         data = JSON.parse(raw);
     } catch (e) {
-        console.error(`[buycloud] Hanami trả về không phải JSON (HTTP ${response.status}):`, raw.slice(0, 300));
+        console.error(`[buycloud] Hanami trả về không phải JSON (HTTP ${result.status}):`, raw.slice(0, 300));
         const snippet = raw.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
-        return { ok: false, message: `Hanami trả về HTML thay vì JSON (HTTP ${response.status}): ${snippet.replace(/`/g, "'")}` };
+        return { ok: false, message: `Hanami trả về HTML thay vì JSON (HTTP ${result.status}): ${snippet.replace(/`/g, "'")}`, source: result.source };
     }
-    return { ok: data.code === 0, message: data.message || 'Không rõ' };
+    return { ok: data.code === 0, message: data.message || 'Không rõ', source: result.source };
 }
 
 /** Đăng ký 1 tài khoản VMOS. Trả về { account, mail, password }. */
@@ -176,7 +177,7 @@ async function buyMeows(provider) {
     const cookie = await getMeowsCookie();
     if (!cookie) throw new Error('Admin chưa lưu cookie dịch vụ nhanh (Quản trị → Cookie).');
 
-    const response = await requestViaProxy(config.url, {
+    const result = await requestWithFallback(config.url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -190,7 +191,8 @@ async function buyMeows(provider) {
         signal: AbortSignal.timeout(60000),
         timeout: 60000,
     });
-    const raw = await response.text();
+    const response = { ok: result.ok, status: result.status };
+    const raw = result.raw;
     let data = null;
     try { data = JSON.parse(raw); } catch (e) { /* giữ raw để báo lỗi */ }
 
@@ -208,6 +210,7 @@ async function buyMeows(provider) {
         copyText: info.copyText || rawText,
         details: data || raw,
         message: (data && (data.message || data.msg)) || 'Mua thành công',
+        source: result.source,
     };
 }
 
@@ -265,72 +268,85 @@ async function getProxyUrl() {
     }
 }
 
-/** Gọi API qua Worker (https://...) hoặc SOCKS5/WARP. Dùng cho cả status lẫn mua. */
-async function requestViaProxy(url, options = {}) {
+/** Cùng thứ tự nguồn với Cloud Status: worker/warp → direct → www → reader (chỉ GET). */
+async function getRequestSources(includeReader = false) {
     const proxyUrl = await getProxyUrl();
-    if (!proxyUrl) return fetch(url, options);
+    const sources = [];
+    if (proxyUrl) {
+        sources.push(/^https?:\/\//i.test(proxyUrl)
+            ? { name: 'worker', kind: 'worker', url: proxyUrl }
+            : { name: 'warp', kind: 'socks', proxyUrl });
+    }
+    sources.push({ name: 'direct', kind: 'direct' });
+    sources.push({ name: 'www', kind: 'www' });
+    if (includeReader) sources.push({ name: 'proxy', kind: 'reader' });
+    return sources;
+}
 
-    if (/^https?:\/\//i.test(proxyUrl)) {
-        const target = new URL(proxyUrl);
-        target.searchParams.set('url', url);
-        return fetch(target.toString(), {
-            ...options,
-            headers: { ...proxyKeyHeaders(), ...(options.headers || {}) },
-            redirect: 'manual',
+function isBlockedResponse(response, raw) {
+    return response.status === 403 || /Just a moment|cf-challenge|cloudflare/i.test(String(raw || '').slice(0, 500));
+}
+
+async function requestFromSource(source, targetUrl, options) {
+    const headers = { ...(options.headers || {}) };
+    let url = targetUrl;
+
+    if (source.kind === 'worker') {
+        const u = new URL(source.url);
+        u.searchParams.set('url', targetUrl);
+        url = u.toString();
+        Object.assign(headers, proxyKeyHeaders());
+    } else if (source.kind === 'www') {
+        url = targetUrl.replace('https://meows.vn', 'https://www.meows.vn');
+    } else if (source.kind === 'reader') {
+        url = `https://r.jina.ai/${targetUrl}`;
+        delete headers.Cookie;
+        delete headers.cookie;
+    } else if (source.kind === 'socks') {
+        const nodeOptions = { ...options, headers };
+        delete nodeOptions.signal; // node-fetch v2 dùng timeout thay vì AbortSignal.timeout
+        return nodeFetch(targetUrl, {
+            ...nodeOptions,
+            agent: new SocksProxyAgent(source.proxyUrl),
+            timeout: Number(nodeOptions.timeout) || 60000,
         });
     }
 
-    const nodeOptions = { ...options };
-    delete nodeOptions.signal; // node-fetch v2 dùng timeout thay vì AbortSignal.timeout
-    return nodeFetch(url, {
-        ...nodeOptions,
-        agent: new SocksProxyAgent(proxyUrl),
-        timeout: Number(nodeOptions.timeout) || 60000,
-    });
+    return fetch(url, { ...options, headers, redirect: 'manual' });
 }
 
-async function fetchMeowsStatus(source) {
-    const proxy = !!source.proxy;
-    const headers = proxy
-        ? { Accept: 'text/plain', 'User-Agent': MEOWS_UA }
-        : {
-            Accept: 'application/json',
-            Origin: 'https://meows.vn',
-            Referer: 'https://meows.vn/client/cloud-manager',
-            'User-Agent': MEOWS_UA,
-        };
-    if (source.proxyHttp) Object.assign(headers, proxyKeyHeaders());
+/**
+ * Gọi API theo chain của status. Chỉ retry khi bị chặn (403/Cloudflare) hoặc lỗi mạng.
+ * Với mua hàng KHÔNG retry sau khi API đã trả response, để tránh mua trùng/trừ coin trùng.
+ */
+async function requestWithFallback(targetUrl, options = {}, { includeReader = false, parse = null } = {}) {
+    const sources = await getRequestSources(includeReader);
+    let lastError = null;
 
-    const response = source.proxyUrl
-        ? await nodeFetch(source.url, {
-            agent: new SocksProxyAgent(source.proxyUrl),
-            headers,
-            timeout: 15000,
-        })
-        : await fetch(source.url, { headers, signal: AbortSignal.timeout(15000) });
-    const raw = await response.text();
-    const data = parseMeowsStatus(raw);
+    for (const source of sources) {
+        let response;
+        let raw;
+        try {
+            response = await requestFromSource(source, targetUrl, options);
+            raw = await response.text();
+        } catch (e) {
+            lastError = new Error(`${source.name}: ${e.message}`);
+            continue;
+        }
 
-    if (!response.ok) {
-        const challenge = /Just a moment|cf-challenge|cloudflare/i.test(raw);
-        const hint = response.status === 403
-            ? (challenge ? ' - Cloudflare chặn IP server (Just a moment...)' : ' - IP server có thể bị Meows chặn')
-            : '';
-        const snippet = raw && !data ? ` ${raw.replace(/\s+/g, ' ').slice(0, 100)}` : '';
-        throw new Error(`HTTP ${response.status}${hint}${snippet}`);
+        if (isBlockedResponse(response, raw)) {
+            const challenge = /Just a moment/i.test(raw);
+            lastError = new Error(`${source.name}: HTTP ${response.status}${challenge ? ' (Cloudflare challenge)' : ''}`);
+            continue;
+        }
+        const parsed = parse ? parse(raw) : null;
+        if (!response.ok || (parse && (!parsed || parsed.success === false))) {
+            return { raw, status: response.status, ok: false, source: source.name, parsed: null };
+        }
+        return { raw, status: response.status, ok: true, source: source.name, parsed };
     }
-    if (!data || data.success === false) {
-        throw new Error((data && (data.message || data.error)) || 'API không trả dữ liệu');
-    }
-    return data;
+    throw lastError || new Error('Không gọi được API');
 }
-
-// Nếu cấu hình WARP/SOCKS thì dùng trước. Sau đó mới thử direct, www, reader proxy.
-const CLOUD_STATUS_BASE_SOURCES = [
-    { name: 'direct', url: 'https://meows.vn/api/cloud-status' },
-    { name: 'www', url: 'https://www.meows.vn/api/cloud-status' },
-    { name: 'proxy', url: 'https://r.jina.ai/https://meows.vn/api/cloud-status', proxy: true },
-];
 
 /** Trạng thái cloudphone từ Meows. Cache 60s để tránh spam API. */
 async function getCloudStatus({ force = false } = {}) {
@@ -341,41 +357,42 @@ async function getCloudStatus({ force = false } = {}) {
     if (cloudStatusPromise) return cloudStatusPromise;
 
     cloudStatusPromise = (async () => {
-        let data = null;
-        let source = null;
+        let result = null;
         let lastError = null;
-        const proxyUrl = await getProxyUrl();
-        const firstSource = proxyUrl
-            ? /^https?:\/\//i.test(proxyUrl)
-                ? { name: 'worker', url: proxyUrl, proxyHttp: true }
-                : { name: 'warp', url: 'https://meows.vn/api/cloud-status', proxyUrl }
-            : null;
-        const sources = firstSource ? [firstSource, ...CLOUD_STATUS_BASE_SOURCES] : CLOUD_STATUS_BASE_SOURCES;
-
-        for (const candidate of sources) {
-            try {
-                data = await fetchMeowsStatus(candidate);
-                source = candidate.name;
-                break;
-            } catch (e) {
-                lastError = e;
-            }
+        try {
+            result = await requestWithFallback('https://meows.vn/api/cloud-status', {
+                headers: {
+                    Accept: 'application/json',
+                    Origin: 'https://meows.vn',
+                    Referer: 'https://meows.vn/client/cloud-manager',
+                    'User-Agent': MEOWS_UA,
+                },
+                signal: AbortSignal.timeout(15000),
+                timeout: 15000,
+            }, { includeReader: true, parse: parseMeowsStatus });
+        } catch (e) {
+            lastError = e;
         }
 
         const errors = [];
         let meows;
-        if (data) {
+        let source = null;
+        if (result && result.ok && result.parsed) {
+            const data = result.parsed;
+            source = result.source;
             meows = {
                 vmos: normalizeMeowsDevice(data.vmos),
                 vsphone: normalizeMeowsDevice(data.vsphone),
                 ts: Number(data.ts) || null,
             };
         } else {
-            errors.push(`Meows: ${lastError ? lastError.message : 'không lấy được trạng thái'}`);
-            const message = lastError ? lastError.message : 'Không lấy được trạng thái';
+            const reason = lastError
+                ? lastError.message
+                : (result && result.parsed && (result.parsed.message || result.parsed.error)) || 'API không trả dữ liệu';
+            errors.push(`Meows: ${reason}`);
             meows = {
-                vmos: { status: 'offline', message, lastBuyAt: null },
-                vsphone: { status: 'offline', message, lastBuyAt: null },
+                vmos: { status: 'offline', message: reason, lastBuyAt: null },
+                vsphone: { status: 'offline', message: reason, lastBuyAt: null },
                 ts: null,
             };
         }

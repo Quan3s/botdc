@@ -127,7 +127,11 @@ warp-cli --accept-tos set-proxy-port 40000
 warp-cli --accept-tos connect
 ```
 
-Ưu tiên env: `MEOWS_API_PROXY` → `MEOWS_STATUS_PROXY` → ô trong DB → gọi trực tiếp. Riêng Cloud Status có thêm fallback `www` → reader proxy; ô thời gian hiện `worker` / `warp` / `www` / `proxy`.
+Ưu tiên env: `MEOWS_API_PROXY` → `MEOWS_STATUS_PROXY` → ô trong DB → gọi trực tiếp.
+
+**Mua máy dùng chung chain với status**: `worker`/`warp` → `direct` → `www`. Chỉ retry khi bị Cloudflare chặn (403/Just a moment) hoặc lỗi mạng; **không retry sau khi API đã trả response** để tránh mua trùng/trừ coin trùng. Reader proxy chỉ dùng cho GET (status), không dùng cho POST mua hàng.
+
+Ô thời gian trên **Cloud Status** hiện `worker` / `warp` / `www` / `proxy` tương ứng nguồn đang dùng.
 
 ## Biến môi trường
 Xem `.env.example`. Các biến quan trọng: `DISCORD_TOKEN`, `ADMIN_DISCORD_ID`,
