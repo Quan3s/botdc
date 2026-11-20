@@ -28,7 +28,7 @@ async function buyHanami(cloudId, server, inputData) {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
         body: JSON.stringify(body),
         timeout: 60000,
-    }, { includeWww: false });
+    }, { includeWww: false, useProxy: process.env.HANAMI_USE_PROXY === '1' });
     const raw = result.raw;
     let data;
     try {
@@ -273,8 +273,9 @@ async function getProxyUrl() {
 }
 
 /** Cùng thứ tự nguồn với Cloud Status. `www` chỉ dùng cho GET/status (API mua không có trên www). */
-async function getRequestSources({ includeReader = false, includeWww = true } = {}) {
-    const proxyUrl = await getProxyUrl();
+async function getRequestSources({ includeReader = false, includeWww = true, useProxy = true } = {}) {
+    // useProxy=false dùng cho dịch vụ không phải Meows (vd Hanami) — WARP chỉ áp dụng cho Meows.
+    const proxyUrl = useProxy ? await getProxyUrl() : '';
     const sources = [];
     if (proxyUrl) {
         sources.push(/^https?:\/\//i.test(proxyUrl)
@@ -325,8 +326,8 @@ async function requestFromSource(source, targetUrl, options) {
  * Gọi API theo chain của status. Chỉ retry khi bị chặn (403/Cloudflare) hoặc lỗi mạng.
  * Với mua hàng KHÔNG retry sau khi API đã trả response, để tránh mua trùng/trừ coin trùng.
  */
-async function requestWithFallback(targetUrl, options = {}, { includeReader = false, includeWww = true, parse = null } = {}) {
-    const sources = await getRequestSources({ includeReader, includeWww });
+async function requestWithFallback(targetUrl, options = {}, { includeReader = false, includeWww = true, useProxy = true, parse = null } = {}) {
+    const sources = await getRequestSources({ includeReader, includeWww, useProxy });
     const failures = [];
 
     for (const source of sources) {

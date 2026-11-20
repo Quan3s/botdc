@@ -105,7 +105,7 @@ IP Render bị Meows/Cloudflare chặn (`403 - Just a moment...`), nhưng **IP C
 - **Mua nhanh** Meows (UGPhone 49 xu / VSPhone VIP 15 xu)
 - **Mua UGPhone** qua Hanami (`Buy Device` / lệnh `reg`)
 
-**Render không cài được `warp-cli`** (cần `NET_ADMIN` + `/dev/net/tun`), nên dùng Cloudflare Worker.
+**Render không cài được `warp-cli`** (cần `NET_ADMIN` + `/dev/net/tun`), nhưng **chạy được WARP userspace bằng `wireproxy` ngay trong Render** — xem mục **C** bên dưới (không cần VPS). Cloudflare Worker vẫn là phương án dự phòng.
 
 **A. Cloudflare Worker (khuyến nghị trên Render)**
 
@@ -155,6 +155,26 @@ MEOWS_API_PROXY=socks5h://proxyuser:pass-khong-co-dau-cach@IP_VPS:1080
 VPS/script này **phải chạy 24/7** (dùng `systemd` hoặc Docker `restart: always`). WARP profile (`wgcf-profile.conf`) chứa private key → đã nằm trong `.gitignore`, không commit.
 
 Nếu vẫn dùng `warp-cli` (cần TUN) thì proxy mode mặc định là `127.0.0.1:40000`.
+
+**C. Chạy WARP thẳng trong Render (không VPS, không TUN)**
+
+Script: [`scripts/render-start.sh`](./scripts/render-start.sh). Nó tự tải `wireproxy`, dựng cấu hình từ profile, mở SOCKS5 `127.0.0.1:1080`, rồi mới chạy bot.
+
+1. Tạo profile **1 lần ở máy bạn**: `wgcf register --accept-tos && wgcf generate` → ra `wgcf-profile.conf`.
+2. Encode: `base64 -w0 wgcf-profile.conf` → dán làm secret Render `WGCF_PROFILE_B64`.
+3. Render → Service → Settings:
+   - **Build Command**: `npm install`
+   - **Start Command**: `bash scripts/render-start.sh`
+   - Env: `RENDER_WARP=1`, `WGCF_PROFILE_B64=<chuỗi base64>`
+
+Script sẽ **health check qua chính SOCKS5** trước khi bật proxy:
+
+- Tunnel OK → tự set `MEOWS_API_PROXY=socks5h://127.0.0.1:1080`, Cloud Status hiện `· warp`.
+- Không handshake được (Render chặn UDP ra cổng WireGuard) → tự bỏ proxy, bot chạy bình thường với chain cũ (Worker → direct → reader). **App không bao giờ treo vì WARP.**
+
+Muốn tự đăng ký WARP ngay trên Render (không cần secret) thì thêm `WGCF_AUTO_REGISTER=1` — nhưng mỗi deploy sẽ ra identity mới, không khuyến khích.
+
+**Cách ly**: `wireproxy` là userspace, **không sửa routing table**. Nên chỉ request nào dùng `SocksProxyAgent` mới đi WARP — ở đây là Meows (status + mua nhanh). Discord gateway, Supabase, web UI, gift code... vẫn đi IP Render bình thường. Hanami mặc định **không** đi WARP; bật nếu cần: `HANAMI_USE_PROXY=1`.
 
 Ưu tiên env: `MEOWS_API_PROXY` → `MEOWS_STATUS_PROXY` → ô trong DB → gọi trực tiếp.
 
