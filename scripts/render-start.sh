@@ -17,6 +17,7 @@ PROFILE="${WGCF_PROFILE:-$PWD/wgcf-profile.conf}"
 CONF="${WIREPROXY_CONF:-$PWD/wireproxy.conf}"
 PORT="${WARP_SOCKS_PORT:-1080}"
 SOCKS_URL="socks5h://127.0.0.1:${PORT}"
+ORIGINAL_MEOWS_API_PROXY="${MEOWS_API_PROXY:-}"
 
 WIREPROXY_VER="v1.1.3"
 WGCF_VER="v2.3.1"
@@ -120,8 +121,14 @@ then
 else
     kill "$WARP_LOOP_PID" 2>/dev/null || true
     pkill -x wireproxy 2>/dev/null || true
-    unset MEOWS_API_PROXY
-    echo "[warp] Giữ chain mặc định."
+    # Trả lại proxy cũ (vd Worker) thay vì xoá sạch — nếu không Worker sẽ bị mất.
+    if [[ -n "$ORIGINAL_MEOWS_API_PROXY" ]]; then
+        export MEOWS_API_PROXY="$ORIGINAL_MEOWS_API_PROXY"
+        echo "[warp] Fallback về proxy có sẵn: ${ORIGINAL_MEOWS_API_PROXY%%\?*}"
+    else
+        unset MEOWS_API_PROXY
+        echo "[warp] Giữ chain mặc định."
+    fi
 fi
 
 exec node server.js
