@@ -472,6 +472,14 @@ router.get('/api/purchases', requireAuth, ah(async (req, res) => {
     });
 }));
 
+// ==================== CLOUDPHONE STATUS (public) ====================
+router.get('/api/status/cloud', ah(async (req, res) => {
+    const ip = req.ip || 'unknown';
+    if (!rateLimit(`cloud:${ip}`, 30, 60 * 1000)) return res.status(429).json({ error: 'Quá nhiều lần kiểm tra, vui lòng đợi.' });
+    const data = await services.getCloudStatus({ force: req.query.force === '1' });
+    res.json(data);
+}));
+
 // ==================== DEVICE ====================
 router.post('/api/device/buycloud', requireAuth, ah(async (req, res) => {
     const provider = String(req.body.provider || '').toUpperCase();

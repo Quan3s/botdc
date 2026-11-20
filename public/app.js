@@ -10,6 +10,8 @@ const state = {
   plugins: [],
 };
 
+let cloudStatusTimer = null;
+
 // ==================== HELPERS ====================
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -267,6 +269,7 @@ const VIEW_TITLES = {
   dashboard: 'Tổng quan',
   shop: 'Shop',
   buydevice: 'Buy Device',
+  cloudstatus: 'Cloud Status',
   tasks: 'Nhiệm vụ',
   giftcode: 'Giftcode',
   leaderboard: 'Bảng xếp hạng',
@@ -282,6 +285,8 @@ function switchView(view) {
   $('#view-title').textContent = VIEW_TITLES[view] || 'Dashboard';
   $('.sidebar').classList.remove('open');
   if (location.hash !== `#${view}`) history.replaceState(null, '', `#${view}`);
+  if (view === 'cloudstatus') startCloudStatusPolling();
+  else stopCloudStatusPolling();
   loadView(view);
 }
 
@@ -292,6 +297,7 @@ $('#menu-toggle').addEventListener('click', () => $('.sidebar').classList.toggle
 function loadView(view) {
   if (view === 'dashboard') refreshDashboard();
   else if (view === 'shop') loadShop();
+  else if (view === 'cloudstatus') loadCloudStatus();
   else if (view === 'tasks') loadTasks();
   else if (view === 'giftcode') $('#giftcode-input').focus();
   else if (view === 'leaderboard') loadLeaderboard();
@@ -552,6 +558,71 @@ $('#task-get-btn').addEventListener('click', async (e) => {
     box.textContent = `❌ ${err.message}`;
     box.classList.remove('hidden');
   } finally { btn.disabled = false; }
+});
+
+// ==================== CLOUD STATUS ====================
+function startCloudStatusPolling() {
+  if (cloudStatusTimer) return;
+  cloudStatusTimer = setInterval(() => {
+    if (state.view === 'cloudstatus') loadCloudStatus(true).catch(() => {});
+  }, 60000);
+}
+
+function stopCloudStatusPolling() {
+  if (!cloudStatusTimer) return;
+  clearInterval(cloudStatusTimer);
+  cloudStatusTimer = null;
+}
+
+function statusBadgeHtml(online) {
+  return `<span class="status-badge ${online ? 'online' : ''}">${online ? 'Có máy' : 'Hết máy'}</span>`;
+}
+
+function renderCloudRegions(root, regions, message) {
+  if (!regions) {
+    root.innerHTML = `<div class="empty">${esc(message || 'Không lấy được trạng thái.')}</div>`;
+    return;
+  }
+  const entries = Object.entries(regions);
+  root.innerHTML = entries.length
+    ? entries.map(([name, online]) => `<div class="mini-row"><span>${esc(name)}</span>${statusBadgeHtml(online)}</div>`).join('')
+    : '<div class="empty">Không có dữ liệu khu vực.</div>';
+}
+
+function setDeviceStatus(sel, msgSel, device) {
+  const online = device && device.status === 'online';
+  const el = $(sel);
+  el.className = `status-badge ${online ? 'online' : ''}`;
+  el.textContent = online ? 'Có máy' : 'Hết máy';
+  const parts = [];
+  if (device && device.message) parts.push(device.message);
+  if (device && device.lastBuyAt) parts.push(`Lần mua cuối: ${new Date(device.lastBuyAt).toLocaleString('vi-VN')}`);
+  $(msgSel).textContent = parts.join(' · ');
+}
+
+async function loadCloudStatus(force = false) {
+  try {
+    const data = await api(`/api/status/cloud${force ? '?force=1' : ''}`);
+    $('#cloud-status-time').textContent = `Cập nhật: ${new Date(data.checkedAt).toLocaleTimeString('vi-VN')}`;
+    setDeviceStatus('#status-meows-vmos', '#status-meows-vmos-msg', data.vmos);
+    setDeviceStatus('#status-meows-vsphone', '#status-meows-vsphone-msg', data.vsphone);
+    renderCloudRegions($('#status-ugphone'), data.ugphoneRegions, data.ugphoneMessage);
+    renderCloudRegions($('#status-hanami-vmos'), data.hanamiVmosRegions, data.hanamiVmosMessage);
+    const errorBox = $('#cloud-status-errors');
+    if (data.errors && data.errors.length) {
+      errorBox.textContent = `⚠️ ${data.errors.join(' · ')}`;
+      errorBox.classList.remove('hidden');
+    } else errorBox.classList.add('hidden');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+$('#cloud-status-refresh').addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  try { await loadCloudStatus(true); toast('Đã cập nhật trạng thái.'); }
+  catch (err) { toast(err.message, 'error'); }
+  finally { e.target.disabled = false; }
 });
 
 // ==================== GIFTCODE ====================

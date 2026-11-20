@@ -63,6 +63,7 @@
       <button class="nav-item active" data-view="dashboard"><span>🏠</span> Tổng quan</button>
       <button class="nav-item" data-view="shop"><span>🛒</span> Shop</button>
       <button class="nav-item" data-view="buydevice"><span>📱</span> Buy Device</button>
+      <button class="nav-item" data-view="cloudstatus"><span>📡</span> Cloud Status</button>
       <button class="nav-item" data-view="tasks"><span>🔗</span> Nhiệm vụ</button>
       <button class="nav-item" data-view="giftcode"><span>🎁</span> Giftcode</button>
       <button class="nav-item" data-view="leaderboard"><span>🏆</span> Xếp hạng</button>
@@ -175,6 +176,40 @@
             <div id="meows-result" class="result-box hidden"></div>
           </div>
         </div>
+      </section>
+
+      <!-- CLOUD STATUS -->
+      <section id="view-cloudstatus" class="view">
+        <div class="section-head">
+          <div><h3>📡 Cloudphone Status</h3><p class="muted">Trạng thái máy theo thời gian thực. Dữ liệu chỉ mang tính tương đối.</p></div>
+          <button id="cloud-status-refresh" class="btn btn-soft">🔄 Làm mới</button>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>⚡ Mua nhanh</h3><span id="cloud-status-time" class="muted">—</span></div>
+          <div class="grid two-col">
+            <div class="status-row">
+              <span>VMOS Cloud</span>
+              <span id="status-meows-vmos" class="status-badge">—</span>
+              <small id="status-meows-vmos-msg" class="status-msg"></small>
+            </div>
+            <div class="status-row">
+              <span>VSPhone VIP</span>
+              <span id="status-meows-vsphone" class="status-badge">—</span>
+              <small id="status-meows-vsphone-msg" class="status-msg"></small>
+            </div>
+          </div>
+        </div>
+        <div class="grid two-col">
+          <div class="card">
+            <div class="card-head"><h3>🌐 UGPhone theo khu vực</h3></div>
+            <div id="status-ugphone" class="mini-list"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>🖥️ VMOS theo khu vực</h3></div>
+            <div id="status-hanami-vmos" class="mini-list"></div>
+          </div>
+        </div>
+        <div id="cloud-status-errors" class="result-box error hidden"></div>
       </section>
 
       <!-- TASKS -->
