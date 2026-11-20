@@ -129,7 +129,7 @@ warp-cli --accept-tos connect
 
 Ưu tiên env: `MEOWS_API_PROXY` → `MEOWS_STATUS_PROXY` → ô trong DB → gọi trực tiếp.
 
-**Mua máy dùng chung chain với status**: `worker`/`warp` → `direct` → `www`. Chỉ retry khi bị Cloudflare chặn (403/Just a moment) hoặc lỗi mạng; **không retry sau khi API đã trả response** để tránh mua trùng/trừ coin trùng. Reader proxy chỉ dùng cho GET (status), không dùng cho POST mua hàng.
+**Mua máy dùng chung chain với status**: `worker`/`warp` → `direct` (**không dùng `www`**, vì API mua chỉ có trên domain chính và `www` dễ trả 404). Chỉ retry khi bị Cloudflare chặn (403/Just a moment), Worker trả 404 (bản cũ/sai route) hoặc lỗi mạng; **không retry sau khi API đã trả response hợp lệ** để tránh mua trùng/trừ coin trùng. Reader proxy chỉ dùng cho GET (status), không dùng cho POST mua hàng. Thông báo lỗi sẽ kèm `[nguồn: ...]` và danh sách các nguồn đã thử.
 
 Ô thời gian trên **Cloud Status** hiện `worker` / `warp` / `www` / `proxy` tương ứng nguồn đang dùng.
 
