@@ -24,7 +24,7 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 - **Shop**: mua hàng, xem đồ đã mua, copy tài khoản.
 - **Giftcode**: nhập mã quà để nhận coin (mã tạo từ lệnh `/gen`).
 - **Buy Device**: mua cloud (Hanami), reg tài khoản và mua nhanh (UGPhone 49 xu / VSPhone VIP 15 xu).
-- **Cloud Status** (hiển thị cho mọi người, không cần đăng nhập): trạng thái VMOS/VSPhone của dịch vụ mua nhanh và trạng thái UGPhone/VMOS của Hanami theo 5 khu vực (America, Germany, Singapore, Hong Kong, Japan). Tự làm mới mỗi 60s; API public `GET /api/status/cloud` (cache 60s, `?force=1` để lấy mới ngay). `status: offline` = hết máy.
+- **Cloud Status** (hiển thị cho mọi người, không cần đăng nhập): trạng thái **VMOS Cloud** và **VSPhone** của dịch vụ mua nhanh (lấy từ `GET https://meows.vn/api/cloud-status`). Tự làm mới mỗi 60s; API public `GET /api/status/cloud` (cache 60s, `?force=1` để lấy mới ngay). `status: offline` = hết máy. Nếu Meows trả 403, phần lỗi sẽ hiện rõ để biết IP server bị chặn; không ảnh hưởng các chức năng khác.
 - **Nhiệm vụ**: lấy link vượt link, theo dõi lượt trong ngày & trong tuần.
 - **Xếp hạng**: coin · vượt link **7 ngày** (có thưởng, reset sau mỗi kỳ) · vượt link **tổng** (không thưởng). Tên hiển thị là username, không phải ID số.
 - **Chuyển tiền**: chuyển coin cho người khác (phí 5%).

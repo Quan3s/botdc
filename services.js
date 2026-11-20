@@ -213,14 +213,6 @@ const CLOUD_STATUS_TTL_MS = 60 * 1000;
 let cloudStatusCache = null;
 let cloudStatusPromise = null;
 
-function normalizeRegions(data) {
-    const out = {};
-    for (const [name, value] of Object.entries(data || {})) {
-        out[name] = value === true || value === 1 || String(value).toLowerCase() === 'true';
-    }
-    return out;
-}
-
 function normalizeMeowsDevice(entry) {
     const raw = String((entry && entry.status) || '').toLowerCase();
     const online = ['online', 'available', 'active', 'ready', 'ok', 'instock', 'in_stock', 'true'].includes(raw);
@@ -231,32 +223,7 @@ function normalizeMeowsDevice(entry) {
     };
 }
 
-async function fetchHanamiStatus(path) {
-    const token = process.env.HANAMI_TOKEN;
-    if (!token) return { ok: false, error: 'Chưa cấu hình HANAMI_TOKEN', regions: null, message: '' };
-    try {
-        const response = await fetch(`https://hanaminikata.com${path}?token=${encodeURIComponent(token)}`, {
-            headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
-            signal: AbortSignal.timeout(15000),
-        });
-        const raw = await response.text();
-        let data = null;
-        try { data = JSON.parse(raw); } catch (e) { /* giữ raw */ }
-        if (!response.ok || !data || Number(data.code) !== 0) {
-            return {
-                ok: false,
-                error: (data && (data.message || data.error)) || `HTTP ${response.status}`,
-                regions: null,
-                message: '',
-            };
-        }
-        return { ok: true, error: null, regions: normalizeRegions(data.data), message: data.message || '' };
-    } catch (e) {
-        return { ok: false, error: e.message, regions: null, message: '' };
-    }
-}
-
-/** Trạng thái cloudphone từ Meows + Hanami. Cache 60s để tránh spam API. */
+/** Trạng thái cloudphone từ Meows. Cache 60s để tránh spam API. */
 async function getCloudStatus({ force = false } = {}) {
     const now = Date.now();
     if (!force && cloudStatusCache && now - cloudStatusCache.at < CLOUD_STATUS_TTL_MS) {
@@ -265,48 +232,50 @@ async function getCloudStatus({ force = false } = {}) {
     if (cloudStatusPromise) return cloudStatusPromise;
 
     cloudStatusPromise = (async () => {
-        const [meowsRes, ugRes, vmosRes] = await Promise.allSettled([
-            (async () => {
-                const response = await fetch('https://meows.vn/api/cloud-status', {
-                    headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
-                    signal: AbortSignal.timeout(15000),
-                });
-                if (!response.ok) throw new Error(`Meows trả HTTP ${response.status}`);
-                const data = await response.json();
-                if (data && data.success === false) throw new Error(data.message || 'Meows báo lỗi');
-                return {
-                    vmos: normalizeMeowsDevice(data && data.vmos),
-                    vsphone: normalizeMeowsDevice(data && data.vsphone),
-                    ts: Number((data && data.ts) || 0) || null,
-                };
-            })(),
-            fetchHanamiStatus('/dev/check_status_ugphone'),
-            fetchHanamiStatus('/dev/check_status_vmos'),
-        ]);
-
         const errors = [];
-        const meows = meowsRes.status === 'fulfilled'
-            ? meowsRes.value
-            : {
-                vmos: { status: 'offline', message: meowsRes.reason.message, lastBuyAt: null },
-                vsphone: { status: 'offline', message: meowsRes.reason.message, lastBuyAt: null },
+        let meows;
+        try {
+            const response = await fetch('https://meows.vn/api/cloud-status', {
+                headers: {
+                    Accept: 'application/json',
+                    Origin: 'https://meows.vn',
+                    Referer: 'https://meows.vn/client/cloud-manager',
+                    'User-Agent': MEOWS_UA,
+                },
+                signal: AbortSignal.timeout(15000),
+            });
+            const raw = await response.text();
+            let data = null;
+            try { data = JSON.parse(raw); } catch (e) { /* giữ raw để báo lỗi */ }
+
+            if (!response.ok) {
+                const hint = response.status === 403 ? ' (IP server có thể bị Meows chặn)' : '';
+                const snippet = raw && !data ? ` ${raw.replace(/\s+/g, ' ').slice(0, 120)}` : '';
+                throw new Error(`HTTP ${response.status}${hint}${snippet}`);
+            }
+            if (!data || data.success === false) {
+                throw new Error((data && (data.message || data.error)) || 'API không trả dữ liệu');
+            }
+
+            meows = {
+                vmos: normalizeMeowsDevice(data.vmos),
+                vsphone: normalizeMeowsDevice(data.vsphone),
+                ts: Number(data.ts) || null,
+            };
+        } catch (e) {
+            errors.push(`Meows: ${e.message}`);
+            meows = {
+                vmos: { status: 'offline', message: e.message, lastBuyAt: null },
+                vsphone: { status: 'offline', message: e.message, lastBuyAt: null },
                 ts: null,
             };
-        if (meowsRes.status === 'rejected') errors.push(`Meows: ${meowsRes.reason.message}`);
-
-        const ugphone = ugRes.status === 'fulfilled' ? ugRes.value : { ok: false, error: ugRes.reason.message, regions: null, message: '' };
-        const hanamiVmos = vmosRes.status === 'fulfilled' ? vmosRes.value : { ok: false, error: vmosRes.reason.message, regions: null, message: '' };
-        if (ugphone.error) errors.push(`UGPhone: ${ugphone.error}`);
-        if (hanamiVmos.error) errors.push(`VMOS: ${hanamiVmos.error}`);
+        }
 
         const value = {
             checkedAt: new Date().toISOString(),
+            sourceTs: meows.ts,
             vmos: meows.vmos,
             vsphone: meows.vsphone,
-            ugphoneRegions: ugphone.regions,
-            hanamiVmosRegions: hanamiVmos.regions,
-            ugphoneMessage: ugphone.message || '',
-            hanamiVmosMessage: hanamiVmos.message || '',
             errors,
         };
         cloudStatusCache = { at: Date.now(), value };

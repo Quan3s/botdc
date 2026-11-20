@@ -574,21 +574,6 @@ function stopCloudStatusPolling() {
   cloudStatusTimer = null;
 }
 
-function statusBadgeHtml(online) {
-  return `<span class="status-badge ${online ? 'online' : ''}">${online ? 'Có máy' : 'Hết máy'}</span>`;
-}
-
-function renderCloudRegions(root, regions, message) {
-  if (!regions) {
-    root.innerHTML = `<div class="empty">${esc(message || 'Không lấy được trạng thái.')}</div>`;
-    return;
-  }
-  const entries = Object.entries(regions);
-  root.innerHTML = entries.length
-    ? entries.map(([name, online]) => `<div class="mini-row"><span>${esc(name)}</span>${statusBadgeHtml(online)}</div>`).join('')
-    : '<div class="empty">Không có dữ liệu khu vực.</div>';
-}
-
 function setDeviceStatus(sel, msgSel, device) {
   const online = device && device.status === 'online';
   const el = $(sel);
@@ -606,8 +591,6 @@ async function loadCloudStatus(force = false) {
     $('#cloud-status-time').textContent = `Cập nhật: ${new Date(data.checkedAt).toLocaleTimeString('vi-VN')}`;
     setDeviceStatus('#status-meows-vmos', '#status-meows-vmos-msg', data.vmos);
     setDeviceStatus('#status-meows-vsphone', '#status-meows-vsphone-msg', data.vsphone);
-    renderCloudRegions($('#status-ugphone'), data.ugphoneRegions, data.ugphoneMessage);
-    renderCloudRegions($('#status-hanami-vmos'), data.hanamiVmosRegions, data.hanamiVmosMessage);
     const errorBox = $('#cloud-status-errors');
     if (data.errors && data.errors.length) {
       errorBox.textContent = `⚠️ ${data.errors.join(' · ')}`;
