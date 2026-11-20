@@ -213,7 +213,7 @@ client.once('ready', async () => {
                 .addChoices({ name: 'UGPhone', value: 'UG' }, { name: 'VMOS', value: 'VM' }, { name: 'VSPhone', value: 'VS' }))
             .addStringOption(o => o.setName('server').setDescription('Khu vực (bắt buộc với UGPhone)').setRequired(false)
                 .addChoices({ name: 'Singapore', value: 'SG' }, { name: 'Hong Kong', value: 'HK' }, { name: 'Japan', value: 'JP' }, { name: 'Germany', value: 'DE' }, { name: 'US', value: 'US' })),
-        new SlashCommandBuilder().setName('meows').setDescription('Mua device nhanh qua Meows (UGPhone 49 xu / VSPhone VIP 15 xu)')
+        new SlashCommandBuilder().setName('meows').setDescription('Mua nhanh UGPhone (49 xu) hoặc VSPhone VIP (15 xu)')
             .addStringOption(o => o.setName('provider').setDescription('Chọn dịch vụ').setRequired(true)
                 .addChoices(
                     { name: 'UGPhone — 49 xu', value: 'UG' },

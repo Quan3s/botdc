@@ -137,9 +137,9 @@ function extractMeowsInfo(node, depth = 0) {
 }
 
 function meowsApiError(response, data, raw) {
-    if (!response.ok) return `Meows trả HTTP ${response.status}`;
+    if (!response.ok) return `API trả HTTP ${response.status}`;
     if (data && (data.success === false || data.ok === false)) {
-        return data.message || data.msg || data.error || 'Meows báo lỗi';
+        return data.message || data.msg || data.error || 'API báo lỗi';
     }
     if (data && data.error && typeof data.error !== 'number' && String(data.error) !== '0') {
         return String(data.error);
@@ -147,9 +147,9 @@ function meowsApiError(response, data, raw) {
     const code = data && (data.code !== undefined ? data.code : data.status);
     const okCodes = [0, 1, 200, '0', '1', '200', 'success', 'ok', 'true'];
     if (code !== undefined && !okCodes.includes(String(code).toLowerCase())) {
-        return data.message || data.msg || `Meows trả mã ${code}`;
+        return data.message || data.msg || `API trả mã ${code}`;
     }
-    if (!data && /^\s*</.test(raw)) return 'Meows trả về HTML thay vì JSON (cookie có thể hết hạn)';
+    if (!data && /^\s*</.test(raw)) return 'API trả về HTML thay vì JSON (cookie có thể hết hạn)';
     return null;
 }
 
@@ -169,10 +169,10 @@ async function buyMeows(provider) {
                 body: { sourceId: 'vsphone_fast' },
             }
             : null;
-    if (!config) throw new Error('Provider Meows không hợp lệ.');
+    if (!config) throw new Error('Provider không hợp lệ.');
 
     const cookie = await getMeowsCookie();
-    if (!cookie) throw new Error('Admin chưa lưu cookie Meows (Quản trị → Meows).');
+    if (!cookie) throw new Error('Admin chưa lưu cookie dịch vụ nhanh (Quản trị → Cookie).');
 
     const response = await fetch(config.url, {
         method: 'POST',

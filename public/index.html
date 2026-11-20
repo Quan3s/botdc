@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -17,7 +18,7 @@
   <div class="auth-glow"></div>
   <div class="auth-card">
     <div class="auth-brand">
-      <div class="brand-logo">A</div>
+      <div class="brand-logo has-logo"><img src="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" alt="ASYNCTAS" /></div>
       <div>
         <h1>ASYNCTAS</h1>
         <p>Coin • Shop • Nhiệm vụ • Device</p>
@@ -55,7 +56,7 @@
 <div id="app" class="app hidden">
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <div class="brand-logo small">A</div>
+      <div class="brand-logo small has-logo"><img src="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" alt="ASYNCTAS" /></div>
       <span>ASYNCTAS</span>
     </div>
     <nav id="nav" class="nav">
@@ -165,8 +166,8 @@
             <div id="reg-result" class="result-box hidden"></div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>🐱 Meows nhanh</h3></div>
-            <p class="muted">Mua trực tiếp qua Meows, tài khoản trả về ngay. Chỉ trừ coin khi mua thành công.</p>
+            <div class="card-head"><h3>🐱 Mua nhanh</h3></div>
+            <p class="muted">Tài khoản trả về ngay. Chỉ trừ coin khi mua thành công.</p>
             <div class="device-actions">
               <button class="btn btn-soft" data-meows="UG">📱 UGPhone — 49 xu</button>
               <button class="btn btn-soft" data-meows="VSVIP">⭐ VSPhone VIP — 15 xu</button>
@@ -294,7 +295,7 @@
           <button class="tab active" data-admin="user">👥 User</button>
           <button class="tab" data-admin="shop">🛍️ Shop</button>
           <button class="tab" data-admin="plugin">🧩 Plugin</button>
-          <button class="tab" data-admin="meows">🐱 Meows</button>
+          <button class="tab" data-admin="meows">🐱 Cookie</button>
         </div>
 
         <div id="admin-sub-user" class="admin-sub">
@@ -359,8 +360,8 @@
         <div id="admin-sub-meows" class="admin-sub hidden">
           <div class="grid two-col">
             <div class="card">
-              <div class="card-head"><h3>🐱 Cookie Meows</h3><span id="meows-status" class="pill">Chưa kiểm tra</span></div>
-              <p class="muted">Dán cookie lấy từ meows.vn. Hệ thống tự chuẩn hoá thành <code>.COOKIESECURITY=&lt;cookie&gt;</code> rồi lưu vào database, đổi không cần deploy lại.</p>
+              <div class="card-head"><h3>🐱 Cookie dịch vụ nhanh</h3><span id="meows-status" class="pill">Chưa kiểm tra</span></div>
+              <p class="muted">Dán cookie lấy từ trang cung cấp dịch vụ. Hệ thống tự chuẩn hoá thành <code>.COOKIESECURITY=&lt;cookie&gt;</code> rồi lưu vào database, đổi không cần deploy lại.</p>
               <label>Cookie<input id="admin-meows-cookie" type="password" placeholder=".COOKIESECURITY=..." autocomplete="off" /></label>
               <div class="device-actions">
                 <button id="admin-meows-save-btn" class="btn btn-primary">💾 Lưu cookie</button>
@@ -369,12 +370,12 @@
               <div id="admin-meows-result" class="result-box hidden"></div>
             </div>
             <div class="card">
-              <div class="card-head"><h3>💰 Dịch vụ Meows</h3></div>
+              <div class="card-head"><h3>💰 Dịch vụ nhanh</h3></div>
               <ul class="reward-list">
                 <li><span>UGPhone</span><b>49 xu</b></li>
                 <li><span>VSPhone VIP</span><b>15 xu</b></li>
               </ul>
-              <p class="muted" style="margin-top:14px">Dùng ở mục <b>Buy Device</b> hoặc lệnh <code>/meows</code> trong Discord. Cookie hết hạn → cập nhật tại đây.</p>
+              <p class="muted" style="margin-top:14px">Dùng ở mục <b>Buy Device</b> hoặc lệnh mua nhanh trong Discord. Cookie hết hạn → cập nhật tại đây.</p>
             </div>
           </div>
         </div>

@@ -783,7 +783,7 @@ $('#admin-meows-save-btn').addEventListener('click', async (e) => {
       body: JSON.stringify({ cookie: $('#admin-meows-cookie').value }),
     });
     box.className = 'result-box';
-    box.textContent = '✅ Đã lưu cookie Meows vào database. Có thể đổi bất cứ lúc nào.';
+    box.textContent = '✅ Đã lưu cookie vào database. Có thể đổi bất cứ lúc nào.';
     box.classList.remove('hidden');
     await loadMeowsCookie();
   } catch (err) {
@@ -794,12 +794,12 @@ $('#admin-meows-save-btn').addEventListener('click', async (e) => {
 });
 
 $('#admin-meows-clear-btn').addEventListener('click', async (e) => {
-  if (!confirm('Xoá cookie Meows? Các lệnh mua Meows sẽ không chạy cho đến khi lưu cookie mới.')) return;
+  if (!confirm('Xoá cookie? Các lệnh mua nhanh sẽ không chạy cho đến khi lưu cookie mới.')) return;
   const btn = e.target;
   btn.disabled = true;
   try {
     await api('/api/admin/meows/cookie', { method: 'DELETE' });
-    toast('Đã xoá cookie Meows.');
+    toast('Đã xoá cookie.');
     await loadMeowsCookie();
   } catch (err) { toast(err.message, 'error'); }
   finally { btn.disabled = false; }

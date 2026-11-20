@@ -521,7 +521,7 @@ router.post('/api/device/reg', requireAuth, ah(async (req, res) => {
 router.post('/api/device/meows', requireAuth, ah(async (req, res) => {
     const provider = String(req.body.provider || '').toUpperCase();
     const cost = services.MEOWS_COSTS[provider];
-    if (!cost) return res.status(400).json({ error: 'Dịch vụ Meows không hợp lệ.' });
+    if (!cost) return res.status(400).json({ error: 'Dịch vụ không hợp lệ.' });
 
     const key = balanceKey(req.webUser);
     if (busyUsers.has(key)) return res.status(409).json({ error: 'Bạn đang có thao tác khác, thử lại sau.' });
@@ -831,7 +831,7 @@ router.get('/api/admin/meows/cookie', requireAdmin, ah(async (req, res) => {
 
 router.post('/api/admin/meows/cookie', requireAdmin, ah(async (req, res) => {
     const cookie = services.normalizeMeowsCookie(req.body.cookie);
-    if (!cookie) return res.status(400).json({ error: 'Nhập cookie Meows (có thể dán cả .COOKIESECURITY=...).' });
+    if (!cookie) return res.status(400).json({ error: 'Nhập cookie (có thể dán cả .COOKIESECURITY=...).' });
     await db.setKv(services.MEOWS_COOKIE_KEY, cookie);
     const updatedAt = new Date().toISOString();
     await db.setKv('meows_cookie_updated_at', updatedAt);
