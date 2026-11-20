@@ -879,7 +879,7 @@ $('#admin-status-proxy-save-btn').addEventListener('click', async (e) => {
       body: JSON.stringify({ proxy: $('#admin-status-proxy').value }),
     });
     box.className = 'result-box';
-    box.textContent = '✅ Đã lưu proxy SOCKS5. Cloud Status sẽ ưu tiên dùng WARP.';
+    box.textContent = '✅ Đã lưu proxy. Cloud Status sẽ ưu tiên dùng nguồn này.';
     box.classList.remove('hidden');
     await loadStatusProxy();
   } catch (err) {

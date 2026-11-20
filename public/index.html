@@ -403,9 +403,9 @@
               <p class="muted" style="margin-top:14px">Dùng ở mục <b>Buy Device</b> hoặc lệnh mua nhanh trong Discord. Cookie hết hạn → cập nhật tại đây.</p>
             </div>
             <div class="card">
-              <div class="card-head"><h3>🌐 Proxy status (WARP)</h3><span id="status-proxy-source" class="pill">—</span></div>
-              <p class="muted">Nếu IP server bị Meows/Cloudflare chặn, bật <b>WARP proxy mode</b> trên server rồi dán địa chỉ SOCKS5 (<code>127.0.0.1:40000</code>). Biến môi trường <code>MEOWS_STATUS_PROXY</code> sẽ ưu tiên hơn ô này.</p>
-              <label>Địa chỉ SOCKS5<input id="admin-status-proxy" placeholder="127.0.0.1:40000" autocomplete="off" /></label>
+              <div class="card-head"><h3>🌐 Proxy status (WARP / Worker)</h3><span id="status-proxy-source" class="pill">—</span></div>
+              <p class="muted">Render không cài được WARP, nên dùng <b>Cloudflare Worker</b> (dán URL https://...) hoặc SOCKS5 có <code>user:pass@host:port</code> từ máy chạy WARP. Biến <code>MEOWS_STATUS_PROXY</code> ưu tiên hơn ô này.</p>
+              <label>Proxy URL / SOCKS5<input id="admin-status-proxy" placeholder="https://worker.example.com/status" autocomplete="off" /></label>
               <div class="device-actions">
                 <button id="admin-status-proxy-save-btn" class="btn btn-primary">💾 Lưu proxy</button>
                 <button id="admin-status-proxy-clear-btn" class="btn btn-danger">Xoá</button>

@@ -857,7 +857,7 @@ router.get('/api/admin/status-proxy', requireAdmin, ah(async (req, res) => {
     res.json({
         proxy: (await db.getKv('meows_status_proxy')) || '',
         envProxy: services.normalizeStatusProxy(process.env.MEOWS_STATUS_PROXY),
-        example: '127.0.0.1:40000 hoặc socks5h://127.0.0.1:40000',
+        example: '127.0.0.1:40000 · socks5h://user:pass@host:1080 · https://worker.example.com/status',
     });
 }));
 

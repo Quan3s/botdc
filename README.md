@@ -98,21 +98,38 @@ Vào **Quản trị → Cookie**, dán cookie lấy từ trang cung cấp dịch
 Server tự lưu vào bảng `kv` (key `meows_cookie`) dạng `.COOKIESECURITY=<cookie>`; **không cần tạo bảng mới**.
 Cookie hết hạn chỉ cần cập nhật ở đây, không deploy lại. Dùng cho `/meows` và mục **Buy Device → Mua nhanh**.
 
-### Proxy SOCKS5 cho Cloud Status (WARP)
-Nếu Meows/Cloudflare chặn IP server deploy (`403 - Just a moment...`), bật **WARP proxy mode** ngay trên server:
+### Proxy cho Cloud Status (Render / WARP / Worker)
+IP Render bị Meows/Cloudflare chặn (`403 - Just a moment...`), nhưng **IP Cloudflare (WARP / Worker)** thì dùng được.
+
+**Render không cài được `warp-cli`** (cần `NET_ADMIN` + `/dev/net/tun`), nên chọn 1 trong 2:
+
+**A. Cloudflare Worker (khuyến nghị trên Render)** — tạo Worker:
+
+```js
+export default {
+  async fetch() {
+    const r = await fetch('https://meows.vn/api/cloud-status', {
+      headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
+    });
+    return new Response(await r.text(), {
+      status: r.status,
+      headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+    });
+  },
+};
+```
+
+Rồi dán URL Worker vào **Quản trị → Cookie → Proxy status**, hoặc env `MEOWS_STATUS_PROXY=https://worker.example.com/status`.
+
+**B. SOCKS5 từ máy chạy WARP 1.1.1.1** — dán `socks5h://user:pass@host:1080` (nhớ bảo mật user/pass và firewall). Nếu tự host được VPS có `warp-cli`, dùng proxy mode:
 
 ```bash
 warp-cli --accept-tos set-mode proxy
 warp-cli --accept-tos set-proxy-port 40000
 warp-cli --accept-tos connect
-# kiểm tra: curl -x socks5h://127.0.0.1:40000 https://meows.vn/api/cloud-status
 ```
 
-Sau đó làm 1 trong 2 cách:
-- Thêm biến môi trường `MEOWS_STATUS_PROXY=127.0.0.1:40000` (ưu tiên cao nhất), hoặc
-- Vào **Quản trị → Cookie → Proxy status (WARP)**, dán `127.0.0.1:40000` rồi Lưu (lưu trong `kv`, đổi không cần deploy).
-
-Hệ thống sẽ dùng WARP trước, rồi mới fallback: direct → `www` → reader proxy. Khi dùng đường nào, ô thời gian trên **Cloud Status** sẽ hiện `warp` / `www` / `proxy`.
+Thứ tự fallback: `worker`/`warp` → direct → `www` → reader proxy. Ô thời gian trên **Cloud Status** hiện `worker` / `warp` / `www` / `proxy` tương ứng.
 
 ## Biến môi trường
 Xem `.env.example`. Các biến quan trọng: `DISCORD_TOKEN`, `ADMIN_DISCORD_ID`,

@@ -245,8 +245,8 @@ function parseMeowsStatus(raw) {
 function normalizeStatusProxy(value) {
     let raw = String(value || '').trim();
     if (!raw) return '';
-    if (!/^socks/i.test(raw)) raw = `socks5h://${raw.replace(/^\/+/, '')}`;
-    return raw;
+    if (/^https?:\/\//i.test(raw) || /^socks/i.test(raw)) return raw;
+    return `socks5h://${raw.replace(/^\/+/, '')}`;
 }
 
 async function getStatusProxyUrl() {
@@ -314,9 +314,12 @@ async function getCloudStatus({ force = false } = {}) {
         let source = null;
         let lastError = null;
         const proxyUrl = await getStatusProxyUrl();
-        const sources = proxyUrl
-            ? [{ name: 'warp', url: 'https://meows.vn/api/cloud-status', proxyUrl }, ...CLOUD_STATUS_BASE_SOURCES]
-            : CLOUD_STATUS_BASE_SOURCES;
+        const firstSource = proxyUrl
+            ? /^https?:\/\//i.test(proxyUrl)
+                ? { name: 'worker', url: proxyUrl }
+                : { name: 'warp', url: 'https://meows.vn/api/cloud-status', proxyUrl }
+            : null;
+        const sources = firstSource ? [firstSource, ...CLOUD_STATUS_BASE_SOURCES] : CLOUD_STATUS_BASE_SOURCES;
 
         for (const candidate of sources) {
             try {
