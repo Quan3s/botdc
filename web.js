@@ -472,6 +472,58 @@ router.get('/api/purchases', requireAuth, ah(async (req, res) => {
     });
 }));
 
+// ==================== CHẨN ĐOÁN PROXY (public, không lộ cookie) ====================
+router.get('/api/debug/meows', ah(async (req, res) => {
+    const mask = (u) => String(u || '').replace(/\/\/[^@/]*@/, '//***@');
+    const proxyEnv = mask(process.env.MEOWS_API_PROXY || process.env.MEOWS_STATUS_PROXY || '');
+    const proxyDb = mask((await db.getKv('meows_status_proxy')) || '');
+    const proxy = services.normalizeStatusProxy(process.env.MEOWS_API_PROXY || process.env.MEOWS_STATUS_PROXY || (await db.getKv('meows_status_proxy')) || '');
+    const url = 'https://meows.vn/api/cloud-status';
+    const headers = { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' };
+
+    async function probe(target, opts) {
+        try {
+            const r = await fetch(target, opts);
+            return { status: r.status, body: (await r.text()).replace(/\s+/g, ' ').slice(0, 140) };
+        } catch (e) {
+            return { error: e.message };
+        }
+    }
+
+    const direct = await probe(url, { headers, signal: AbortSignal.timeout(8000) });
+    let viaProxy = null;
+    if (proxy) {
+        if (/^https?:\/\//i.test(proxy)) {
+            const u = new URL(proxy);
+            u.searchParams.set('url', url);
+            const key = String(process.env.MEOWS_PROXY_KEY || '').trim();
+            viaProxy = await probe(u.toString(), {
+                headers: { ...headers, ...(key ? { 'x-proxy-key': key } : {}) },
+                signal: AbortSignal.timeout(8000),
+                redirect: 'manual',
+            });
+        } else {
+            const { SocksProxyAgent } = require('socks-proxy-agent');
+            const nodeFetch = require('node-fetch');
+            viaProxy = await probe(url, { agent: new SocksProxyAgent(proxy), timeout: 8000, headers });
+        }
+    }
+
+    let statusSource = null;
+    try { statusSource = (await services.getCloudStatus({ force: true })).source; } catch (e) { /* bỏ qua */ }
+
+    res.json({
+        renderWarp: process.env.RENDER_WARP || '0',
+        proxyEnv,
+        proxyDb,
+        proxyActive: mask(proxy),
+        cookieSet: !!(await services.getMeowsCookie()),
+        direct,
+        viaProxy,
+        statusSource,
+    });
+}));
+
 // ==================== CLOUDPHONE STATUS (public) ====================
 router.get('/api/status/cloud', ah(async (req, res) => {
     const ip = req.ip || 'unknown';
