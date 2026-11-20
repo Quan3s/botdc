@@ -119,13 +119,42 @@ MEOWS_API_PROXY=https://xxx.your-subdomain.workers.dev
 
 Nếu đặt secret `PROXY_KEY` trên Worker, set thêm `MEOWS_PROXY_KEY` trên Render để bot gửi header `x-proxy-key`.
 
-**B. SOCKS5 từ máy chạy WARP 1.1.1.1** — dán `socks5h://user:pass@host:1080` (nhớ firewall). Với VPS tự host có `warp-cli`:
+**B. WARP userspace bằng `wgcf` + `wireproxy` (không cần TUN/NET_ADMIN)**
+
+Cách này chạy được trên VPS thường, không cần `warp-cli`, không cần `/dev/net/tun`. Có sẵn script trong repo: [`scripts/warp-wireproxy.sh`](./scripts/warp-wireproxy.sh).
 
 ```bash
-warp-cli --accept-tos set-mode proxy
-warp-cli --accept-tos set-proxy-port 40000
-warp-cli --accept-tos connect
+# Cài 2 binary (xem trang release):
+#   https://github.com/ViRb3/wgcf/releases
+#   https://github.com/pufferffish/wireproxy/releases
+wgcf register --accept-tos
+wgcf generate                       # ra wgcf-profile.conf ([Interface] + [Peer])
+
+# Tạo wireproxy.conf = nội dung file trên + đoạn [Socks5], rồi chạy:
+./scripts/warp-wireproxy.sh
+
+# Kiểm tra:
+curl -x socks5h://127.0.0.1:1080 https://meows.vn/api/cloud-status
 ```
+
+Nếu expose ra ngoài cho Render kết nối:
+
+```bash
+WARP_SOCKS_BIND=0.0.0.0 \
+WARP_SOCKS_USER=proxyuser \
+WARP_SOCKS_PASS='pass-khong-co-dau-cach' \
+./scripts/warp-wireproxy.sh
+```
+
+Rồi set trên Render:
+
+```text
+MEOWS_API_PROXY=socks5h://proxyuser:pass-khong-co-dau-cach@IP_VPS:1080
+```
+
+VPS/script này **phải chạy 24/7** (dùng `systemd` hoặc Docker `restart: always`). WARP profile (`wgcf-profile.conf`) chứa private key → đã nằm trong `.gitignore`, không commit.
+
+Nếu vẫn dùng `warp-cli` (cần TUN) thì proxy mode mặc định là `127.0.0.1:40000`.
 
 Ưu tiên env: `MEOWS_API_PROXY` → `MEOWS_STATUS_PROXY` → ô trong DB → gọi trực tiếp.
 
