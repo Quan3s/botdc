@@ -223,6 +223,59 @@ function normalizeMeowsDevice(entry) {
     };
 }
 
+function parseMeowsStatus(raw) {
+    const text = String(raw || '').trim();
+    try { return JSON.parse(text); } catch (e) { /* thử các dạng khác */ }
+    const marker = text.indexOf('Markdown Content:');
+    if (marker >= 0) {
+        const part = text.slice(marker + 'Markdown Content:'.length).trim();
+        try { return JSON.parse(part); } catch (e) { /* cắt giữa {} */ }
+        const start = part.indexOf('{');
+        const end = part.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            try { return JSON.parse(part.slice(start, end + 1)); } catch (e) { /* bỏ qua */ }
+        }
+    }
+    return null;
+}
+
+async function fetchMeowsStatus(source) {
+    const proxy = !!source.proxy;
+    const response = await fetch(source.url, {
+        headers: proxy
+            ? { Accept: 'text/plain', 'User-Agent': MEOWS_UA }
+            : {
+                Accept: 'application/json',
+                Origin: 'https://meows.vn',
+                Referer: 'https://meows.vn/client/cloud-manager',
+                'User-Agent': MEOWS_UA,
+            },
+        signal: AbortSignal.timeout(15000),
+    });
+    const raw = await response.text();
+    const data = parseMeowsStatus(raw);
+
+    if (!response.ok) {
+        const challenge = /Just a moment|cf-challenge|cloudflare/i.test(raw);
+        const hint = response.status === 403
+            ? (challenge ? ' - Cloudflare chặn IP server (Just a moment...)' : ' - IP server có thể bị Meows chặn')
+            : '';
+        const snippet = raw && !data ? ` ${raw.replace(/\s+/g, ' ').slice(0, 100)}` : '';
+        throw new Error(`HTTP ${response.status}${hint}${snippet}`);
+    }
+    if (!data || data.success === false) {
+        throw new Error((data && (data.message || data.error)) || 'API không trả dữ liệu');
+    }
+    return data;
+}
+
+// Nếu IP server bị Cloudflare chặn, thử www rồi tới proxy đọc được nội dung.
+const CLOUD_STATUS_SOURCES = [
+    { name: 'direct', url: 'https://meows.vn/api/cloud-status' },
+    { name: 'www', url: 'https://www.meows.vn/api/cloud-status' },
+    { name: 'proxy', url: 'https://r.jina.ai/https://meows.vn/api/cloud-status', proxy: true },
+];
+
 /** Trạng thái cloudphone từ Meows. Cache 60s để tránh spam API. */
 async function getCloudStatus({ force = false } = {}) {
     const now = Date.now();
@@ -232,47 +285,41 @@ async function getCloudStatus({ force = false } = {}) {
     if (cloudStatusPromise) return cloudStatusPromise;
 
     cloudStatusPromise = (async () => {
+        let data = null;
+        let source = null;
+        let lastError = null;
+
+        for (const candidate of CLOUD_STATUS_SOURCES) {
+            try {
+                data = await fetchMeowsStatus(candidate);
+                source = candidate.name;
+                break;
+            } catch (e) {
+                lastError = e;
+            }
+        }
+
         const errors = [];
         let meows;
-        try {
-            const response = await fetch('https://meows.vn/api/cloud-status', {
-                headers: {
-                    Accept: 'application/json',
-                    Origin: 'https://meows.vn',
-                    Referer: 'https://meows.vn/client/cloud-manager',
-                    'User-Agent': MEOWS_UA,
-                },
-                signal: AbortSignal.timeout(15000),
-            });
-            const raw = await response.text();
-            let data = null;
-            try { data = JSON.parse(raw); } catch (e) { /* giữ raw để báo lỗi */ }
-
-            if (!response.ok) {
-                const hint = response.status === 403 ? ' (IP server có thể bị Meows chặn)' : '';
-                const snippet = raw && !data ? ` ${raw.replace(/\s+/g, ' ').slice(0, 120)}` : '';
-                throw new Error(`HTTP ${response.status}${hint}${snippet}`);
-            }
-            if (!data || data.success === false) {
-                throw new Error((data && (data.message || data.error)) || 'API không trả dữ liệu');
-            }
-
+        if (data) {
             meows = {
                 vmos: normalizeMeowsDevice(data.vmos),
                 vsphone: normalizeMeowsDevice(data.vsphone),
                 ts: Number(data.ts) || null,
             };
-        } catch (e) {
-            errors.push(`Meows: ${e.message}`);
+        } else {
+            errors.push(`Meows: ${lastError ? lastError.message : 'không lấy được trạng thái'}`);
+            const message = lastError ? lastError.message : 'Không lấy được trạng thái';
             meows = {
-                vmos: { status: 'offline', message: e.message, lastBuyAt: null },
-                vsphone: { status: 'offline', message: e.message, lastBuyAt: null },
+                vmos: { status: 'offline', message, lastBuyAt: null },
+                vsphone: { status: 'offline', message, lastBuyAt: null },
                 ts: null,
             };
         }
 
         const value = {
             checkedAt: new Date().toISOString(),
+            source,
             sourceTs: meows.ts,
             vmos: meows.vmos,
             vsphone: meows.vsphone,

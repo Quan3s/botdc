@@ -588,7 +588,8 @@ function setDeviceStatus(sel, msgSel, device) {
 async function loadCloudStatus(force = false) {
   try {
     const data = await api(`/api/status/cloud${force ? '?force=1' : ''}`);
-    $('#cloud-status-time').textContent = `Cập nhật: ${new Date(data.checkedAt).toLocaleTimeString('vi-VN')}`;
+    const sourceLabel = { direct: '', www: 'www', proxy: 'proxy' }[data.source] || '';
+    $('#cloud-status-time').textContent = `Cập nhật: ${new Date(data.checkedAt).toLocaleTimeString('vi-VN')}${sourceLabel ? ` · ${sourceLabel}` : ''}`;
     setDeviceStatus('#status-meows-vmos', '#status-meows-vmos-msg', data.vmos);
     setDeviceStatus('#status-meows-vsphone', '#status-meows-vsphone-msg', data.vsphone);
     const errorBox = $('#cloud-status-errors');
