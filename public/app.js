@@ -826,6 +826,15 @@ async function loadMeowsCookie() {
   const status = $('#meows-status');
   status.textContent = data.configured ? '✅ Đã lưu' : '⚠️ Chưa có cookie';
   status.title = data.updatedAt ? `Cập nhật: ${data.updatedAt}` : '';
+  await loadStatusProxy();
+}
+
+async function loadStatusProxy() {
+  const data = await api('/api/admin/status-proxy');
+  $('#admin-status-proxy').value = data.proxy || '';
+  const pill = $('#status-proxy-source');
+  const active = data.envProxy || data.proxy;
+  pill.textContent = active ? `✅ ${active}` : '⚠️ Chưa có proxy';
 }
 
 $('#admin-meows-save-btn').addEventListener('click', async (e) => {
@@ -856,6 +865,38 @@ $('#admin-meows-clear-btn').addEventListener('click', async (e) => {
     await api('/api/admin/meows/cookie', { method: 'DELETE' });
     toast('Đã xoá cookie.');
     await loadMeowsCookie();
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
+
+$('#admin-status-proxy-save-btn').addEventListener('click', async (e) => {
+  const btn = e.target;
+  const box = $('#admin-status-proxy-result');
+  btn.disabled = true;
+  try {
+    await api('/api/admin/status-proxy', {
+      method: 'POST',
+      body: JSON.stringify({ proxy: $('#admin-status-proxy').value }),
+    });
+    box.className = 'result-box';
+    box.textContent = '✅ Đã lưu proxy SOCKS5. Cloud Status sẽ ưu tiên dùng WARP.';
+    box.classList.remove('hidden');
+    await loadStatusProxy();
+  } catch (err) {
+    box.className = 'result-box error';
+    box.textContent = `❌ ${err.message}`;
+    box.classList.remove('hidden');
+  } finally { btn.disabled = false; }
+});
+
+$('#admin-status-proxy-clear-btn').addEventListener('click', async (e) => {
+  if (!confirm('Xoá proxy status? Hệ thống sẽ quay lại gọi trực tiếp Meows.')) return;
+  const btn = e.target;
+  btn.disabled = true;
+  try {
+    await api('/api/admin/status-proxy', { method: 'DELETE' });
+    toast('Đã xoá proxy status.');
+    await loadStatusProxy();
   } catch (err) { toast(err.message, 'error'); }
   finally { btn.disabled = false; }
 });

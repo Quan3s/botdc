@@ -2,6 +2,8 @@
  * Các dịch vụ mua/đăng ký tài khoản (dùng chung cho bot Discord và web).
  */
 const crypto = require('crypto');
+const nodeFetch = require('node-fetch');
+const { SocksProxyAgent } = require('socks-proxy-agent');
 const db = require('./database');
 
 const HANAMI_URL = 'https://hanaminikata.com/dev/buy_device_cloud';
@@ -239,19 +241,42 @@ function parseMeowsStatus(raw) {
     return null;
 }
 
+/** Chấp nhận `socks5h://host:port`, `socks5://host:port` hoặc chỉ `host:port` (WARP mặc định 127.0.0.1:40000). */
+function normalizeStatusProxy(value) {
+    let raw = String(value || '').trim();
+    if (!raw) return '';
+    if (!/^socks/i.test(raw)) raw = `socks5h://${raw.replace(/^\/+/, '')}`;
+    return raw;
+}
+
+async function getStatusProxyUrl() {
+    const fromEnv = normalizeStatusProxy(process.env.MEOWS_STATUS_PROXY);
+    if (fromEnv) return fromEnv;
+    try {
+        return normalizeStatusProxy(await db.getKv('meows_status_proxy'));
+    } catch (e) {
+        return '';
+    }
+}
+
 async function fetchMeowsStatus(source) {
     const proxy = !!source.proxy;
-    const response = await fetch(source.url, {
-        headers: proxy
-            ? { Accept: 'text/plain', 'User-Agent': MEOWS_UA }
-            : {
-                Accept: 'application/json',
-                Origin: 'https://meows.vn',
-                Referer: 'https://meows.vn/client/cloud-manager',
-                'User-Agent': MEOWS_UA,
-            },
-        signal: AbortSignal.timeout(15000),
-    });
+    const headers = proxy
+        ? { Accept: 'text/plain', 'User-Agent': MEOWS_UA }
+        : {
+            Accept: 'application/json',
+            Origin: 'https://meows.vn',
+            Referer: 'https://meows.vn/client/cloud-manager',
+            'User-Agent': MEOWS_UA,
+        };
+
+    const response = source.proxyUrl
+        ? await nodeFetch(source.url, {
+            agent: new SocksProxyAgent(source.proxyUrl),
+            headers,
+            timeout: 15000,
+        })
+        : await fetch(source.url, { headers, signal: AbortSignal.timeout(15000) });
     const raw = await response.text();
     const data = parseMeowsStatus(raw);
 
@@ -269,8 +294,8 @@ async function fetchMeowsStatus(source) {
     return data;
 }
 
-// Nếu IP server bị Cloudflare chặn, thử www rồi tới proxy đọc được nội dung.
-const CLOUD_STATUS_SOURCES = [
+// Nếu cấu hình WARP/SOCKS thì dùng trước. Sau đó mới thử direct, www, reader proxy.
+const CLOUD_STATUS_BASE_SOURCES = [
     { name: 'direct', url: 'https://meows.vn/api/cloud-status' },
     { name: 'www', url: 'https://www.meows.vn/api/cloud-status' },
     { name: 'proxy', url: 'https://r.jina.ai/https://meows.vn/api/cloud-status', proxy: true },
@@ -288,8 +313,12 @@ async function getCloudStatus({ force = false } = {}) {
         let data = null;
         let source = null;
         let lastError = null;
+        const proxyUrl = await getStatusProxyUrl();
+        const sources = proxyUrl
+            ? [{ name: 'warp', url: 'https://meows.vn/api/cloud-status', proxyUrl }, ...CLOUD_STATUS_BASE_SOURCES]
+            : CLOUD_STATUS_BASE_SOURCES;
 
-        for (const candidate of CLOUD_STATUS_SOURCES) {
+        for (const candidate of sources) {
             try {
                 data = await fetchMeowsStatus(candidate);
                 source = candidate.name;
@@ -350,5 +379,6 @@ module.exports = {
     normalizeMeowsCookie,
     getMeowsCookie,
     buyMeows,
+    normalizeStatusProxy,
     getCloudStatus,
 };

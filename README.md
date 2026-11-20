@@ -98,9 +98,25 @@ Vào **Quản trị → Cookie**, dán cookie lấy từ trang cung cấp dịch
 Server tự lưu vào bảng `kv` (key `meows_cookie`) dạng `.COOKIESECURITY=<cookie>`; **không cần tạo bảng mới**.
 Cookie hết hạn chỉ cần cập nhật ở đây, không deploy lại. Dùng cho `/meows` và mục **Buy Device → Mua nhanh**.
 
+### Proxy SOCKS5 cho Cloud Status (WARP)
+Nếu Meows/Cloudflare chặn IP server deploy (`403 - Just a moment...`), bật **WARP proxy mode** ngay trên server:
+
+```bash
+warp-cli --accept-tos set-mode proxy
+warp-cli --accept-tos set-proxy-port 40000
+warp-cli --accept-tos connect
+# kiểm tra: curl -x socks5h://127.0.0.1:40000 https://meows.vn/api/cloud-status
+```
+
+Sau đó làm 1 trong 2 cách:
+- Thêm biến môi trường `MEOWS_STATUS_PROXY=127.0.0.1:40000` (ưu tiên cao nhất), hoặc
+- Vào **Quản trị → Cookie → Proxy status (WARP)**, dán `127.0.0.1:40000` rồi Lưu (lưu trong `kv`, đổi không cần deploy).
+
+Hệ thống sẽ dùng WARP trước, rồi mới fallback: direct → `www` → reader proxy. Khi dùng đường nào, ô thời gian trên **Cloud Status** sẽ hiện `warp` / `www` / `proxy`.
+
 ## Biến môi trường
 Xem `.env.example`. Các biến quan trọng: `DISCORD_TOKEN`, `ADMIN_DISCORD_ID`,
-`SUPABASE_URL`, `SUPABASE_KEY`, `RENDER_DOMAIN`, `GITHUB_TOKEN`, `HANAMI_TOKEN`, `LINK4M_API_KEY`, `LAYMA_TOKEN`.
+`SUPABASE_URL`, `SUPABASE_KEY`, `RENDER_DOMAIN`, `GITHUB_TOKEN`, `HANAMI_TOKEN`, `LINK4M_API_KEY`, `LAYMA_TOKEN`, `MEOWS_STATUS_PROXY` (tuỳ chọn, SOCKS5/WARP cho Cloud Status).
 
 ## Bảo mật
 - Token GitHub/Hanami chỉ nằm ở server, không bao giờ gửi xuống trình duyệt.

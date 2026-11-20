@@ -852,6 +852,27 @@ router.delete('/api/admin/meows/cookie', requireAdmin, ah(async (req, res) => {
     res.json({ ok: true, configured: false });
 }));
 
+// Proxy SOCKS5 cho Cloud Status (WARP). Env MEOWS_STATUS_PROXY có ưu tiên cao hơn.
+router.get('/api/admin/status-proxy', requireAdmin, ah(async (req, res) => {
+    res.json({
+        proxy: (await db.getKv('meows_status_proxy')) || '',
+        envProxy: services.normalizeStatusProxy(process.env.MEOWS_STATUS_PROXY),
+        example: '127.0.0.1:40000 hoặc socks5h://127.0.0.1:40000',
+    });
+}));
+
+router.post('/api/admin/status-proxy', requireAdmin, ah(async (req, res) => {
+    const proxy = services.normalizeStatusProxy(req.body.proxy);
+    if (!proxy) return res.status(400).json({ error: 'Nhập địa chỉ SOCKS5 (VD: 127.0.0.1:40000).' });
+    await db.setKv('meows_status_proxy', proxy);
+    res.json({ ok: true, proxy });
+}));
+
+router.delete('/api/admin/status-proxy', requireAdmin, ah(async (req, res) => {
+    await db.setKv('meows_status_proxy', '');
+    res.json({ ok: true, proxy: '' });
+}));
+
 // ==================== ADMIN: PLUGIN ====================
 router.get('/api/admin/plugins', requireAdmin, ah(async (req, res) => {
     const rows = await db.getPlugins();
