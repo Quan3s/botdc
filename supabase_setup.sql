@@ -126,6 +126,20 @@ create table if not exists payouts (
   created_at timestamptz default now()
 );
 
+-- ---------- Plugin (script lưu trên Gist) ----------
+create table if not exists plugins (
+  id text primary key,
+  name text not null,
+  source_url text not null default '',
+  gist_id text,
+  gist_filename text,
+  enabled boolean not null default true,
+  last_loaded_at timestamptz,
+  error text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
 -- ---------- Nếu bảng shop_items đã tồn tại từ trước, bổ sung cột còn thiếu ----------
 alter table shop_items add column if not exists stock_content text;
 alter table shop_items add column if not exists gist_filename text;
@@ -146,3 +160,4 @@ alter table shop_items enable row level security;
 alter table purchases enable row level security;
 alter table transfers enable row level security;
 alter table payouts enable row level security;
+alter table plugins enable row level security;

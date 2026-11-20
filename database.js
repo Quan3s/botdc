@@ -29,6 +29,7 @@ const EMPTY_DB = {
     purchases: [],
     transfers: [],
     payouts: [],
+    plugins: [],
 };
 
 let local = null;
@@ -619,5 +620,76 @@ module.exports = {
                 .slice(0, n);
         }
         return await supabaseFetch(`payouts?select=*&order=created_at.desc&limit=${n}`);
+    },
+
+    // ==================== BXH VƯỢT LINK TỔNG (mọi kỳ) ====================
+    async getAllTimeLinkLeaderboard(limit = 10) {
+        const n = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+        let rows;
+        if (USE_LOCAL) {
+            rows = findMany('link_stats');
+        } else {
+            rows = await supabaseFetch('link_stats?select=user_id,count&limit=5000');
+        }
+        const totals = new Map();
+        for (const row of rows || []) {
+            const key = String(row.user_id);
+            totals.set(key, (totals.get(key) || 0) + (Number(row.count) || 0));
+        }
+        return [...totals.entries()]
+            .filter(([, count]) => count > 0)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, n)
+            .map(([user_id, count]) => ({ user_id, count }));
+    },
+
+    // ==================== PLUGIN MODULE ====================
+    async createPlugin(plugin) {
+        const record = {
+            id: plugin.id,
+            name: plugin.name,
+            source_url: plugin.source_url || '',
+            gist_id: plugin.gist_id || null,
+            gist_filename: plugin.gist_filename || null,
+            enabled: plugin.enabled !== false,
+            last_loaded_at: plugin.last_loaded_at || null,
+            error: plugin.error || null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        };
+        if (USE_LOCAL) return insert('plugins', record);
+        const res = await supabaseFetch('plugins', 'POST', record);
+        return res && res[0];
+    },
+
+    async getPlugin(id) {
+        if (USE_LOCAL) return findOne('plugins', { id: String(id) });
+        const res = await supabaseFetch(`plugins?id=eq.${enc(id)}`);
+        return res.length ? res[0] : null;
+    },
+
+    async getPlugins(limit = 100) {
+        const n = Math.min(500, Math.max(1, parseInt(limit, 10) || 100));
+        if (USE_LOCAL) {
+            return [...table('plugins')]
+                .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+                .slice(0, n);
+        }
+        return await supabaseFetch(`plugins?select=*&order=created_at.desc&limit=${n}`);
+    },
+
+    async updatePlugin(id, patch) {
+        const data = { ...patch, updated_at: new Date().toISOString() };
+        if (USE_LOCAL) {
+            const rows = patchRows('plugins', { id: String(id) }, data);
+            return rows[0] || null;
+        }
+        const res = await supabaseFetch(`plugins?id=eq.${enc(id)}`, 'PATCH', data);
+        return res && res[0];
+    },
+
+    async deletePlugin(id) {
+        if (USE_LOCAL) return removeRows('plugins', { id: String(id) });
+        await supabaseFetch(`plugins?id=eq.${enc(id)}`, 'DELETE');
     },
 };

@@ -27,6 +27,7 @@
     <div class="auth-tabs">
       <button class="auth-tab active" data-tab="login">Đăng nhập</button>
       <button class="auth-tab" data-tab="register">Đăng ký</button>
+      <button class="auth-tab" data-tab="token">Token Discord</button>
     </div>
 
     <form id="login-form" class="auth-form">
@@ -36,12 +37,17 @@
     </form>
 
     <form id="register-form" class="auth-form hidden">
-      <label>Tên đăng nhập<input id="reg-username" autocomplete="username" placeholder="3-24 ký tự, chữ/số/_" required /></label>
+      <label>Tên đăng nhập<input id="reg-username" autocomplete="username" placeholder="3-24 ký tự, có ít nhất 1 chữ" required /></label>
       <label>Mật khẩu<input id="reg-password" type="password" autocomplete="new-password" placeholder="Tối thiểu 6 ký tự" required /></label>
       <button class="btn btn-primary btn-block" type="submit">Tạo tài khoản</button>
     </form>
 
-    <p class="auth-hint">Tài khoản web riêng biệt. Liên kết Discord bằng lệnh <code>/connect &lt;token&gt;</code> để đồng bộ coin.</p>
+    <form id="token-form" class="auth-form hidden">
+      <label>Token Discord<input id="token-login-token" placeholder="Dán token 64 ký tự từ lệnh /token" required /></label>
+      <button class="btn btn-primary btn-block" type="submit">Đăng nhập bằng token</button>
+    </form>
+
+    <p class="auth-hint">Tên đăng nhập phải có ít nhất 1 chữ cái. Dùng lệnh <code>/token</code> trong Discord để lấy token cố định, sau đó đăng nhập hoặc <code>/connect &lt;token&gt;</code> để đồng bộ coin.</p>
   </div>
 </div>
 
@@ -57,6 +63,7 @@
       <button class="nav-item" data-view="shop"><span>🛒</span> Shop</button>
       <button class="nav-item" data-view="buydevice"><span>📱</span> Buy Device</button>
       <button class="nav-item" data-view="tasks"><span>🔗</span> Nhiệm vụ</button>
+      <button class="nav-item" data-view="giftcode"><span>🎁</span> Giftcode</button>
       <button class="nav-item" data-view="leaderboard"><span>🏆</span> Xếp hạng</button>
       <button class="nav-item" data-view="transfer"><span>💸</span> Chuyển tiền</button>
       <button class="nav-item" data-view="profile"><span>👤</span> Hồ sơ</button>
@@ -185,12 +192,35 @@
         </div>
       </section>
 
+      <!-- GIFTCODE -->
+      <section id="view-giftcode" class="view">
+        <div class="grid two-col">
+          <div class="card">
+            <div class="card-head"><h3>🎁 Nhập Giftcode</h3></div>
+            <p class="muted">Mỗi mã chỉ dùng được một lần. Nhập mã để nhận coin ngay vào tài khoản web.</p>
+            <label>Mã quà<input id="giftcode-input" placeholder="VD: ABC123!@" /></label>
+            <button id="giftcode-btn" class="btn btn-primary btn-block">Nhận quà</button>
+            <div id="giftcode-result" class="result-box hidden"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>📌 Lưu ý</h3></div>
+            <ul class="reward-list">
+              <li><span>Mã do admin phát</span><b>Dùng 1 lần</b></li>
+              <li><span>Coin cộng vào web</span><b>Liên kết Discord để đồng bộ</b></li>
+              <li><span>Lịch sử nhận</span><b>Hiện ngay sau khi nhập</b></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <!-- LEADERBOARD -->
       <section id="view-leaderboard" class="view">
         <div class="tabs">
           <button class="tab active" data-lb="coins">💰 Coin</button>
-          <button class="tab" data-lb="links">🔗 Vượt link</button>
+          <button class="tab" data-lb="week">🔗 Vượt link 7 ngày (có thưởng)</button>
+          <button class="tab" data-lb="all">🏅 Vượt link tổng (không thưởng)</button>
         </div>
+        <div id="lb-note" class="card reward-banner hidden"></div>
         <div id="lb-rewards" class="card reward-banner hidden"></div>
         <div class="card">
           <div id="lb-list" class="lb-list"></div>
@@ -251,40 +281,69 @@
       <!-- ADMIN -->
       <section id="view-admin" class="view">
         <div class="grid stats-grid" id="admin-stats"></div>
-        <div class="grid two-col">
-          <div class="card">
-            <div class="card-head"><h3>➕ Tạo sản phẩm</h3></div>
-            <p class="muted">Hàng hoá lưu tự động lên GitHub Gist (cần GITHUB_TOKEN) và tự xoá tài khoản đã bán.</p>
-            <label>Tên sản phẩm<input id="admin-item-name" placeholder="VD: VMOS 1 tháng" /></label>
-            <label>Giá (xu)<input id="admin-item-price" type="number" min="1" value="100" /></label>
-            <label>Logo (link ảnh)<input id="admin-item-logo" placeholder="https://..." /></label>
-            <label>Danh mục
-              <select id="admin-item-category"><option value="shop">Shop</option><option value="device">Device</option></select>
-            </label>
-            <label>Mô tả<input id="admin-item-desc" placeholder="Mô tả ngắn" /></label>
-            <label>Danh sách tài khoản (mỗi dòng 1 tài khoản)
-              <textarea id="admin-item-accounts" rows="5" placeholder="mail|pass&#10;mail|pass"></textarea>
-            </label>
-            <button id="admin-create-btn" class="btn btn-primary btn-block">Tạo &amp; upload</button>
-          </div>
-          <div class="card">
-            <div class="card-head"><h3>🛍️ Sản phẩm</h3><button id="admin-refresh" class="btn btn-ghost">Làm mới</button></div>
-            <div id="admin-items" class="admin-items"></div>
-          </div>
+        <div class="tabs admin-tabs">
+          <button class="tab active" data-admin="user">👥 User</button>
+          <button class="tab" data-admin="shop">🛍️ Shop</button>
+          <button class="tab" data-admin="plugin">🧩 Plugin</button>
         </div>
-        <div class="grid two-col">
-          <div class="card">
-            <div class="card-head"><h3>🧾 Đơn hàng gần đây</h3></div>
-            <div id="admin-purchases" class="mini-list"></div>
+
+        <div id="admin-sub-user" class="admin-sub">
+          <div class="grid two-col">
+            <div class="card">
+              <div class="card-head"><h3>👥 Người dùng</h3></div>
+              <div id="admin-users" class="mini-list"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>🧾 Đơn hàng gần đây</h3></div>
+              <div id="admin-purchases" class="mini-list"></div>
+            </div>
           </div>
           <div class="card">
             <div class="card-head"><h3>🏆 Thưởng tuần</h3><button id="admin-payout-btn" class="btn btn-soft">Chạy trả thưởng ngay</button></div>
             <div id="admin-payouts" class="mini-list"></div>
           </div>
         </div>
-        <div class="card">
-          <div class="card-head"><h3>👥 Người dùng</h3></div>
-          <div id="admin-users" class="mini-list"></div>
+
+        <div id="admin-sub-shop" class="admin-sub hidden">
+          <div class="grid two-col">
+            <div class="card">
+              <div class="card-head"><h3>➕ Tạo sản phẩm</h3></div>
+              <p class="muted">Hàng hoá lưu tự động lên GitHub Gist (cần GITHUB_TOKEN) và tự xoá tài khoản đã bán.</p>
+              <label>Tên sản phẩm<input id="admin-item-name" placeholder="VD: VMOS 1 tháng" /></label>
+              <label>Giá (xu)<input id="admin-item-price" type="number" min="1" value="100" /></label>
+              <label>Logo (link ảnh)<input id="admin-item-logo" placeholder="https://..." /></label>
+              <label>Danh mục
+                <select id="admin-item-category"><option value="shop">Shop</option><option value="device">Device</option></select>
+              </label>
+              <label>Mô tả<input id="admin-item-desc" placeholder="Mô tả ngắn" /></label>
+              <label>Danh sách tài khoản (mỗi dòng 1 tài khoản)
+                <textarea id="admin-item-accounts" rows="5" placeholder="mail|pass&#10;mail|pass"></textarea>
+              </label>
+              <button id="admin-create-btn" class="btn btn-primary btn-block">Tạo &amp; upload</button>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>🛍️ Sản phẩm</h3><button id="admin-refresh" class="btn btn-ghost">Làm mới</button></div>
+              <div id="admin-items" class="admin-items"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="admin-sub-plugin" class="admin-sub hidden">
+          <div class="grid two-col">
+            <div class="card">
+              <div class="card-head"><h3>🧩 Thêm plugin</h3></div>
+              <p class="muted">Dán link raw script (http/https). Script sẽ tự lưu vào GitHub Gist và load ngay, không cần deploy lại.</p>
+              <label>Tên plugin<input id="admin-plugin-name" placeholder="VD: hello" /></label>
+              <label>Link raw script<input id="admin-plugin-url" placeholder="https://raw.githubusercontent.com/.../plugin.js" /></label>
+              <button id="admin-plugin-create-btn" class="btn btn-primary btn-block">Tải &amp; kích hoạt</button>
+              <div id="admin-plugin-result" class="result-box hidden"></div>
+              <p class="muted" style="margin-top:14px">API trong script: <code>api.get/post(...)</code>, <code>api.command('ten', fn)</code>, <code>api.kv</code>, <code>db</code>, <code>crypto</code>, <code>fetch</code>.<br/>Web: <code>/plugin/&lt;id&gt;/&lt;path&gt;</code> · Discord: <code>/plugin ten:lenh</code></p>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>📦 Plugin đã cài</h3><button id="admin-plugin-refresh" class="btn btn-ghost">Làm mới</button></div>
+              <div id="admin-plugins" class="admin-items"></div>
+            </div>
+          </div>
         </div>
       </section>
     </div>

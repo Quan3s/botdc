@@ -6,6 +6,8 @@ const state = {
   view: 'dashboard',
   shop: [],
   lbTab: 'coins',
+  adminTab: 'user',
+  plugins: [],
 };
 
 // ==================== HELPERS ====================
@@ -46,7 +48,12 @@ async function api(path, options = {}) {
   });
   let data = null;
   try { data = await res.json(); } catch (e) { data = null; }
-  if (!res.ok) throw new Error((data && data.error) || `Lỗi ${res.status}`);
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `Lỗi ${res.status}`);
+    err.data = data || {};
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -118,9 +125,10 @@ function showApp() {
 $$('.auth-tab').forEach(tab => tab.addEventListener('click', () => {
   $$('.auth-tab').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
-  const isLogin = tab.dataset.tab === 'login';
-  $('#login-form').classList.toggle('hidden', !isLogin);
-  $('#register-form').classList.toggle('hidden', isLogin);
+  const tabName = tab.dataset.tab;
+  $('#login-form').classList.toggle('hidden', tabName !== 'login');
+  $('#register-form').classList.toggle('hidden', tabName !== 'register');
+  $('#token-form').classList.toggle('hidden', tabName !== 'token');
 }));
 
 $('#login-form').addEventListener('submit', async (e) => {
@@ -131,8 +139,75 @@ $('#login-form').addEventListener('submit', async (e) => {
       body: JSON.stringify({ username: $('#login-username').value, password: $('#login-password').value }),
     });
     await enterApp(data.user);
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) {
+    if (err.data && err.data.requiresUsernameChange) {
+      promptUsernameChange(err.data, { password: $('#login-password').value });
+    } else toast(err.message, 'error');
+  }
 });
+
+$('#token-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const token = $('#token-login-token').value.trim();
+  try {
+    const data = await api('/api/auth/discord-token', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+    await enterApp(data.user);
+  } catch (err) {
+    if (err.data && err.data.requiresUsernameChange) {
+      promptUsernameChange({ ...err.data, token }, {});
+    } else toast(err.message, 'error');
+  }
+});
+
+function promptUsernameChange(info, credentials) {
+  const wrap = document.createElement('div');
+  const isToken = Boolean(info.token);
+  const passwordField = isToken
+    ? '<p class="muted">Đang xác thực bằng token Discord, không cần mật khẩu.</p>'
+    : '<label>Mật khẩu hiện tại<input id="rename-password" type="password" value="' + esc(credentials.password || '') + '" /></label>';
+  wrap.innerHTML = `
+    <p class="muted">Tài khoản cũ <b>${esc(info.currentUsername)}</b> chỉ có số. Đặt tên mới có ít nhất <b>1 chữ cái</b> để tiếp tục.</p>
+    ${passwordField}
+    <label>Tên mới<input id="rename-username" placeholder="VD: gamer123" value="" /></label>`;
+  openModal({
+    title: '⚠️ Đổi tên tài khoản',
+    body: wrap,
+    actions: [
+      { label: 'Huỷ', onClick: closeModal },
+      {
+        label: 'Đổi tên & đăng nhập', className: 'btn-primary', onClick: async (btn) => {
+          const newUsername = wrap.querySelector('#rename-username').value.trim();
+          if (!/^[a-zA-Z0-9_]{3,24}$/.test(newUsername) || !/[A-Za-z]/.test(newUsername)) {
+            toast('Tên mới phải 3-24 ký tự, có ít nhất 1 chữ cái.', 'error');
+            return;
+          }
+          btn.disabled = true;
+          try {
+            const data = await api('/api/auth/claim-username', {
+              method: 'POST',
+              body: JSON.stringify({
+                currentUsername: info.currentUsername,
+                newUsername,
+                password: isToken ? '' : (wrap.querySelector('#rename-password')?.value || ''),
+                token: isToken ? info.token : '',
+              }),
+            });
+            closeModal();
+            toast('Đổi tên thành công!');
+            await enterApp(data.user);
+          } catch (err) {
+            btn.disabled = false;
+            toast(err.message, 'error');
+          }
+        },
+      },
+    ],
+  });
+  $('#modal-root').onclick = null; // bắt buộc phải đổi tên mới thoát được
+}
 
 $('#register-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -193,6 +268,7 @@ const VIEW_TITLES = {
   shop: 'Shop',
   buydevice: 'Buy Device',
   tasks: 'Nhiệm vụ',
+  giftcode: 'Giftcode',
   leaderboard: 'Bảng xếp hạng',
   transfer: 'Chuyển tiền',
   profile: 'Hồ sơ',
@@ -217,6 +293,7 @@ function loadView(view) {
   if (view === 'dashboard') refreshDashboard();
   else if (view === 'shop') loadShop();
   else if (view === 'tasks') loadTasks();
+  else if (view === 'giftcode') $('#giftcode-input').focus();
   else if (view === 'leaderboard') loadLeaderboard();
   else if (view === 'transfer') loadTransfers();
   else if (view === 'admin') loadAdmin();
@@ -450,6 +527,28 @@ $('#task-get-btn').addEventListener('click', async (e) => {
   } finally { btn.disabled = false; }
 });
 
+// ==================== GIFTCODE ====================
+$('#giftcode-btn').addEventListener('click', async (e) => {
+  const btn = e.target;
+  const box = $('#giftcode-result');
+  const code = $('#giftcode-input').value.trim();
+  if (!code) { toast('Nhập mã gift code.', 'error'); return; }
+  btn.disabled = true;
+  try {
+    const data = await api('/api/giftcode', { method: 'POST', body: JSON.stringify({ code }) });
+    box.className = 'result-box';
+    box.innerHTML = `✅ Nhập mã <b>${esc(code)}</b> thành công! Nhận <b>${num(data.amount)} xu</b>.<br>Số dư mới: <b>${num(data.newBalance)} xu</b>`;
+    $('#giftcode-input').value = '';
+    await refreshUser();
+  } catch (err) {
+    box.className = 'result-box error';
+    box.textContent = `❌ ${err.message}`;
+  } finally {
+    box.classList.remove('hidden');
+    btn.disabled = false;
+  }
+});
+
 // ==================== LEADERBOARD ====================
 $$('[data-lb]').forEach(tab => tab.addEventListener('click', () => {
   $$('[data-lb]').forEach(t => t.classList.remove('active'));
@@ -460,21 +559,34 @@ $$('[data-lb]').forEach(tab => tab.addEventListener('click', () => {
 
 async function loadLeaderboard() {
   const root = $('#lb-list');
+  const note = $('#lb-note');
+  const banner = $('#lb-rewards');
   root.innerHTML = '<div class="empty">Đang tải...</div>';
+  note.classList.add('hidden');
+  banner.classList.add('hidden');
   try {
     if (state.lbTab === 'coins') {
-      $('#lb-rewards').classList.add('hidden');
       const data = await api('/api/leaderboard/coins');
       renderLb(root, data.leaderboard, 'xu');
-    } else {
-      const data = await api('/api/leaderboard/links');
+      return;
+    }
+
+    if (state.lbTab === 'week') {
+      const data = await api('/api/leaderboard/links/week');
+      note.textContent = `🔄 Kỳ 7 ngày hiện tại: ${data.period || '—'} · Reset sau mỗi kỳ thanh toán.`;
+      note.classList.remove('hidden');
       const labels = ['Top 1', 'Top 2', 'Top 3', 'Top 4', 'Top 5', 'Top 6', 'Top 7', 'Top 8', 'Top 9', 'Top 10'];
-      const banner = $('#lb-rewards');
-      banner.classList.remove('hidden');
       banner.innerHTML = (data.rewards || []).slice(0, 10)
         .map((r, i) => `<span class="reward-chip">${labels[i]}: +${num(r)} coin</span>`).join('');
+      if ((data.rewards || []).length) banner.classList.remove('hidden');
       renderLb(root, data.leaderboard, 'link');
+      return;
     }
+
+    const data = await api('/api/leaderboard/links/all');
+    note.textContent = '🏅 Tổng số link vượt từ trước đến nay · chỉ để vinh danh, không có thưởng.';
+    note.classList.remove('hidden');
+    renderLb(root, data.leaderboard, 'link');
   } catch (err) {
     root.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
   }
@@ -577,8 +689,19 @@ async function loadAdmin() {
     $('#admin-payouts').innerHTML = data.payouts.length
       ? data.payouts.map(p => `<div class="mini-row"><span>Kỳ ${esc(p.period)}</span><b>${num(p.total)} coin</b></div>`).join('')
       : '<div class="empty">Chưa trả thưởng lần nào.</div>';
-    await Promise.all([loadAdminItems(), loadAdminUsers()]);
+    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins()]);
   } catch (err) { toast(err.message, 'error'); }
+}
+
+$$('.admin-tabs .tab').forEach(tab => tab.addEventListener('click', () => switchAdminTab(tab.dataset.admin)));
+
+function switchAdminTab(tabName) {
+  state.adminTab = tabName;
+  $$('.admin-tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.admin === tabName));
+  $$('.admin-sub').forEach(el => el.classList.toggle('hidden', el.id !== `admin-sub-${tabName}`));
+  if (tabName === 'shop') loadAdminItems();
+  else if (tabName === 'user') loadAdminUsers().catch(() => {});
+  else if (tabName === 'plugin') loadAdminPlugins();
 }
 
 async function loadAdminItems() {
@@ -612,6 +735,140 @@ async function loadAdminUsers() {
     </div>`).join('') : '<div class="empty">Chưa có người dùng.</div>';
   $$('[data-coins]').forEach(b => b.addEventListener('click', () => coinsModal(b.dataset.coins)));
 }
+
+// ==================== ADMIN: PLUGIN ====================
+async function loadAdminPlugins() {
+  const data = await api('/api/admin/plugins');
+  state.plugins = data.plugins;
+  const root = $('#admin-plugins');
+  root.innerHTML = data.plugins.length ? data.plugins.map(p => {
+    const runtime = p.runtime || {};
+    const routes = (runtime.routes || []).map(r => `${r.method} ${r.path}`).join(', ') || '—';
+    const cmds = (runtime.commands || []).map(c => c.name).join(', ') || '—';
+    return `
+      <div class="admin-item plugin-row">
+        <div class="info">
+          <b>${esc(p.name)} ${p.enabled ? '' : '<span class="muted">(đang tắt)</span>'}</b>
+          <div class="plugin-meta">
+            ID: <code>${esc(p.id)}</code><br/>
+            ${p.gistUrl ? `<a href="${esc(p.gistUrl)}" target="_blank" rel="noopener">Gist</a> · ` : ''}Nguồn: ${esc(p.sourceUrl || '—')}<br/>
+            Routes: ${esc(routes)}<br/>
+            Discord commands: ${esc(cmds)}<br/>
+            Load lần cuối: ${esc(p.lastLoadedAt || '—')}
+          </div>
+          ${p.error ? `<div class="plugin-error">⚠️ ${esc(p.error)}</div>` : ''}
+        </div>
+        <div class="actions">
+          <button class="btn btn-soft btn-sm" data-plugin-reload="${esc(p.id)}">Reload</button>
+          <button class="btn btn-ghost btn-sm" data-plugin-source="${esc(p.id)}">Đổi link</button>
+          <button class="btn btn-ghost btn-sm" data-plugin-toggle="${esc(p.id)}">${p.enabled ? 'Tắt' : 'Bật'}</button>
+          <button class="btn btn-danger btn-sm" data-plugin-del="${esc(p.id)}">Xoá</button>
+        </div>
+      </div>`;
+  }).join('') : '<div class="empty">Chưa có plugin nào.</div>';
+
+  $$('[data-plugin-reload]').forEach(b => b.addEventListener('click', async () => {
+    b.disabled = true;
+    try {
+      const res = await api(`/api/admin/plugins/${encodeURIComponent(b.dataset.pluginReload)}/reload`, { method: 'POST' });
+      toast(`Reload thành công: ${(res.runtime.routes || []).length} route, ${(res.runtime.commands || []).length} lệnh.`);
+      loadAdminPlugins();
+    } catch (err) { toast(err.message, 'error'); b.disabled = false; }
+  }));
+
+  $$('[data-plugin-source]').forEach(b => b.addEventListener('click', () => {
+    const plugin = state.plugins.find(p => p.id === b.dataset.pluginSource);
+    if (!plugin) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<label>Link raw script mới<input id="plugin-source-url" value="${esc(plugin.sourceUrl)}" /></label>
+      <p class="muted">Script sẽ được ghi đè vào Gist hiện tại rồi load lại ngay.</p>`;
+    openModal({
+      title: `Đổi source: ${plugin.name}`,
+      body: wrap,
+      actions: [
+        { label: 'Huỷ', onClick: closeModal },
+        {
+          label: 'Lưu & reload', className: 'btn-primary', onClick: async (btn) => {
+            btn.disabled = true;
+            try {
+              await api(`/api/admin/plugins/${encodeURIComponent(plugin.id)}/source`, {
+                method: 'POST',
+                body: JSON.stringify({ url: wrap.querySelector('#plugin-source-url').value.trim() }),
+              });
+              closeModal();
+              toast('Đã cập nhật source.');
+              loadAdminPlugins();
+            } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
+          },
+        },
+      ],
+    });
+  }));
+
+  $$('[data-plugin-toggle]').forEach(b => b.addEventListener('click', async () => {
+    const plugin = state.plugins.find(p => p.id === b.dataset.pluginToggle);
+    if (!plugin) return;
+    b.disabled = true;
+    try {
+      await api(`/api/admin/plugins/${encodeURIComponent(plugin.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: !plugin.enabled }),
+      });
+      toast(plugin.enabled ? 'Đã tắt plugin.' : 'Đã bật plugin.');
+      loadAdminPlugins();
+    } catch (err) { toast(err.message, 'error'); b.disabled = false; }
+  }));
+
+  $$('[data-plugin-del]').forEach(b => b.addEventListener('click', () => {
+    const plugin = state.plugins.find(p => p.id === b.dataset.pluginDel);
+    if (!plugin) return;
+    openModal({
+      title: `Xoá plugin ${plugin.name}?`,
+      body: '<p class="muted">Gist chứa script cũng sẽ bị xoá. Plugin sẽ ngừng hoạt động ngay.</p>',
+      actions: [
+        { label: 'Huỷ', onClick: closeModal },
+        {
+          label: 'Xoá', className: 'btn-danger', onClick: async (btn) => {
+            btn.disabled = true;
+            try {
+              await api(`/api/admin/plugins/${encodeURIComponent(plugin.id)}`, { method: 'DELETE' });
+              closeModal();
+              toast('Đã xoá plugin.');
+              loadAdminPlugins();
+            } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
+          },
+        },
+      ],
+    });
+  }));
+}
+
+$('#admin-plugin-create-btn').addEventListener('click', async (e) => {
+  const btn = e.target;
+  const box = $('#admin-plugin-result');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/admin/plugins', {
+      method: 'POST',
+      body: JSON.stringify({ name: $('#admin-plugin-name').value.trim(), url: $('#admin-plugin-url').value.trim() }),
+    });
+    box.className = 'result-box';
+    box.innerHTML = `✅ Đã lưu script vào <a href="${esc(data.plugin.gistUrl)}" target="_blank" rel="noopener">Gist</a> và kích hoạt plugin <b>${esc(data.plugin.name)}</b>.<br/>
+      Routes: ${(data.runtime.routes || []).map(r => esc(`${r.method} /plugin/${data.plugin.id}${r.path}`)).join(', ') || '—'}<br/>
+      Lệnh Discord: ${(data.runtime.commands || []).map(c => esc(c.name)).join(', ') || '—'}`;
+    $('#admin-plugin-name').value = '';
+    $('#admin-plugin-url').value = '';
+    loadAdminPlugins();
+  } catch (err) {
+    box.className = 'result-box error';
+    box.textContent = `❌ ${err.message}`;
+  } finally {
+    box.classList.remove('hidden');
+    btn.disabled = false;
+  }
+});
+
+$('#admin-plugin-refresh').addEventListener('click', () => loadAdminPlugins().catch(err => toast(err.message, 'error')));
 
 $('#admin-create-btn').addEventListener('click', async (e) => {
   e.target.disabled = true;

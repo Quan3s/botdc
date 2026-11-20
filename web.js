@@ -12,7 +12,9 @@ const crypto = require('crypto');
 const db = require('./database');
 const services = require('./services');
 const shop = require('./shop');
+const github = require('./github');
 const weekly = require('./weekly');
+const pluginEngine = require('./plugin-engine');
 const { getTodayString, generateUniqueLinkToken, sha256, randomId, hashPassword, verifyPassword } = require('./utils');
 
 const router = express.Router();
@@ -90,6 +92,10 @@ async function createSession(req, res, userId) {
     return sha256(raw);
 }
 
+async function refreshSessionUser(req) {
+    if (req.webUser) req.webUser = await db.getWebUserById(req.webUser.id);
+}
+
 // rate limit đơn giản trong bộ nhớ
 const rateBuckets = new Map();
 function rateLimit(key, max, windowMs) {
@@ -152,6 +158,34 @@ function validHttpUrl(value) {
     }
 }
 
+// Tên đăng nhập phải có ít nhất 1 chữ cái
+function usernameHasLetter(value) {
+    return /[A-Za-z]/.test(String(value || ''));
+}
+
+// Lấy tên Discord thật để hiển thị BXH (cache trong RAM)
+const discordNameCache = new Map();
+async function discordUsername(id) {
+    const key = String(id || '');
+    if (!/^\d{15,25}$/.test(key)) return null;
+    if (discordNameCache.has(key)) return discordNameCache.get(key);
+    const token = process.env.DISCORD_TOKEN;
+    if (!token) return null;
+    try {
+        const res = await fetch(`https://discord.com/api/v10/users/${key}`, {
+            headers: { Authorization: `Bot ${token}` },
+            signal: AbortSignal.timeout(4000),
+        });
+        if (!res.ok) { discordNameCache.set(key, null); return null; }
+        const data = await res.json();
+        const name = data.global_name || data.username || null;
+        discordNameCache.set(key, name);
+        return name;
+    } catch (e) {
+        return null;
+    }
+}
+
 // ==================== AUTH ====================
 router.post('/api/auth/register', ah(async (req, res) => {
     const ip = req.ip || 'unknown';
@@ -161,6 +195,9 @@ router.post('/api/auth/register', ah(async (req, res) => {
     const password = String(req.body.password || '');
     if (!/^[a-zA-Z0-9_]{3,24}$/.test(username)) {
         return res.status(400).json({ error: 'Tên đăng nhập 3-24 ký tự, chỉ gồm chữ, số và dấu gạch dưới.' });
+    }
+    if (!usernameHasLetter(username)) {
+        return res.status(400).json({ error: 'Tên đăng nhập phải có ít nhất 1 chữ cái.' });
     }
     if (password.length < 6) return res.status(400).json({ error: 'Mật khẩu tối thiểu 6 ký tự.' });
 
@@ -187,6 +224,62 @@ router.post('/api/auth/login', ah(async (req, res) => {
     const user = await db.getWebUserByUsername(username);
     if (!user || !verifyPassword(password, user.password_hash)) {
         return res.status(401).json({ error: 'Sai tên đăng nhập hoặc mật khẩu.' });
+    }
+    if (!usernameHasLetter(user.username)) {
+        return res.status(403).json({
+            error: 'Tên đăng nhập của bạn chỉ có số. Hãy đổi tên trước khi tiếp tục.',
+            requiresUsernameChange: true,
+            currentUsername: user.username,
+        });
+    }
+    await createSession(req, res, user.id);
+    res.json({ user: await publicUser(user) });
+}));
+
+// Đổi tên cho tài khoản cũ chỉ toàn số (chưa cần session, dùng mật khẩu để xác thực)
+router.post('/api/auth/claim-username', ah(async (req, res) => {
+    const currentUsername = String(req.body.currentUsername || '').trim();
+    const newUsername = String(req.body.newUsername || '').trim();
+    const password = String(req.body.password || '');
+    const token = String(req.body.token || '').trim();
+
+    const user = await db.getWebUserByUsername(currentUsername);
+    if (!user) return res.status(401).json({ error: 'Thông tin xác thực không đúng.' });
+    const tokenUser = token ? await db.getWebUserByLinkToken(token) : null;
+    if (!verifyPassword(password, user.password_hash) && !(tokenUser && tokenUser.id === user.id)) {
+        return res.status(401).json({ error: 'Thông tin xác thực không đúng.' });
+    }
+    if (!/^[a-zA-Z0-9_]{3,24}$/.test(newUsername) || !usernameHasLetter(newUsername)) {
+        return res.status(400).json({ error: 'Tên mới 3-24 ký tự, có ít nhất 1 chữ cái.' });
+    }
+    const exists = await db.getWebUserByUsername(newUsername);
+    if (exists && exists.id !== user.id) return res.status(409).json({ error: 'Tên này đã được dùng.' });
+
+    await db.updateWebUser(user.id, { username: newUsername, username_lower: newUsername.toLowerCase() });
+    user.username = newUsername;
+    user.username_lower = newUsername.toLowerCase();
+    await createSession(req, res, user.id);
+    res.json({ user: await publicUser(user) });
+}));
+
+// Đăng nhập bằng token Discord (token cố định = link_token trên web)
+router.post('/api/auth/discord-token', ah(async (req, res) => {
+    const ip = req.ip || 'unknown';
+    if (!rateLimit(`tok:${ip}`, 20, 15 * 60 * 1000)) return res.status(429).json({ error: 'Quá nhiều lần thử, vui lòng đợi.' });
+
+    const token = String(req.body.token || '').trim();
+    if (!/^[A-Za-z0-9]{64}$/.test(token)) {
+        return res.status(400).json({ error: 'Token phải đúng 64 ký tự chữ và số.' });
+    }
+    const user = await db.getWebUserByLinkToken(token);
+    if (!user) return res.status(401).json({ error: 'Token không hợp lệ.' });
+    if (!usernameHasLetter(user.username)) {
+        return res.status(403).json({
+            error: 'Tên đăng nhập của bạn chỉ có số. Hãy đổi tên trước khi tiếp tục.',
+            requiresUsernameChange: true,
+            currentUsername: user.username,
+            token,
+        });
     }
     await createSession(req, res, user.id);
     res.json({ user: await publicUser(user) });
@@ -219,6 +312,20 @@ router.post('/api/profile/token', requireAuth, ah(async (req, res) => {
     const token = await generateUniqueLinkToken(db);
     const updated = await db.updateWebUser(req.webUser.id, { link_token: token });
     res.json({ linkToken: updated.link_token });
+}));
+
+router.post('/api/profile/username', requireAuth, ah(async (req, res) => {
+    const newUsername = String(req.body.username || '').trim();
+    const password = String(req.body.password || '');
+    if (!verifyPassword(password, req.webUser.password_hash)) return res.status(400).json({ error: 'Mật khẩu không đúng.' });
+    if (!/^[a-zA-Z0-9_]{3,24}$/.test(newUsername) || !usernameHasLetter(newUsername)) {
+        return res.status(400).json({ error: 'Tên mới 3-24 ký tự, có ít nhất 1 chữ cái.' });
+    }
+    const exists = await db.getWebUserByUsername(newUsername);
+    if (exists && exists.id !== req.webUser.id) return res.status(409).json({ error: 'Tên này đã được dùng.' });
+    await db.updateWebUser(req.webUser.id, { username: newUsername, username_lower: newUsername.toLowerCase() });
+    await refreshSessionUser(req);
+    res.json({ ok: true, username: newUsername });
 }));
 
 // ==================== CHUYỂN COIN ====================
@@ -272,6 +379,20 @@ router.post('/api/transfers', requireAuth, ah(async (req, res) => {
 router.get('/api/transfers', requireAuth, ah(async (req, res) => {
     const list = await db.getTransfersByUser(req.webUser.id, 50);
     res.json({ transfers: list });
+}));
+
+// ==================== GIFT CODE ====================
+router.post('/api/giftcode', requireAuth, ah(async (req, res) => {
+    const ip = req.ip || 'unknown';
+    if (!rateLimit(`gift:${ip}`, 30, 15 * 60 * 1000)) return res.status(429).json({ error: 'Quá nhiều lần thử, vui lòng đợi.' });
+
+    const code = String(req.body.code || '').trim();
+    if (!code) return res.status(400).json({ error: 'Nhập mã gift code.' });
+    const amount = await db.redeemGiftCode(code);
+    if (!amount) return res.status(400).json({ error: 'Gift code không hợp lệ hoặc đã được dùng.' });
+
+    const newBalance = await db.updateCoins(balanceKey(req.webUser), amount);
+    res.json({ ok: true, amount, newBalance });
 }));
 
 // ==================== SHOP ====================
@@ -465,6 +586,14 @@ async function decorate(rows, valueKey) {
     const map = new Map();
     byDiscord.forEach(u => map.set(String(u.discord_id), u.username));
     byId.forEach(u => map.set(`web_${u.id}`, u.username));
+
+    // Discord chưa liên kết web -> lấy username thật qua Discord API
+    const unresolved = discordIds.filter(id => !map.has(id));
+    if (unresolved.length) {
+        const names = await Promise.all(unresolved.map(id => discordUsername(id)));
+        names.forEach((name, i) => { if (name) map.set(unresolved[i], name); });
+    }
+
     return rows.map((r, i) => ({
         rank: i + 1,
         userId: String(r.user_id),
@@ -482,6 +611,19 @@ router.get('/api/leaderboard/links', requireAuth, ah(async (req, res) => {
     const period = await weekly.getLinkPeriod();
     const top = await db.getLinkLeaderboard(period, 10);
     res.json({ leaderboard: await decorate(top, 'count'), period, rewards: weekly.REWARDS });
+}));
+
+// Bảng vượt link 7 ngày (có thưởng, reset sau mỗi kỳ thanh toán)
+router.get('/api/leaderboard/links/week', requireAuth, ah(async (req, res) => {
+    const period = await weekly.getLinkPeriod();
+    const top = await db.getLinkLeaderboard(period, 10);
+    res.json({ leaderboard: await decorate(top, 'count'), period, rewards: weekly.REWARDS });
+}));
+
+// Bảng vượt link tổng (không có thưởng)
+router.get('/api/leaderboard/links/all', requireAuth, ah(async (req, res) => {
+    const top = await db.getAllTimeLinkLeaderboard(10);
+    res.json({ leaderboard: await decorate(top, 'count'), rewards: null });
 }));
 
 // ==================== ADMIN ====================
@@ -640,6 +782,85 @@ router.get('/api/admin/payouts', requireAdmin, ah(async (req, res) => {
 router.post('/api/admin/payout', requireAdmin, ah(async (req, res) => {
     const result = await weekly.runWeeklyPayout({ force: true });
     res.json({ ok: true, result });
+}));
+
+// ==================== ADMIN: PLUGIN ====================
+router.get('/api/admin/plugins', requireAdmin, ah(async (req, res) => {
+    const rows = await db.getPlugins();
+    const runtime = new Map(pluginEngine.list().map(p => [String(p.id), p]));
+    res.json({
+        plugins: rows.map(p => ({
+            id: p.id,
+            name: p.name,
+            sourceUrl: p.source_url,
+            gistId: p.gist_id,
+            gistUrl: p.gist_id ? `https://gist.github.com/${p.gist_id}` : null,
+            enabled: p.enabled !== false,
+            error: p.error || null,
+            lastLoadedAt: p.last_loaded_at || null,
+            runtime: runtime.get(String(p.id)) || null,
+        })),
+    });
+}));
+
+router.post('/api/admin/plugins', requireAdmin, ah(async (req, res) => {
+    const name = String(req.body.name || '').trim();
+    const sourceUrl = String(req.body.url || '').trim();
+    if (name.length < 2) return res.status(400).json({ error: 'Tên plugin tối thiểu 2 ký tự.' });
+
+    const code = await pluginEngine.fetchScript(sourceUrl);
+    const filename = github.safeFilename(`${name}-plugin`);
+    const gist = await github.createGist(filename, code, `ASYNCTAS plugin • ${name}`);
+    const row = await db.createPlugin({
+        id: randomId(),
+        name,
+        source_url: sourceUrl,
+        gist_id: gist.id,
+        gist_filename: gist.filename,
+        enabled: true,
+    });
+    const meta = await pluginEngine.loadPlugin(row);
+    res.json({ ok: true, plugin: { id: row.id, name: row.name, gistUrl: gist.url }, runtime: meta });
+}));
+
+router.post('/api/admin/plugins/:id/reload', requireAdmin, ah(async (req, res) => {
+    const row = await db.getPlugin(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Không tìm thấy plugin.' });
+    if (row.enabled === false) return res.status(400).json({ error: 'Plugin đang bị tắt.' });
+    const meta = await pluginEngine.loadPlugin(row);
+    res.json({ ok: true, runtime: meta });
+}));
+
+router.post('/api/admin/plugins/:id/source', requireAdmin, ah(async (req, res) => {
+    const row = await db.getPlugin(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Không tìm thấy plugin.' });
+    const sourceUrl = String(req.body.url || row.source_url || '').trim();
+    const code = await pluginEngine.fetchScript(sourceUrl);
+    if (row.gist_id) {
+        await github.writeGistFile(row.gist_id, row.gist_filename, code);
+    } else {
+        const gist = await github.createGist(github.safeFilename(`${row.name}-plugin`), code, `ASYNCTAS plugin • ${row.name}`);
+        row.gist_id = gist.id;
+        row.gist_filename = gist.filename;
+    }
+    await db.updatePlugin(row.id, { source_url: sourceUrl, gist_id: row.gist_id, gist_filename: row.gist_filename });
+    const meta = await pluginEngine.loadPlugin({ ...row, source_url: sourceUrl });
+    res.json({ ok: true, runtime: meta });
+}));
+
+router.patch('/api/admin/plugins/:id', requireAdmin, ah(async (req, res) => {
+    const row = await db.getPlugin(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Không tìm thấy plugin.' });
+    const enabled = req.body.enabled === undefined ? row.enabled !== false : Boolean(req.body.enabled);
+    await db.updatePlugin(row.id, { enabled });
+    if (!enabled) pluginEngine.unload(row.id);
+    else await pluginEngine.loadPlugin({ ...row, enabled: true });
+    res.json({ ok: true, enabled });
+}));
+
+router.delete('/api/admin/plugins/:id', requireAdmin, ah(async (req, res) => {
+    await pluginEngine.remove(req.params.id);
+    res.json({ ok: true });
 }));
 
 // ==================== LỖI ====================

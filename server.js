@@ -7,6 +7,8 @@ const db = require('./database');
 const services = require('./services');
 const web = require('./web');
 const weekly = require('./weekly');
+const pluginEngine = require('./plugin-engine');
+const { generateUniqueLinkToken, randomId, hashPassword } = require('./utils');
 const { HANAMI_URL, CLOUD_NAMES, REG_COST, vsphoneReady, buyHanami, regVmosAccount, regVsphoneAccount } = services;
 const PAY_MIN = 10;          // số xu tối thiểu mỗi lần /pay
 const PAY_FEE_RATE = 0.05;   // phí chuyển 5%
@@ -24,6 +26,12 @@ const PORT = process.env.PORT || 3000;
 // Dashboard web + API
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(web.router);
+
+// Plugin mount động: /plugin/<id>/... (script được load từ Gist)
+app.use('/plugin', pluginEngine.dispatcher);
+
+// Load lại plugin từ Gist lúc khởi động (không cần deploy lại khi đổi script)
+pluginEngine.reloadAll().catch(e => console.error('[plugin] reloadAll lỗi:', e.message));
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
@@ -208,6 +216,9 @@ client.once('ready', async () => {
         new SlashCommandBuilder().setName('shop').setDescription('Xem danh sách hàng hoá và giá trong shop'),
         new SlashCommandBuilder().setName('connect').setDescription('Liên kết tài khoản web với Discord để đồng bộ coin')
             .addStringOption(o => o.setName('token').setDescription('Token 64 ký tự lấy trong mục Hồ sơ trên web').setRequired(true)),
+        new SlashCommandBuilder().setName('token').setDescription('Lấy token đăng nhập web cố định của tài khoản Discord này'),
+        new SlashCommandBuilder().setName('plugin').setDescription('Gọi lệnh của plugin đã cài (Admin hoặc mọi user tuỳ plugin)')
+            .addStringOption(o => o.setName('lenh').setDescription('Tên plugin:lệnh, ví dụ hello:ping').setRequired(true)),
         new SlashCommandBuilder().setName('star').setDescription('Nhận nhiệm vụ đăng ký kênh YouTube để nhận xu'),
         new SlashCommandBuilder().setName('sdone').setDescription('(Admin) Xác nhận user hoàn thành nhiệm vụ /star')
             .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
@@ -500,6 +511,74 @@ client.on('interactionCreate', async interaction => {
             console.error('[connect] lỗi:', error);
             return interaction.editReply({ content: `❌ Lỗi liên kết: ${error.message}`.slice(0, 1900) });
         }
+    }
+
+    // LỆNH /token — lấy token web cố định (cùng link_token dùng cho /connect)
+    if (interaction.commandName === 'token') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            let user = await db.getWebUserByDiscordId(userId);
+            if (!user) {
+                let username;
+                do {
+                    username = `disc_${String(userId).slice(-6)}${crypto.randomBytes(2).toString('hex')}`;
+                } while (await db.getWebUserByUsername(username));
+                user = await db.createWebUser({
+                    id: randomId(),
+                    username,
+                    password_hash: hashPassword(crypto.randomBytes(24).toString('hex')),
+                    link_token: await generateUniqueLinkToken(db),
+                    discord_id: userId,
+                });
+            } else if (!user.link_token) {
+                const token = await generateUniqueLinkToken(db);
+                user = (await db.updateWebUser(user.id, { link_token: token })) || { ...user, link_token: token };
+            }
+
+            const sync = await db.getCoins(userId);
+            const needRename = !/[A-Za-z]/.test(String(user.username || ''));
+            return interaction.editReply({
+                content: [
+                    '🔑 **Token đăng nhập web của bạn** (cố định, dùng cả cho `/connect`):',
+                    `\`\`\`${user.link_token}\`\`\``,
+                    `👤 Tài khoản web: **${user.username}**`,
+                    `💰 Số dư Discord: **${sync} xu**`,
+                    needRename ? '⚠️ Tên tài khoản hiện chỉ có số. Khi đăng nhập web bạn sẽ được yêu cầu đổi tên.' : '',
+                    '🌐 Dán token ở tab **Token Discord** trên web để đăng nhập.',
+                ].filter(Boolean).join('\n'),
+            });
+        } catch (error) {
+            console.error('[token] lỗi:', error);
+            return interaction.editReply({ content: `❌ Lỗi lấy token: ${error.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /plugin <ten>:<lenh> — gọi lệnh do plugin đăng ký
+    if (interaction.commandName === 'plugin') {
+        const raw = String(interaction.options.getString('lenh') || '').trim();
+        const idx = raw.indexOf(':');
+        const pluginName = idx === -1 ? raw : raw.slice(0, idx).trim();
+        const commandName = idx === -1 ? raw : raw.slice(idx + 1).trim();
+        if (!pluginName || !commandName) {
+            return interaction.reply({ content: '❌ Dùng định dạng `/plugin tên:lệnh`, ví dụ `/plugin hello:ping`.', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const cmd = pluginEngine.getCommand(commandName, pluginName);
+            if (!cmd) {
+                const available = pluginEngine.list()
+                    .map(p => `${p.name}: ${p.commands.map(c => c.name).join(', ') || '(không có lệnh)'}`)
+                    .join('\n') || '(chưa có plugin nào)';
+                return interaction.editReply({ content: `❌ Không tìm thấy lệnh \`${commandName}\` trong plugin \`${pluginName}\`.\n\nLệnh có sẵn:\n${available}`.slice(0, 1900) });
+            }
+            await cmd.execute({ interaction, db, api: pluginEngine.apiFor(cmd.pluginId) });
+        } catch (error) {
+            console.error(`[plugin:${commandName}] lỗi:`, error);
+            const msg = `❌ Lỗi plugin: ${error.message}`.slice(0, 1900);
+            if (interaction.deferred || interaction.replied) await interaction.editReply({ content: msg }).catch(() => {});
+            else await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral }).catch(() => {});
+        }
+        return;
     }
 
     // LỆNH /getlink
