@@ -521,6 +521,23 @@ router.get('/api/debug/meows', ah(async (req, res) => {
     let statusSource = null;
     try { statusSource = (await services.getCloudStatus({ force: true })).source; } catch (e) { /* bỏ qua */ }
 
+    // Gọi /echo của meows-api để thấy header mà render thực sự gửi tới proxy.
+    let echo = null;
+    if (proxy && /^https?:\/\//i.test(proxy)) {
+        try {
+            const u = new URL(proxy);
+            u.pathname = '/echo';
+            u.search = '';
+            u.searchParams.set('url', 'probe');
+            const key = String(process.env.MEOWS_PROXY_KEY || '').trim();
+            const r = await fetch(u.toString(), {
+                headers: key ? { 'x-proxy-key': key } : {},
+                signal: AbortSignal.timeout(8000),
+            });
+            echo = { status: r.status, data: await r.json().catch(() => null) };
+        } catch (e) { echo = { error: e.message }; }
+    }
+
     res.json({
         renderWarp: process.env.RENDER_WARP || '0',
         proxyEnv,
@@ -530,6 +547,7 @@ router.get('/api/debug/meows', ah(async (req, res) => {
         direct,
         viaProxy,
         statusSource,
+        echo,
     });
 }));
 
