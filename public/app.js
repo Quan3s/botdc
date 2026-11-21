@@ -96,8 +96,14 @@ function renderIcons(root = document) {
 
 function labelButton(btn, key, vars) {
   if (!btn) return;
-  let label = btn.querySelector('[data-i18n]');
-  if (!label) label = btn.querySelector('span:last-child') || btn;
+  // Không bao giờ gán data-i18n vào thẻ chứa icon: applyTranslations() dùng
+  // textContent và sẽ xoá mất các span icon bên trong.
+  btn.removeAttribute('data-i18n');
+  let label = btn.querySelector('[data-i18n], span:last-child');
+  if (!label || label === btn) {
+    label = document.createElement('span');
+    btn.appendChild(label);
+  }
   label.textContent = t(key, vars);
   label.setAttribute('data-i18n', key);
 }
@@ -894,7 +900,7 @@ function renderShopReviews(d, shop, sellerId) {
   const reviews = d.reviews || [];
   if (state.user && state.user.isAdmin) {
     state.adminReviews = state.adminReviews.filter(r => !reviews.some(x => x.id === r.id));
-    state.adminReviews.push(...reviews.filter(r => r.status === 'pending').map(r => ({ ...r, shopId: shop.id })));
+    state.adminReviews.push(...reviews.filter(r => r.status === 'pending' || r.appealed || r.status === 'appealed').map(r => ({ ...r, shopId: shop.id })));
   }
   root.innerHTML = reviews.length ? reviews.map(r => {
     const appealed = !!r.appealed || r.status === 'appealed';
@@ -1199,10 +1205,8 @@ function renderSellerShops(shops) {
     $('#seller-shop-desc').value = shop.description || '';
     $('#seller-shop-logo').value = shop.logoUrl || '';
     $('#seller-shop-bg').value = shop.backgroundUrl || '';
-    $('#seller-shop-submit').querySelector('span:last-child').textContent = t('seller.saveShopBtn');
-    $('#seller-shop-submit').setAttribute('data-i18n', 'seller.saveShopBtn');
-    $('#seller-shop-form-title').querySelector('span:last-child').textContent = t('seller.editShop');
-    $('#seller-shop-form-title').setAttribute('data-i18n', 'seller.editShop');
+    labelButton($('#seller-shop-submit'), 'seller.saveShopBtn');
+    labelButton($('#seller-shop-form-title'), 'seller.editShop');
     $('#seller-shop-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
 }
