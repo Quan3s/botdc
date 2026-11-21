@@ -278,9 +278,19 @@ async function getRequestSources({ includeReader = false, includeWww = true, use
     const proxyUrl = useProxy ? await getProxyUrl() : '';
     const sources = [];
     if (proxyUrl) {
-        sources.push(/^https?:\/\//i.test(proxyUrl)
-            ? { name: 'worker', kind: 'worker', url: proxyUrl }
-            : { name: 'warp', kind: 'socks', proxyUrl });
+        if (/^https?:\/\//i.test(proxyUrl)) {
+            sources.push({ name: 'worker', kind: 'worker', url: proxyUrl });
+        } else {
+            sources.push({ name: 'warp', kind: 'socks', proxyUrl });
+            // Nếu người dùng dán nhầm "host:port" của HTTP proxy (không có http://),
+            // normalizeStatusProxy sẽ ra socks5h://... → thử thêm dạng http:// cùng địa chỉ.
+            try {
+                const httpUrl = new URL(proxyUrl.replace(/^socks5h?:\/\//i, 'http://'));
+                httpUrl.username = '';
+                httpUrl.password = '';
+                sources.push({ name: 'proxy', kind: 'worker', url: httpUrl.toString() });
+            } catch (e) { /* bỏ qua */ }
+        }
     }
     sources.push({ name: 'direct', kind: 'direct' });
     if (includeWww) sources.push({ name: 'www', kind: 'www' });

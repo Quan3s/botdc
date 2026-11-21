@@ -910,7 +910,7 @@ router.get('/api/admin/status-proxy', requireAdmin, ah(async (req, res) => {
     res.json({
         proxy: (await db.getKv('meows_status_proxy')) || '',
         envProxy: services.normalizeStatusProxy(process.env.MEOWS_STATUS_PROXY),
-        example: 'socks5h://user:pass@host:1080 · https://worker.example.com/status (xem cloudflare-proxy-worker.js)',
+        example: 'http://IP_VPS:43055 (meows-api) · socks5h://user:pass@host:1080 · https://worker.example.com/status',
     });
 }));
 
