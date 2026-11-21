@@ -198,7 +198,7 @@ async function buyMeows(provider) {
 
     const error = meowsApiError(response, data, raw);
     if (error) {
-        const detail = raw && !data ? ` (${raw.replace(/\s+/g, ' ').slice(0, 160)})` : '';
+        const detail = raw ? ` (body: ${raw.replace(/\s+/g, ' ').slice(0, 200)})` : '';
         const chain = result.failures && result.failures.length ? ` · đã thử: ${result.failures.join('; ')}` : '';
         throw new Error(`${error}${detail} [nguồn: ${result.source}]${chain}`);
     }
