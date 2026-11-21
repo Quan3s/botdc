@@ -360,6 +360,7 @@ async function refreshDashboard() {
     $('#stat-weekly').textContent = num(tasks.weeklyCount);
     $('#stat-daily').textContent = `${daily}/${tasks.dailyMax * 2}`;
     $('#stat-purchases').textContent = num(purchases.purchases.length);
+    updateDailyCard(tasks);
     const lb = await api('/api/leaderboard/links');
     const me = state.user;
     const idx = lb.leaderboard.findIndex(r => r.userId === (me.discordId || `web_${me.id}`));
@@ -380,6 +381,65 @@ function renderRecentPurchases(list) {
       <b>${num(p.totalPrice)} xu</b>
     </div>`).join('');
 }
+
+function updateDailyCard(tasks) {
+  const claimed = !!tasks.dailyClaimed;
+  const freeClaimed = !!tasks.freeVmosClaimed;
+  const unlocked = Number(tasks.linkCountAllTime || 0) > 0;
+  $('#daily-date').textContent = tasks.date || '—';
+
+  const claimBtn = $('#daily-claim-btn');
+  claimBtn.disabled = claimed;
+  claimBtn.textContent = claimed ? '✅ Đã nhận hôm nay' : '🎁 Claim 1–20 xu';
+  $('#daily-claim-status').textContent = claimed ? 'Quà xu: đã nhận' : 'Quà xu: chưa nhận';
+
+  const vmosBtn = $('#daily-vmos-btn');
+  vmosBtn.disabled = freeClaimed || !unlocked;
+  vmosBtn.textContent = freeClaimed ? '✅ Đã lấy hôm nay' : '🆓 Lấy VMOS free';
+  $('#daily-vmos-status').textContent = freeClaimed
+    ? 'VMOS free: đã lấy'
+    : unlocked ? 'VMOS free: khả dụng' : 'VMOS free: cần ≥ 1 link';
+}
+
+$('#daily-claim-btn').addEventListener('click', async () => {
+  const btn = $('#daily-claim-btn');
+  const box = $('#daily-result');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/daily/claim', { method: 'POST' });
+    box.className = 'result-box';
+    box.innerHTML = `🎉 Bạn nhận được <b>${num(data.reward)} xu</b>! Số dư mới: <b>${num(data.newBalance)} xu</b>.`;
+    box.classList.remove('hidden');
+    await refreshDashboard();
+  } catch (err) {
+    box.className = 'result-box error';
+    box.textContent = `❌ ${err.message}`;
+    box.classList.remove('hidden');
+    btn.disabled = false;
+  }
+});
+
+$('#daily-vmos-btn').addEventListener('click', async () => {
+  const btn = $('#daily-vmos-btn');
+  const box = $('#daily-result');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/device/vmos-free', { method: 'POST' });
+    box.className = 'result-box';
+    box.innerHTML = `
+      <div>🆓 VMOS miễn phí hôm nay (đã vượt ${num(data.linkCount)} link):</div>
+      <div class="accounts-box" id="free-vmos-acc">${esc(data.copyText)}</div>
+      <div class="copy-row"><button class="btn btn-soft btn-sm" id="free-vmos-copy">📋 Copy acc|pass</button></div>`;
+    box.classList.remove('hidden');
+    $('#free-vmos-copy').addEventListener('click', ev => copyText(data.copyText, ev.target));
+    await refreshDashboard();
+  } catch (err) {
+    box.className = 'result-box error';
+    box.textContent = `❌ ${err.message}`;
+    box.classList.remove('hidden');
+    btn.disabled = false;
+  }
+});
 
 // ==================== SHOP ====================
 async function loadShop() {

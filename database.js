@@ -623,6 +623,18 @@ module.exports = {
     },
 
     // ==================== BXH VƯỢT LINK TỔNG (mọi kỳ) ====================
+    /** Tổng số link đã vượt của 1 user qua mọi kỳ (dùng để mở quà VMOS free). */
+    async getAllTimeLinkCount(userId) {
+        const key = String(userId);
+        let rows;
+        if (USE_LOCAL) {
+            rows = findMany('link_stats', { user_id: key });
+        } else {
+            rows = await supabaseFetch(`link_stats?select=count&user_id=eq.${encodeURIComponent(key)}&limit=5000`);
+        }
+        return (rows || []).reduce((sum, row) => sum + (Number(row.count) || 0), 0);
+    },
+
     async getAllTimeLinkLeaderboard(limit = 10) {
         const n = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
         let rows;

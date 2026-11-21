@@ -32,6 +32,11 @@ function ah(fn) {
     return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
+/** Fire-and-forget hook cho plugin. emit() tự catch lỗi, không làm chậm request. */
+function hook(event, payload = {}) {
+    pluginEngine.emit(event, payload);
+}
+
 function parseCookies(header) {
     const out = {};
     if (!header) return out;
@@ -256,6 +261,7 @@ router.post('/api/auth/register', ah(async (req, res) => {
         link_token: linkToken,
     });
     await createSession(req, res, user.id);
+    hook('web:user:registered', { id: user.id, username: user.username, ip: req.ip });
     res.json({ user: await publicUser(user) });
 }));
 
@@ -277,6 +283,7 @@ router.post('/api/auth/login', ah(async (req, res) => {
         });
     }
     await createSession(req, res, user.id);
+    hook('web:user:login', { id: user.id, username: user.username, method: 'password', ip: req.ip });
     res.json({ user: await publicUser(user) });
 }));
 
@@ -303,6 +310,7 @@ router.post('/api/auth/claim-username', ah(async (req, res) => {
     user.username = newUsername;
     user.username_lower = newUsername.toLowerCase();
     await createSession(req, res, user.id);
+    hook('web:user:renamed', { id: user.id, from: currentUsername, to: newUsername });
     res.json({ user: await publicUser(user) });
 }));
 
@@ -326,12 +334,14 @@ router.post('/api/auth/discord-token', ah(async (req, res) => {
         });
     }
     await createSession(req, res, user.id);
+    hook('web:user:login', { id: user.id, username: user.username, method: 'discord-token', discordId: user.discord_id || null });
     res.json({ user: await publicUser(user) });
 }));
 
 router.post('/api/auth/logout', ah(async (req, res) => {
     if (req.sessionId) await db.deleteWebSession(req.sessionId);
     clearSessionCookie(res);
+    hook('web:user:logout', { id: req.webUser && req.webUser.id });
     res.json({ ok: true });
 }));
 
@@ -348,6 +358,7 @@ router.post('/api/profile/password', requireAuth, ah(async (req, res) => {
     if (next.length < 6) return res.status(400).json({ error: 'Mật khẩu mới tối thiểu 6 ký tự.' });
     await db.updateWebUser(req.webUser.id, { password_hash: hashPassword(next) });
     await db.deleteWebSessionsForUser(req.webUser.id, req.sessionId);
+    hook('web:profile:password', { id: req.webUser.id });
     res.json({ ok: true });
 }));
 
@@ -355,6 +366,7 @@ router.post('/api/profile/token', requireAuth, ah(async (req, res) => {
     if (req.webUser.discord_id) return res.status(400).json({ error: 'Tài khoản đã liên kết Discord, không cần token nữa.' });
     const token = await generateUniqueLinkToken(db);
     const updated = await db.updateWebUser(req.webUser.id, { link_token: token });
+    hook('web:profile:token', { id: req.webUser.id });
     res.json({ linkToken: updated.link_token });
 }));
 
@@ -369,6 +381,7 @@ router.post('/api/profile/username', requireAuth, ah(async (req, res) => {
     if (exists && exists.id !== req.webUser.id) return res.status(409).json({ error: 'Tên này đã được dùng.' });
     await db.updateWebUser(req.webUser.id, { username: newUsername, username_lower: newUsername.toLowerCase() });
     await refreshSessionUser(req);
+    hook('web:profile:username', { id: req.webUser.id, username: newUsername });
     res.json({ ok: true, username: newUsername });
 }));
 
@@ -376,6 +389,7 @@ router.post('/api/profile/theme', requireAuth, ah(async (req, res) => {
     const theme = String(req.body.theme || '').toLowerCase();
     if (!['bubble', 'classic'].includes(theme)) return res.status(400).json({ error: 'Theme không hợp lệ.' });
     await db.setKv(`theme:${req.webUser.id}`, theme);
+    hook('web:profile:theme', { id: req.webUser.id, theme });
     res.json({ ok: true, theme });
 }));
 
@@ -415,7 +429,7 @@ router.post('/api/transfers', requireAuth, ah(async (req, res) => {
         await db.updateCoins(fromKey, amount).catch(() => {});
         throw e;
     }
-    await db.createTransfer({
+    const transfer = await db.createTransfer({
         id: randomId(),
         from_user_id: req.webUser.id,
         from_label: req.webUser.username,
@@ -424,6 +438,7 @@ router.post('/api/transfers', requireAuth, ah(async (req, res) => {
         amount,
         fee,
     });
+    hook('web:transfer', { id: transfer.id, from: req.webUser.id, to: target.key, amount, fee });
     res.json({ ok: true, newBalance, fee, received, to: target.label });
 }));
 
@@ -442,7 +457,9 @@ router.post('/api/giftcode', requireAuth, ah(async (req, res) => {
     const amount = await db.redeemGiftCode(code);
     if (!amount) return res.status(400).json({ error: 'Gift code không hợp lệ hoặc đã được dùng.' });
 
-    const newBalance = await db.updateCoins(balanceKey(req.webUser), amount);
+    const key = balanceKey(req.webUser);
+    const newBalance = await db.updateCoins(key, amount);
+    hook('web:giftcode', { code, amount, userKey: key });
     res.json({ ok: true, amount, newBalance });
 }));
 
@@ -497,6 +514,10 @@ router.post('/api/shop/buy', requireAuth, ah(async (req, res) => {
         unit_price: Number(item.price),
         total_price: total,
         accounts: taken.accounts.join('\n'),
+    });
+    hook('web:shop:purchase', {
+        purchaseId: purchase.id, userId: req.webUser.id, itemId: item.id,
+        itemName: item.name, quantity, total, remaining: taken.remaining,
     });
     res.json({
         ok: true,
@@ -640,6 +661,7 @@ router.post('/api/device/reg', requireAuth, ah(async (req, res) => {
     try {
         const result = service === 'vmos' ? await services.regVmosAccount() : await services.regVsphoneAccount();
         const newBalance = await db.updateCoins(key, -REG_COST);
+        hook('web:device:reg', { service, userKey: key, cost: REG_COST, newBalance });
         res.json({
             ok: true,
             service,
@@ -671,6 +693,7 @@ router.post('/api/device/meows', requireAuth, ah(async (req, res) => {
     try {
         const result = await services.buyMeows(provider);
         const newBalance = await db.updateCoins(key, -cost);
+        hook('web:device:meows', { provider, userKey: key, cost, newBalance, source: result.source });
         res.json({
             ok: true,
             provider: services.MEOWS_NAMES[provider],
@@ -690,16 +713,69 @@ router.post('/api/device/meows', requireAuth, ah(async (req, res) => {
     }
 }));
 
+// ==================== ĐIỂM DANH HÀNG NGÀY / QUÀ FREE ====================
+router.post('/api/daily/claim', requireAuth, ah(async (req, res) => {
+    const key = balanceKey(req.webUser);
+    if (busyUsers.has(key)) return res.status(409).json({ error: 'Bạn đang có thao tác khác, thử lại sau.' });
+    const today = getTodayString();
+    busyUsers.add(key);
+    try {
+        if (await db.checkDailyLimit(key, 'daily', today) > 0) {
+            return res.status(400).json({ error: 'Hôm nay bạn đã nhận quà rồi. Quay lại sau 0h giờ VN nhé!' });
+        }
+        const reward = crypto.randomInt(1, 21); // 1-20 xu, cùng luồng /daily Discord
+        await db.increaseDailyLimit(key, 'daily', today); // đánh dấu trước để chống nhận 2 lần
+        const newBalance = await db.updateCoins(key, reward);
+        hook('web:daily:claim', { userKey: key, reward, newBalance, date: today });
+        res.json({ ok: true, reward, newBalance, date: today });
+    } finally {
+        busyUsers.delete(key);
+    }
+}));
+
+/** 1 VMOS mới mỗi ngày, không trừ xu. Điều kiện: đã vượt ít nhất 1 link (mọi kỳ). */
+router.post('/api/device/vmos-free', requireAuth, ah(async (req, res) => {
+    const key = balanceKey(req.webUser);
+    if (busyUsers.has(key)) return res.status(409).json({ error: 'Bạn đang có thao tác khác, thử lại sau.' });
+    const today = getTodayString();
+    busyUsers.add(key);
+    try {
+        const [claimed, linkCount] = await Promise.all([
+            db.checkDailyLimit(key, 'vmos_free', today),
+            db.getAllTimeLinkCount(key),
+        ]);
+        if (claimed > 0) return res.status(400).json({ error: 'Hôm nay bạn đã lấy VMOS free rồi. Quay lại sau 0h giờ VN nhé!' });
+        if (linkCount < 1) return res.status(400).json({ error: 'Bạn cần vượt ít nhất 1 link để mở quà VMOS free.' });
+
+        const result = await services.regVmosAccount();
+        await db.increaseDailyLimit(key, 'vmos_free', today);
+        hook('web:device:vmos-free', { userKey: key, linkCount, date: today });
+        res.json({
+            ok: true,
+            account: result.account,
+            password: result.password,
+            copyText: result.copyText,
+            linkCount,
+            date: today,
+        });
+    } finally {
+        busyUsers.delete(key);
+    }
+}));
+
 // ==================== NHIỆM VỤ VƯỢT LINK ====================
 router.get('/api/tasks', requireAuth, ah(async (req, res) => {
     const key = balanceKey(req.webUser);
     const today = getTodayString();
     const period = await weekly.getLinkPeriod();
-    const [link4m, layma, star, weeklyCount] = await Promise.all([
+    const [link4m, layma, star, weeklyCount, dailyClaimed, freeVmosClaimed, linkCountAllTime] = await Promise.all([
         db.checkDailyLimit(key, 'link4m', today),
         db.checkDailyLimit(key, 'layma', today),
         db.checkDailyLimit(key, 'star', today),
         db.getLinkCount(key, period),
+        db.checkDailyLimit(key, 'daily', today),
+        db.checkDailyLimit(key, 'vmos_free', today),
+        db.getAllTimeLinkCount(key),
     ]);
     res.json({
         reward: LINK_REWARD,
@@ -711,6 +787,10 @@ router.get('/api/tasks', requireAuth, ah(async (req, res) => {
         rewards: weekly.REWARDS,
         link4mReady: !!process.env.LINK4M_API_KEY,
         laymaReady: !!process.env.LAYMA_TOKEN,
+        date: today,
+        dailyClaimed: dailyClaimed > 0,
+        freeVmosClaimed: freeVmosClaimed > 0,
+        linkCountAllTime,
     });
 }));
 
@@ -744,6 +824,7 @@ router.post('/api/tasks/link', requireAuth, ah(async (req, res) => {
     }
 
     await db.increaseDailyLimit(key, provider, today);
+    hook('web:link:start', { userKey: key, provider, sid, targetUrl });
     res.json({ ok: true, url: finalUrl, provider, remaining: LINK_DAILY_MAX - count - 1 });
 }));
 
@@ -954,6 +1035,7 @@ router.get('/api/admin/payouts', requireAdmin, ah(async (req, res) => {
 
 router.post('/api/admin/payout', requireAdmin, ah(async (req, res) => {
     const result = await weekly.runWeeklyPayout({ force: true });
+    hook('web:admin:payout', { by: req.webUser.id, result });
     res.json({ ok: true, result });
 }));
 
@@ -969,6 +1051,7 @@ router.post('/api/admin/background', requireAdmin, ah(async (req, res) => {
     const url = String(req.body.url || '').trim();
     if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'URL ảnh phải bắt đầu bằng http:// hoặc https://' });
     await db.setKv('admin_background_url', url);
+    hook('web:admin:background', { url, by: req.webUser.id });
     res.json({ ok: true, url: url || DEFAULT_BACKGROUND_URL });
 }));
 
@@ -994,12 +1077,14 @@ router.post('/api/admin/meows/cookie', requireAdmin, ah(async (req, res) => {
     await db.setKv(services.MEOWS_COOKIE_KEY, cookie);
     const updatedAt = new Date().toISOString();
     await db.setKv('meows_cookie_updated_at', updatedAt);
+    hook('web:admin:cookie', { by: req.webUser.id, configured: true, updatedAt });
     res.json({ ok: true, cookie, configured: true, updatedAt });
 }));
 
 router.delete('/api/admin/meows/cookie', requireAdmin, ah(async (req, res) => {
     await db.setKv(services.MEOWS_COOKIE_KEY, '');
     await db.setKv('meows_cookie_updated_at', new Date().toISOString());
+    hook('web:admin:cookie', { by: req.webUser.id, configured: false });
     res.json({ ok: true, configured: false });
 }));
 
@@ -1016,6 +1101,7 @@ router.post('/api/admin/status-proxy', requireAdmin, ah(async (req, res) => {
     const proxy = services.normalizeStatusProxy(req.body.proxy);
     if (!proxy) return res.status(400).json({ error: 'Nhập địa chỉ SOCKS5 (VD: 127.0.0.1:40000).' });
     await db.setKv('meows_status_proxy', proxy);
+    hook('web:admin:proxy', { proxy, by: req.webUser.id });
     res.json({ ok: true, proxy });
 }));
 
@@ -1060,6 +1146,7 @@ router.post('/api/admin/plugins', requireAdmin, ah(async (req, res) => {
         enabled: true,
     });
     const meta = await pluginEngine.loadPlugin(row);
+    hook('web:plugin:installed', { id: row.id, name: row.name, meta });
     res.json({ ok: true, plugin: { id: row.id, name: row.name, gistUrl: gist.url }, runtime: meta });
 }));
 
@@ -1068,6 +1155,7 @@ router.post('/api/admin/plugins/:id/reload', requireAdmin, ah(async (req, res) =
     if (!row) return res.status(404).json({ error: 'Không tìm thấy plugin.' });
     if (row.enabled === false) return res.status(400).json({ error: 'Plugin đang bị tắt.' });
     const meta = await pluginEngine.loadPlugin(row);
+    hook('web:plugin:reloaded', { id: row.id, name: row.name, meta });
     res.json({ ok: true, runtime: meta });
 }));
 
@@ -1085,6 +1173,7 @@ router.post('/api/admin/plugins/:id/source', requireAdmin, ah(async (req, res) =
     }
     await db.updatePlugin(row.id, { source_url: sourceUrl, gist_id: row.gist_id, gist_filename: row.gist_filename });
     const meta = await pluginEngine.loadPlugin({ ...row, source_url: sourceUrl });
+    hook('web:plugin:source', { id: row.id, name: row.name, sourceUrl, meta });
     res.json({ ok: true, runtime: meta });
 }));
 
@@ -1095,11 +1184,14 @@ router.patch('/api/admin/plugins/:id', requireAdmin, ah(async (req, res) => {
     await db.updatePlugin(row.id, { enabled });
     if (!enabled) pluginEngine.unload(row.id);
     else await pluginEngine.loadPlugin({ ...row, enabled: true });
+    hook('web:plugin:toggle', { id: row.id, name: row.name, enabled });
     res.json({ ok: true, enabled });
 }));
 
 router.delete('/api/admin/plugins/:id', requireAdmin, ah(async (req, res) => {
-    await pluginEngine.remove(req.params.id);
+    const id = req.params.id;
+    await pluginEngine.remove(id);
+    hook('web:plugin:removed', { id });
     res.json({ ok: true });
 }));
 
@@ -1110,4 +1202,4 @@ router.use((err, req, res, next) => {
     res.status(500).json({ error: err.message || 'Lỗi server.' });
 });
 
-module.exports = { router, isDiscordAdmin, balanceKey, COOKIE_NAME };
+module.exports = { router, isDiscordAdmin, balanceKey, COOKIE_NAME, requireAuth, requireAdmin, publicUser };

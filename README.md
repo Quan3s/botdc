@@ -26,13 +26,14 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 - **Buy Device**: mua cloud (Hanami), reg tài khoản và mua nhanh (UGPhone 49 xu / VSPhone VIP 15 xu).
 - **Cloud Status** (hiển thị cho mọi người, không cần đăng nhập): trạng thái **VMOS Cloud** và **VSPhone** của dịch vụ mua nhanh (lấy từ `GET https://meows.vn/api/cloud-status`). Tự làm mới mỗi 60s; API public `GET /api/status/cloud` (cache 60s, `?force=1` để lấy mới ngay). `status: offline` = hết máy. Nếu IP server bị Cloudflare chặn (`403 - Just a moment...`), hệ thống tự thử `www.meows.vn` rồi tới proxy đọc nội dung; ô thời gian sẽ hiện `proxy` khi đang dùng đường dự phòng. Cả 3 đường cùng lỗi mới hiện thông báo lỗi.
 - **Nhiệm vụ**: lấy link vượt link, theo dõi lượt trong ngày & trong tuần.
+- **Điểm danh mỗi ngày**: nút claim nhận random **1–20 xu** (cùng bucket với `/daily` Discord). Nếu đã vượt **≥ 1 link** thì mỗi ngày còn lấy được **1 tài khoản VMOS free**, không trừ xu.
 - **Xếp hạng**: coin · vượt link **7 ngày** (có thưởng, reset sau mỗi kỳ) · vượt link **tổng** (không thưởng). Tên hiển thị là username, không phải ID số.
 - **Chuyển tiền**: chuyển coin cho người khác (phí 5%).
 - **Hồ sơ**: đổi mật khẩu, xem/copy token liên kết Discord.
 - **Quản trị** (chỉ hiện với tài khoản đã liên kết Discord admin), chia 4 tab:
   - **User**: danh sách người dùng, đơn hàng, lịch sử trả thưởng.
   - **Shop**: tạo sản phẩm, upload kho lên GitHub Gist, đặt giá, thêm kho, sửa/xoá.
-  - **Plugin**: dán link raw script → tự lưu Gist → lưu gist_id vào DB → load chạy ngay (không deploy lại).
+  - **Plugin**: dán link raw script → tự lưu Gist → lưu gist_id vào DB → load chạy ngay (không deploy lại). Plugin viết bằng **JavaScript/CommonJS**, có API nội bộ bot/web, event bus và gọi API chéo plugin. Xem [docs/PLUGINS.md](docs/PLUGINS.md).
   - **Cookie**: nhập/lưu cookie dùng cho 2 dịch vụ mua nhanh; tự chuẩn hoá `.COOKIESECURITY=<cookie>`, đổi không cần deploy.
 
 ### Thưởng bảng xếp hạng vượt link (tự động mỗi Chủ nhật)
@@ -70,20 +71,26 @@ Tạo token GitHub có quyền `gist` và điền `GITHUB_TOKEN`. Khi admin tạ
 Nếu chưa có `GITHUB_TOKEN`, kho được lưu tạm trong DB (chế độ local) để test.
 
 ### Plugin (thêm logic/API không cần deploy)
-Vào **Quản trị → Plugin**, nhập tên và link raw script (http/https). Server sẽ:
-1. Tải script về (tối đa 200KB).
-2. Lưu nội dung vào 1 secret gist; `gist_id` lưu ở bảng `plugins`.
-3. Load script ngay trong sandbox `vm` và mount route `/plugin/<plugin-id>/...`.
-4. Load lại từ gist mỗi lần restart hoặc bấm **Reload**.
+Vào **Quản trị → Plugin**, nhập tên và link raw script (http/https). Server sẽ tải script (tối đa 200KB), lưu vào secret gist, rồi load trong sandbox `vm` và mount route `/plugin/<plugin-id>/...`. Reload luôn đọc từ gist.
+
+**Ngôn ngữ plugin: JavaScript / CommonJS** — không cần build, không dependency.
 
 Script mẫu:
 ```js
-api.get('/hello', (req, res) => res.json({ ok: true }));
-api.command('ping', async ({ interaction, db, api }) => {
-  await interaction.editReply('pong'); // /plugin <ten>:ping (lệnh đã deferReply)
-});
+module.exports = function (api) {
+  api.get('/hello', (req, res) => res.json({ ok: true }));
+  api.command('ping', async ({ interaction }) => {
+    await interaction.editReply('pong'); // /plugin <ten>:ping (đã deferReply)
+  });
+  api.events.on('web:daily:claim', ({ userKey, reward }) => api.log(userKey, reward));
+  api.plugins.expose('greet', ({ name }) => `Xin chào ${name}!`);
+};
 ```
-Có thể dùng `api.get/post/put/patch/delete`, `api.command`, `api.kv`, `api.webhook`, `db`, `crypto`, `fetch`, `URL`, `Buffer`.
+
+Có sẵn nhiều namespace: `core`, `plugin`, routes/commands, `events`, `plugins` (expose/call), `bot`, `web`, `coins`, `users`, `shop`, `services`, `link`, `gift`, `daily`, `format`, `http`, `kv`, `onUnload`.
+
+📖 **Tài liệu đầy đủ (API + toàn bộ event `web:*` / `bot:*` + bảo mật):** [docs/PLUGINS.md](docs/PLUGINS.md).
+
 Chỉ admin mới được cài/sửa plugin; sandbox chỉ để hạn chế, không phải hàng rào bảo mật tuyệt đối — hãy dùng nguồn script tin cậy.
 
 ### Liên kết admin

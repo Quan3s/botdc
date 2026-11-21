@@ -119,6 +119,19 @@
           <div class="card stat"><span class="stat-ico">📦</span><div><b id="stat-purchases">0</b><small>Đơn đã mua</small></div></div>
           <div class="card stat"><span class="stat-ico">🔔</span><div><b id="stat-daily">0/2</b><small>Nhiệm vụ hôm nay</small></div></div>
         </div>
+        <div class="card daily-card">
+          <div class="card-head"><h3>🎁 Điểm danh & quà mỗi ngày</h3><span id="daily-date" class="pill">—</span></div>
+          <p class="muted">Claim mỗi ngày để nhận ngẫu nhiên <b>1–20 xu</b>. Nếu đã vượt ít nhất <b>1 link</b>, bạn còn được lấy <b>1 tài khoản VMOS miễn phí</b> mỗi ngày — không trừ xu.</p>
+          <div class="daily-actions">
+            <button id="daily-claim-btn" class="btn btn-primary">🎁 Claim 1–20 xu</button>
+            <button id="daily-vmos-btn" class="btn btn-soft">🆓 Lấy VMOS free</button>
+          </div>
+          <div class="daily-meta">
+            <span id="daily-claim-status" class="pill">—</span>
+            <span id="daily-vmos-status" class="pill">—</span>
+          </div>
+          <div id="daily-result" class="result-box hidden"></div>
+        </div>
         <div class="card">
           <div class="card-head"><h3>Đồ đã mua gần đây</h3><button class="btn btn-ghost" data-goto="shop">Xem shop</button></div>
           <div id="recent-purchases" class="recent-list"></div>
@@ -396,7 +409,7 @@
               <label>Link raw script<input id="admin-plugin-url" placeholder="https://raw.githubusercontent.com/.../plugin.js" /></label>
               <button id="admin-plugin-create-btn" class="btn btn-primary btn-block">Tải &amp; kích hoạt</button>
               <div id="admin-plugin-result" class="result-box hidden"></div>
-              <p class="muted" style="margin-top:14px">API trong script: <code>api.get/post(...)</code>, <code>api.command('ten', fn)</code>, <code>api.kv</code>, <code>db</code>, <code>crypto</code>, <code>fetch</code>.<br/>Web: <code>/plugin/&lt;id&gt;/&lt;path&gt;</code> · Discord: <code>/plugin ten:lenh</code></p>
+              <p class="muted" style="margin-top:14px">Plugin viết bằng <b>JavaScript / CommonJS</b>. API: <code>api.get/post(...)</code>, <code>api.command</code>, <code>api.events.on</code>, <code>api.plugins.expose/call</code>, <code>api.bot</code>, <code>api.web</code>, <code>api.coins</code>, <code>api.services</code>, <code>api.kv</code>…<br/>Web: <code>/plugin/&lt;id&gt;/&lt;path&gt;</code> · Discord: <code>/plugin ten:lenh</code><br/>📖 Xem docs: <a href="https://github.com/Quan3s/botdc/blob/main/docs/PLUGINS.md" target="_blank" rel="noopener">docs/PLUGINS.md</a></p>
             </div>
             <div class="card">
               <div class="card-head"><h3>📦 Plugin đã cài</h3><button id="admin-plugin-refresh" class="btn btn-ghost">Làm mới</button></div>

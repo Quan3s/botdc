@@ -348,6 +348,10 @@ textarea { resize: vertical; }
 }
 .result-box.error { background: rgba(255,107,129,0.08); border-color: rgba(255,107,129,0.35); color: #ffc2cc; }
 .device-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.daily-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0 10px; }
+.daily-meta { display: flex; gap: 8px; flex-wrap: wrap; }
+.daily-meta .pill { font-size: 11.5px; }
+[data-theme="bubble"] .daily-card { background: radial-gradient(320px 160px at 100% 0%, rgba(255,215,106,.16), transparent 65%), linear-gradient(145deg, rgba(255,255,255,.13), rgba(255,255,255,.035)); }
 
 /* ============ LEADERBOARD ============ */
 .tabs { display: flex; gap: 8px; margin-bottom: 16px; }

@@ -33,9 +33,27 @@ app.use('/plugin', pluginEngine.dispatcher);
 // Load lại plugin từ Gist lúc khởi động (không cần deploy lại khi đổi script)
 pluginEngine.reloadAll().catch(e => console.error('[plugin] reloadAll lỗi:', e.message));
 
+/** Fire-and-forget hook cho plugin. emit() tự catch lỗi. */
+function hook(event, payload = {}) {
+    pluginEngine.emit(event, payload);
+}
+
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
     rest: { timeout: 15000, retries: 5 },
+});
+
+// Inject nội bộ bot + web cho plugin: api.bot.*, api.web.*, api.users.*...
+pluginEngine.attachContext({
+    client,
+    app,
+    web: {
+        requireAuth: web.requireAuth,
+        requireAdmin: web.requireAdmin,
+        balanceKey: web.balanceKey,
+        publicUser: web.publicUser,
+        COOKIE_NAME: web.COOKIE_NAME,
+    },
 });
 
 // Lưu avatar/username Discord lúc /connect, /token để web dùng làm avatar user.
@@ -110,13 +128,18 @@ app.get('/redeem', async (req, res) => {
         const { user_id, provider } = sessionData;
         const newBalance = await db.updateCoins(user_id, 50);
         let weeklyCount = 0;
+        let period = null;
         try {
-            const period = await weekly.getLinkPeriod();
+            period = await weekly.getLinkPeriod();
             weeklyCount = await db.incrementLinkCount(user_id, period);
         } catch (e) {
             console.error('[WEB] không cập nhật được BXH vượt link:', e.message);
         }
 
+        hook('bot:link:redeemed', {
+            sid, userKey: user_id, provider, reward: 50,
+            newBalance, weeklyCount, period,
+        });
         console.log(`[WEB] User ${user_id} vượt link ${provider}. +50 xu. Số dư: ${newBalance} | tuần này: ${weeklyCount}`);
 
         res.send(`
@@ -139,10 +162,20 @@ app.get('/redeem', async (req, res) => {
 app.listen(PORT, () => console.log(`\n✅ Web Server đang chạy: http://localhost:${PORT}`));
 
 // Trả thưởng bảng xếp hạng vượt link tự động vào Chủ nhật hàng tuần (giờ VN)
+async function runWeeklyPayoutWithHook(source) {
+    try {
+        const result = await weekly.runWeeklyPayout();
+        hook('bot:weekly:payout', { source, result });
+        return result;
+    } catch (e) {
+        hook('bot:weekly:payout:error', { source, error: e.message });
+        throw e;
+    }
+}
 setInterval(() => {
-    weekly.runWeeklyPayout().catch(e => console.error('[weekly] lỗi:', e.message));
+    runWeeklyPayoutWithHook('auto').catch(e => console.error('[weekly] lỗi:', e.message));
 }, WEEKLY_PAYOUT_INTERVAL_MS);
-weekly.runWeeklyPayout().catch(e => console.error('[weekly] lỗi:', e.message));
+runWeeklyPayoutWithHook('startup').catch(e => console.error('[weekly] lỗi:', e.message));
 
 // In IP outbound mỗi lần khởi động (để đưa vào whitelist) + thử xem KingDev có bị Cloudflare chặn không
 (async () => {
@@ -210,10 +243,18 @@ async function updateLeaderboard() {
 client.on('shardReady', () => resetHeartbeat());
 client.on('shardResume', (id, r) => { console.log(`[BOT] Shard ${id} resume OK (${r} events).`); resetHeartbeat(); });
 client.on('interactionCreate', () => resetHeartbeat());
-client.on('messageCreate', () => resetHeartbeat());
+client.on('messageCreate', (message) => {
+    resetHeartbeat();
+    hook('bot:message', {
+        id: message.id, authorId: message.author && message.author.id,
+        channelId: message.channelId, guildId: message.guildId,
+        content: message.content, isBot: !!(message.author && message.author.bot),
+    });
+});
 
 client.once('ready', async () => {
     resetHeartbeat(); // bắt đầu watchdog ngay khi bot sẵn sàng
+    hook('bot:ready', { botId: client.user.id, username: client.user.username, at: new Date().toISOString() });
     const commands = [
         new SlashCommandBuilder().setName('getlink').setDescription('Lấy link nhiệm vụ để nhận 50 xu (Tối đa 2 lần/ngày)')
             .addStringOption(opt => opt.setName('provider').setDescription('Chọn dịch vụ rút gọn link').addChoices(
@@ -440,6 +481,7 @@ async function handleRegButton(interaction) {
         if (service === 'vmos') await regVmos(interaction, userId);
         else if (service === 'vsphone') await regVsphone(interaction, userId);
         else await interaction.editReply({ content: '🚧 Dịch vụ này sắp có.' });
+        hook('bot:device:reg', { service, userId, cost: REG_COST });
     } catch (error) {
         console.error(`[reg:${service}] lỗi:`, error, error.cause);
         await interaction.editReply({ content: `❌ ${error.message}${error.cause ? ' - ' + (error.cause.code || error.cause.message) : ''} (Chưa bị trừ xu).` }).catch(() => {});
@@ -455,6 +497,10 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
     const adminIds = getAdminIds();
     const userId = interaction.user.id;
+    hook('bot:interaction', {
+        id: interaction.id, command: interaction.commandName, userId,
+        channelId: interaction.channelId, guildId: interaction.guildId,
+    });
 
     // LỆNH /shop
     if (interaction.commandName === 'shop') {
@@ -526,6 +572,10 @@ client.on('interactionCreate', async interaction => {
                 console.error('[connect] không gộp được BXH vượt link:', e.message);
             }
 
+            hook('bot:user:connected', {
+                discordId: userId, webUserId: webUser.id,
+                username: webUser.username, newBalance, mergedWebBalance: webBalance,
+            });
             const adminNote = (await isAdmin(userId)) ? '\n🛡️ Bạn là **admin**, mục Quản trị đã mở trên web.' : '';
             return interaction.editReply({
                 content: `✅ Liên kết thành công với tài khoản web **${webUser.username}**!\n💰 Coin đã đồng bộ: **${newBalance} xu**${adminNote}`
@@ -561,6 +611,10 @@ client.on('interactionCreate', async interaction => {
 
             const sync = await db.getCoins(userId);
             const needRename = !/[A-Za-z]/.test(String(user.username || ''));
+            hook('bot:user:token', {
+                discordId: userId, webUserId: user.id,
+                username: user.username, needsRename: needRename,
+            });
             return interaction.editReply({
                 content: [
                     '🔑 **Token đăng nhập web của bạn** (cố định, dùng cả cho `/connect`):',
@@ -595,7 +649,13 @@ client.on('interactionCreate', async interaction => {
                     .join('\n') || '(chưa có plugin nào)';
                 return interaction.editReply({ content: `❌ Không tìm thấy lệnh \`${commandName}\` trong plugin \`${pluginName}\`.\n\nLệnh có sẵn:\n${available}`.slice(0, 1900) });
             }
+            hook('bot:plugin:command', {
+                pluginId: cmd.pluginId, pluginName, commandName, userId,
+            });
             await cmd.execute({ interaction, db, api: pluginEngine.apiFor(cmd.pluginId) });
+            hook('bot:plugin:executed', {
+                pluginId: cmd.pluginId, pluginName, commandName, userId,
+            });
         } catch (error) {
             console.error(`[plugin:${commandName}] lỗi:`, error);
             const msg = `❌ Lỗi plugin: ${error.message}`.slice(0, 1900);
@@ -641,6 +701,7 @@ client.on('interactionCreate', async interaction => {
             }
 
             await db.increaseDailyLimit(userId, provider, today);
+            hook('bot:link:start', { userId, provider, sid: sessionId, targetUrl, finalUrl });
 
             const embed = new EmbedBuilder()
                 .setColor(provider === 'link4m' ? 0xffc107 : 0x8b5cf6)
@@ -673,6 +734,7 @@ client.on('interactionCreate', async interaction => {
             if (!amount) return await interaction.editReply({ content: `❌ Gift Code không hợp lệ hoặc đã được sử dụng.` });
 
             const newBalance = await db.updateCoins(userId, amount);
+            hook('bot:giftcode', { userId, code: giftCode, amount, newBalance });
             await interaction.editReply({ content: `✅ Nhập code thành công! Bạn nhận được **${amount} xu**.\n💰 Số dư mới: **${newBalance} xu**` });
         } catch (error) {
             await interaction.editReply({ content: `❌ Lỗi khi nhập code.` });
@@ -697,6 +759,9 @@ client.on('interactionCreate', async interaction => {
         try {
             const result = await services.buyMeows(provider);
             const newBalance = await db.updateCoins(userId, -cost);
+            hook('bot:device:meows', {
+                userId, provider, cost, newBalance, source: result.source || null,
+            });
             const lines = [
                 `🎯 Dịch vụ: **${MEOWS_NAMES[provider]}**`,
                 `💰 Đã trừ: **${cost} xu** · Số dư: **${newBalance} xu**`,
@@ -720,6 +785,7 @@ client.on('interactionCreate', async interaction => {
 
     // LỆNH /reg - mở panel chọn dịch vụ
     if (interaction.commandName === 'reg') {
+        hook('bot:device:reg:panel', { userId });
         return interaction.reply({ ...buildRegPanel(userId), flags: MessageFlags.Ephemeral });
     }
 
@@ -761,6 +827,7 @@ client.on('interactionCreate', async interaction => {
             const reward = crypto.randomInt(1, 21); // 1-20
             await db.increaseDailyLimit(userId, 'daily', today); // đánh dấu đã nhận trước để chống nhận 2 lần
             const newBalance = await db.updateCoins(userId, reward);
+            hook('bot:daily:claim', { userId, reward, newBalance, date: today });
             await interaction.editReply({ content: `🎁 Quà hàng ngày: bạn nhận được **${reward} xu**!\n💰 Số dư: **${newBalance} xu**` });
         } catch (error) {
             console.error('[daily] lỗi:', error);
@@ -796,6 +863,7 @@ client.on('interactionCreate', async interaction => {
                 await db.updateCoins(userId, amount).catch(() => {}); // hoàn xu nếu cộng cho người nhận thất bại
                 throw e;
             }
+            hook('bot:transfer', { from: userId, to: target.id, amount, fee, received, newBalance });
             await interaction.editReply({ content: `✅ Đã chuyển **${amount} xu** (phí ${fee} xu).\n💰 Số dư còn lại: **${newBalance} xu**` });
             await interaction.followUp({ content: `💸 <@${userId}> đã chuyển cho <@${target.id}> **${received} xu** (phí 5%: ${fee} xu).` }).catch(() => {});
         } catch (error) {
