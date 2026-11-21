@@ -1,11 +1,11 @@
 /**
- * Lưu chat riêng & lịch sử đơn hàng trên GitHub Gist (secret).
+ * Lưu chat riêng, lịch sử đơn hàng và thống kê vượt link trên GitHub Gist (secret).
  *
- * - Có GITHUB_TOKEN  -> 1 gist cho chat (KV `gist_chat`), 1 gist cho đơn
- *   (KV `gist_orders`), mỗi gist 1 file JSON.
+ * - Có GITHUB_TOKEN  -> gist cho chat (`gist_chat`), đơn (`gist_orders`) và
+ *   link 7 ngày (`gist_links`), mỗi gist 1 file JSON.
  * - Không có token   -> fallback file JSON cục bộ trong ./data (dev/demo).
  *
- * Mặc định: đơn giữ 7 ngày, chat giữ 30 ngày. Không log nội dung chat/order.
+ * Mặc định: đơn/link giữ 7 ngày, chat giữ 30 ngày. Không log nội dung chat/order.
  */
 const fs = require('fs');
 const path = require('path');
@@ -15,10 +15,12 @@ const github = require('./github');
 const KINDS = {
     chat: { kv: 'gist_chat', file: 'asynctas-chat.json', days: 30, field: 'messages', local: 'gist-chat.json' },
     orders: { kv: 'gist_orders', file: 'asynctas-orders.json', days: 7, field: 'orders', local: 'gist-orders.json' },
+    links: { kv: 'gist_links', file: 'asynctas-links.json', days: 7, field: 'links', local: 'gist-links.json' },
 };
 const ALIASES = {
     chat: 'chat', message: 'chat', messages: 'chat',
     order: 'orders', orders: 'orders', history: 'orders', order_history: 'orders',
+    link: 'links', links: 'links', link_stats: 'links', weekly: 'links',
 };
 
 const queues = {};
@@ -170,7 +172,8 @@ async function appendJson(namespace, entry, maxItems = 0) {
         const data = normalize(kind, await read(kind));
         const rows = Array.isArray(data[field]) ? data[field] : [];
         rows.push(entry);
-        const cap = Math.max(1, parseInt(maxItems, 10) || 0);
+        const parsedCap = parseInt(maxItems, 10);
+        const cap = Number.isFinite(parsedCap) && parsedCap > 0 ? parsedCap : 0;
         data[field] = cap ? rows.slice(-cap) : rows;
         await write(kind, data);
         return entry;
@@ -299,12 +302,54 @@ async function upsertOrder(order) {
     });
 }
 
+// ==================== LINK STATS 7 NGÀY ====================
+/** Ghi 1 lần vượt link kèm kỳ; gist giữ 7 ngày rồi tự prune. */
+async function recordLink(userId, provider, period) {
+    if (!userId) return null;
+    const row = {
+        userId: String(userId),
+        provider: String(provider || ''),
+        period: period ? String(period) : '',
+        createdAt: new Date().toISOString(),
+    };
+    await appendJson('links', row, 0);
+    await pruneOld('links', 'createdAt', 7);
+    return row;
+}
+
+async function linkEvents(period = null) {
+    const rows = await readJson('links');
+    if (period == null) return rows;
+    return rows.filter(r => !r.period || String(r.period) === String(period));
+}
+
+/** Tổng số link theo user trong 1 kỳ — dùng để khôi phục khi deploy mất DB local. */
+async function aggregateLinkCounts(period) {
+    const map = new Map();
+    for (const row of await linkEvents(period)) {
+        const id = String(row.userId || row.user_id || '');
+        if (!id) continue;
+        map.set(id, (map.get(id) || 0) + 1);
+    }
+    return [...map].map(([user_id, count]) => ({ user_id, period: String(period || ''), count }));
+}
+
+async function userLinkCount(userId, period) {
+    const id = String(userId);
+    return (await linkEvents(period)).filter(r => String(r.userId || r.user_id) === id).length;
+}
+
 module.exports = {
     // API theo CONTRACT.md
     readJson,
     writeJson,
     appendJson,
     pruneOld,
+    // Link stats 7 ngày
+    recordLink,
+    linkEvents,
+    aggregateLinkCounts,
+    userLinkCount,
     // Helper nội bộ cho marketplace
     read,
     write,

@@ -451,16 +451,50 @@ router.post('/api/profile/theme', requireAuth, ah(async (req, res) => {
 
 // ==================== CHUYỂN COIN ====================
 async function resolveTarget(to, selfUser) {
-    const raw = String(to || '').trim();
+    let raw = String(to || '').trim().replace(/^@/, '').trim();
     if (!raw) throw new Error('Nhập người nhận.');
+
+    // 1) ID Discord (có thể là key số dư trực tiếp)
     if (/^\d{15,25}$/.test(raw)) {
         if (selfUser.discord_id && selfUser.discord_id === raw) throw new Error('Không thể tự chuyển cho chính mình.');
         return { key: raw, label: `Discord ${raw}` };
     }
+
+    // 2) Username web
     const target = await db.getWebUserByUsername(raw);
-    if (!target) throw new Error('Không tìm thấy người nhận (nhập username web hoặc ID Discord).');
-    if (target.id === selfUser.id) throw new Error('Không thể tự chuyển cho chính mình.');
-    return { key: balanceKey(target), label: target.username };
+    if (target) {
+        if (target.id === selfUser.id) throw new Error('Không thể tự chuyển cho chính mình.');
+        return { key: balanceKey(target), label: target.username };
+    }
+
+    // 3) Tên Discord đã lưu từ bot (global name / username). Không lọc ký tự đặc biệt:
+    //    tên toàn ký tự lạ vẫn phải nhận diện được, so sánh không phân biệt hoa thường.
+    const candidates = [...new Set([raw, raw.split('#')[0]].filter(Boolean))]
+        .map(s => s.toLowerCase());
+    const matches = new Map(); // discordId -> tên hiển thị
+    try {
+        const kvs = (await db.listKv('discord_name:')).concat(await db.listKv('discord_username:'));
+        for (const kv of kvs) {
+            const id = String(kv.key || '').split(':').pop();
+            if (!/^\d{15,25}$/.test(id)) continue;
+            if (selfUser.discord_id && id === String(selfUser.discord_id)) continue;
+            const value = String(kv.value || '').trim();
+            if (!value) continue;
+            const valueLower = value.toLowerCase();
+            if (candidates.includes(valueLower) || candidates.includes(valueLower.split('#')[0])) {
+                if (!matches.has(id)) matches.set(id, value);
+            }
+        }
+    } catch (e) { /* KV chưa sẵn sàng thì báo không tìm thấy ở dưới */ }
+
+    if (matches.size === 1) {
+        const [id, label] = [...matches.entries()][0];
+        return { key: id, label };
+    }
+    if (matches.size > 1) {
+        throw new Error('Có nhiều người Discord trùng tên. Hãy nhập ID Discord (15-25 chữ số) để chuyển chính xác.');
+    }
+    throw new Error('Không tìm thấy người nhận. Nhập username web, tên Discord đã dùng bot, hoặc ID Discord.');
 }
 
 router.post('/api/transfers', requireAuth, ah(async (req, res) => {
@@ -827,7 +861,7 @@ router.get('/api/tasks', requireAuth, ah(async (req, res) => {
     const providerIds = Object.keys(linkProviders.PROVIDERS);
     const [star, weeklyCount, dailyClaimed, freeVmosClaimed, linkCountAllTime, ...counts] = await Promise.all([
         db.checkDailyLimit(key, 'star', today),
-        db.getLinkCount(key, period),
+        weekly.userLinkCount(key, period),
         db.checkDailyLimit(key, 'daily', today),
         db.checkDailyLimit(key, 'vmos_free', today),
         db.getAllTimeLinkCount(key),
@@ -949,14 +983,14 @@ function weeklyQualified(rows) {
 
 router.get('/api/leaderboard/links', requireAuth, ah(async (req, res) => {
     const period = await weekly.getLinkPeriod();
-    const top = weeklyQualified(await db.getLinkLeaderboard(period, 100));
+    const top = weeklyQualified(await weekly.mergedLeaderboard(period, 100));
     res.json({ leaderboard: await decorate(top.slice(0, 10), 'count'), period, rewards: weekly.REWARDS });
 }));
 
 // Bảng vượt link 7 ngày (có thưởng, reset sau mỗi kỳ thanh toán)
 router.get('/api/leaderboard/links/week', requireAuth, ah(async (req, res) => {
     const period = await weekly.getLinkPeriod();
-    const top = weeklyQualified(await db.getLinkLeaderboard(period, 100));
+    const top = weeklyQualified(await weekly.mergedLeaderboard(period, 100));
     res.json({ leaderboard: await decorate(top.slice(0, 10), 'count'), period, rewards: weekly.REWARDS });
 }));
 

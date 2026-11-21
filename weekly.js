@@ -12,6 +12,7 @@
  */
 const crypto = require('crypto');
 const db = require('./database');
+const gistStore = require('./gist-store');
 const { vnNow, getTodayString } = require('./utils');
 
 const REWARDS = [300, 150, 75, 40, 40, 40, 40, 40, 40, 40];
@@ -23,6 +24,39 @@ const LAST_PAYOUT_KEY = 'link_last_payout';
 async function getLinkPeriod() {
     const stored = await db.getKv(PERIOD_KEY);
     return stored || getTodayString();
+}
+
+/**
+ * BXH tuần = DB + Gist 7 ngày. Gist là bản sao đề phòng deploy làm mất local DB;
+ * lấy max để không cộng đôi số đã có trong DB.
+ */
+async function mergedLeaderboard(period, limit = 10, minCount = 0) {
+    const n = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+    const min = Math.max(0, parseInt(minCount, 10) || 0);
+    const [dbRows, gistRows] = await Promise.all([
+        db.getLinkLeaderboard(period, n, minCount),
+        gistStore.aggregateLinkCounts(period).catch(() => []),
+    ]);
+    const map = new Map();
+    (dbRows || []).forEach(r => map.set(String(r.user_id), Number(r.count) || 0));
+    (gistRows || []).forEach(r => {
+        const id = String(r.user_id);
+        map.set(id, Math.max(map.get(id) || 0, Number(r.count) || 0));
+    });
+    return [...map]
+        .filter(([, count]) => count >= min)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, n)
+        .map(([user_id, count]) => ({ user_id, period: String(period), count }));
+}
+
+/** Số link của 1 user trong kỳ, ưu tiên bản lớn hơn giữa DB và Gist. */
+async function userLinkCount(userId, period) {
+    const [dbCount, gistCount] = await Promise.all([
+        db.getLinkCount(userId, period).catch(() => 0),
+        gistStore.userLinkCount(userId, period).catch(() => 0),
+    ]);
+    return Math.max(Number(dbCount) || 0, Number(gistCount) || 0);
 }
 
 function isSundayVn() {
@@ -60,7 +94,7 @@ async function runWeeklyPayout({ force = false } = {}) {
     if (!force && lastPayout === today) return { skipped: 'already-paid' };
 
     const period = await getLinkPeriod();
-    const top = (await db.getLinkLeaderboard(period, 10, MIN_WEEKLY_LINKS))
+    const top = (await mergedLeaderboard(period, 10, MIN_WEEKLY_LINKS))
         .filter(row => Number(row.count) >= MIN_WEEKLY_LINKS);
     const details = [];
 
@@ -93,4 +127,7 @@ async function runWeeklyPayout({ force = false } = {}) {
     return { period, date: today, total, details };
 }
 
-module.exports = { REWARDS, MIN_WEEKLY_LINKS, getLinkPeriod, runWeeklyPayout, isSundayVn };
+module.exports = {
+    REWARDS, MIN_WEEKLY_LINKS, getLinkPeriod, runWeeklyPayout, isSundayVn,
+    mergedLeaderboard, userLinkCount,
+};

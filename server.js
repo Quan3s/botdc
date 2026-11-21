@@ -7,6 +7,7 @@ const db = require('./database');
 const services = require('./services');
 const web = require('./web');
 const weekly = require('./weekly');
+const gistStore = require('./gist-store');
 const shop = require('./shop');
 const linkProviders = require('./link-providers');
 const pluginEngine = require('./plugin-engine');
@@ -80,6 +81,8 @@ async function saveDiscordProfile(discordUser) {
         }
         const name = discordUser.globalName || discordUser.global_name || discordUser.username;
         if (name) await db.setKv(`discord_name:${discordUser.id}`, name);
+        // Lưu cả username gốc để /transfer nhận diện cả tên Discord lẫn tên hiển thị.
+        if (discordUser.username) await db.setKv(`discord_username:${discordUser.id}`, discordUser.username);
     } catch (e) {
         console.error('[discord-profile] không lưu được avatar:', e.message);
     }
@@ -187,6 +190,8 @@ app.get('/redeem', async (req, res) => {
         try {
             period = await weekly.getLinkPeriod();
             weeklyCount = await db.incrementLinkCount(user_id, period);
+            // Ghi thêm lên Gist để 7 ngày vượt link không mất khi deploy/reset local DB.
+            await gistStore.recordLink(user_id, provider, period);
         } catch (e) {
             console.error('[WEB] không cập nhật được BXH vượt link:', e.message);
         }

@@ -269,11 +269,14 @@ textarea { resize: vertical; }
 .hero-balance { font-size: 46px; font-weight: 800; color: var(--accent); line-height: 1.1; text-shadow: 0 0 34px rgba(57,245,138,0.4); }
 .hero-balance small { font-size: 18px; color: var(--muted); }
 .hero-actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+.hero-text { position: relative; z-index: 1; }
 .hero-orb {
   position: absolute; right: -60px; top: -60px;
   width: 260px; height: 260px; border-radius: 50%;
   background: radial-gradient(circle, rgba(57,245,138,0.3), transparent 65%);
   filter: blur(10px);
+  pointer-events: none; /* trang trí, không được che nút Mua ngay / Chuyển xu */
+  z-index: 0;
 }
 .stat { display: flex; align-items: center; gap: 14px; padding: 18px; }
 .stat-ico { font-size: 26px; width: 50px; height: 50px; display: grid; place-items: center; background: rgba(57,245,138,0.1); border-radius: 14px; }

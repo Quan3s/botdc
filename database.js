@@ -366,6 +366,18 @@ module.exports = {
         if (res.length === 0) await supabaseFetch('kv', 'POST', { key: String(key), value: String(value) });
         else await supabaseFetch(`kv?key=eq.${enc(key)}`, 'PATCH', { value: String(value) });
     },
+    /** Liệt kê KV theo prefix (dùng để tìm Discord theo tên, kể cả tên lạ). */
+    async listKv(prefix = '') {
+        const p = String(prefix || '');
+        if (USE_LOCAL) {
+            return table('kv')
+                .filter(row => !p || String(row.key).startsWith(p))
+                .map(row => ({ key: String(row.key), value: row.value }));
+        }
+        const filter = p ? `&key=like.${enc(`${p}%`)}` : '';
+        const rows = await supabaseFetch(`kv?select=key,value${filter}`);
+        return (rows || []).map(row => ({ key: String(row.key), value: row.value }));
+    },
 
     // ==================== WEB USER ====================
     async createWebUser(user) {
