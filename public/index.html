@@ -10,6 +10,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
 <link rel="stylesheet" href="/styles.css" />
+<script>
+  // Áp theme ngay để không bị flash classic. Server sẽ đồng bộ lại sau khi /api/me trả về.
+  try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
+  catch (e) { document.documentElement.dataset.theme = 'bubble'; }
+</script>
 </head>
 <body>
 
@@ -85,7 +90,10 @@
         <div class="balance-chip" title="Số dư coin">
           <span>💰</span><span id="top-balance">0</span><span class="unit">xu</span>
         </div>
-        <div class="user-chip"><span id="user-initial">U</span><span id="user-name">user</span></div>
+        <div class="user-chip">
+          <span class="avatar-wrap"><img id="user-avatar" class="avatar-img hidden" alt="" /><span id="user-initial">U</span></span>
+          <span id="user-name">user</span>
+        </div>
       </div>
     </header>
 
@@ -305,6 +313,20 @@
             <div id="linked-note" class="linked-note hidden">✅ Đã liên kết Discord. Coin được đồng bộ tự động.</div>
           </div>
           <div class="card">
+            <div class="card-head"><h3>🎨 Giao diện</h3><span id="theme-current" class="pill">Bubble</span></div>
+            <p class="muted">Chọn kiểu hiển thị. <b>Bubble Interface</b> là mặc định, lấy cảm hứng từ giao diện bong bóng iOS 26+.</p>
+            <div class="theme-picker">
+              <button class="theme-option" data-theme-choice="bubble">
+                <span class="theme-preview theme-preview-bubble"><i></i><i></i><i></i></span>
+                <b>Bubble Interface</b><small>Mặc định · trong suốt, bo tròn</small>
+              </button>
+              <button class="theme-option" data-theme-choice="classic">
+                <span class="theme-preview theme-preview-classic"><i></i><i></i><i></i></span>
+                <b>Classic</b><small>Giao diện cũ trước khi nâng cấp</small>
+              </button>
+            </div>
+          </div>
+          <div class="card">
             <div class="card-head"><h3>🔒 Đổi mật khẩu</h3></div>
             <label>Mật khẩu hiện tại<input id="pw-current" type="password" /></label>
             <label>Mật khẩu mới<input id="pw-new" type="password" /></label>
@@ -321,6 +343,7 @@
           <button class="tab" data-admin="shop">🛍️ Shop</button>
           <button class="tab" data-admin="plugin">🧩 Plugin</button>
           <button class="tab" data-admin="meows">🐱 Cookie</button>
+          <button class="tab" data-admin="appearance">🎨 Giao diện</button>
         </div>
 
         <div id="admin-sub-user" class="admin-sub">
@@ -412,6 +435,20 @@
               </div>
               <div id="admin-status-proxy-result" class="result-box hidden"></div>
             </div>
+          </div>
+        </div>
+
+        <div id="admin-sub-appearance" class="admin-sub hidden">
+          <div class="card">
+            <div class="card-head"><h3>🖼️ Ảnh nền dashboard</h3><span class="pill">Áp dụng cho mọi user</span></div>
+            <p class="muted">Dán URL ảnh trực tiếp (jpg/png/webp). Để trống rồi bấm <b>Dùng mặc định</b> để quay lại ảnh ASYNCTAS. Không cần deploy lại.</p>
+            <label>URL ảnh nền<input id="admin-background-url" type="text" placeholder="https://..." autocomplete="off" /></label>
+            <div class="device-actions">
+              <button id="admin-background-save-btn" class="btn btn-primary">💾 Lưu nền</button>
+              <button id="admin-background-default-btn" class="btn btn-soft">Dùng mặc định</button>
+            </div>
+            <div id="admin-background-result" class="result-box hidden"></div>
+            <div id="admin-background-preview" class="background-preview"></div>
           </div>
         </div>
       </section>

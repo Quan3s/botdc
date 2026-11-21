@@ -37,6 +37,22 @@ const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
     rest: { timeout: 15000, retries: 5 },
 });
+
+// Lưu avatar/username Discord lúc /connect, /token để web dùng làm avatar user.
+async function saveDiscordProfile(discordUser) {
+    try {
+        if (!discordUser || !discordUser.id) return;
+        if (typeof discordUser.displayAvatarURL === 'function') {
+            const url = discordUser.displayAvatarURL({ size: 128 });
+            if (url) await db.setKv(`discord_avatar:${discordUser.id}`, url);
+        }
+        const name = discordUser.globalName || discordUser.global_name || discordUser.username;
+        if (name) await db.setKv(`discord_name:${discordUser.id}`, name);
+    } catch (e) {
+        console.error('[discord-profile] không lưu được avatar:', e.message);
+    }
+}
+
 // heartbeat watchdog: nếu bot im lặng quá 2 phút -> relogin
 const HEARTBEAT_TIMEOUT = 2 * 60 * 1000;
 let _heartbeatTimer = null;
@@ -500,6 +516,7 @@ client.on('interactionCreate', async interaction => {
                 await db.updateCoins(webKey, -webBalance);
             }
             await db.updateWebUser(webUser.id, { discord_id: userId });
+            await saveDiscordProfile(interaction.user);
 
             // Gộp số link đã vượt của tài khoản web vào Discord trong kỳ hiện tại
             try {
@@ -523,6 +540,7 @@ client.on('interactionCreate', async interaction => {
     if (interaction.commandName === 'token') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         try {
+            await saveDiscordProfile(interaction.user);
             let user = await db.getWebUserByDiscordId(userId);
             if (!user) {
                 let username;

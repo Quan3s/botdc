@@ -59,9 +59,50 @@ function balanceKey(user) {
     return user.discord_id ? String(user.discord_id) : `web_${user.id}`;
 }
 
+// Nền mặc định cho toàn dashboard (admin đổi trong Quản trị → Giao diện).
+const DEFAULT_BACKGROUND_URL = 'https://a.storyblok.com/f/178900/1200x1697/7cea549b0c/sword-art-online-clear-visual.jpg/m/filters:quality(95)format(webp)';
+const avatarCache = new Map();
+
+/** avatar Discord: ưu tiên kv (lưu lúc /connect, /token), fallback gọi Discord API bằng bot token. */
+async function discordAvatar(discordId) {
+    if (!discordId) return null;
+    try {
+        const saved = await db.getKv(`discord_avatar:${discordId}`);
+        if (saved) return saved;
+    } catch (e) { /* bỏ qua */ }
+    if (avatarCache.has(discordId)) return avatarCache.get(discordId);
+    try {
+        const res = await fetch(`https://discord.com/api/v10/users/${discordId}`, {
+            headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN || ''}` },
+            signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        let url;
+        if (data.avatar) {
+            const ext = String(data.avatar).startsWith('a_') ? 'gif' : 'png';
+            url = `https://cdn.discordapp.com/avatars/${discordId}/${data.avatar}.${ext}?size=128`;
+        } else {
+            const index = Number((BigInt(discordId) >> 22n) % 6n);
+            url = `https://cdn.discordapp.com/embed/avatars/${index}.png`;
+        }
+        avatarCache.set(discordId, url);
+        try { await db.setKv(`discord_avatar:${discordId}`, url); } catch (e) { /* bỏ qua */ }
+        return url;
+    } catch (e) {
+        return null;
+    }
+}
+
 async function publicUser(user) {
     const balance = await db.getCoins(balanceKey(user));
     const admin = await isDiscordAdmin(user.discord_id);
+    let theme = 'bubble';
+    let background = DEFAULT_BACKGROUND_URL;
+    try {
+        theme = (await db.getKv(`theme:${user.id}`)) === 'classic' ? 'classic' : 'bubble';
+        background = (await db.getKv('admin_background_url')) || DEFAULT_BACKGROUND_URL;
+    } catch (e) { /* bỏ qua */ }
     return {
         id: user.id,
         username: user.username,
@@ -71,6 +112,9 @@ async function publicUser(user) {
         balance,
         linkToken: user.link_token,
         createdAt: user.created_at,
+        theme,
+        avatar: await discordAvatar(user.discord_id),
+        background,
     };
 }
 
@@ -326,6 +370,13 @@ router.post('/api/profile/username', requireAuth, ah(async (req, res) => {
     await db.updateWebUser(req.webUser.id, { username: newUsername, username_lower: newUsername.toLowerCase() });
     await refreshSessionUser(req);
     res.json({ ok: true, username: newUsername });
+}));
+
+router.post('/api/profile/theme', requireAuth, ah(async (req, res) => {
+    const theme = String(req.body.theme || '').toLowerCase();
+    if (!['bubble', 'classic'].includes(theme)) return res.status(400).json({ error: 'Theme không hợp lệ.' });
+    await db.setKv(`theme:${req.webUser.id}`, theme);
+    res.json({ ok: true, theme });
 }));
 
 // ==================== CHUYỂN COIN ====================
@@ -904,6 +955,26 @@ router.get('/api/admin/payouts', requireAdmin, ah(async (req, res) => {
 router.post('/api/admin/payout', requireAdmin, ah(async (req, res) => {
     const result = await weekly.runWeeklyPayout({ force: true });
     res.json({ ok: true, result });
+}));
+
+// ==================== ADMIN: GIAO DIỆN ====================
+router.get('/api/admin/background', requireAdmin, ah(async (req, res) => {
+    res.json({
+        url: (await db.getKv('admin_background_url')) || DEFAULT_BACKGROUND_URL,
+        defaultUrl: DEFAULT_BACKGROUND_URL,
+    });
+}));
+
+router.post('/api/admin/background', requireAdmin, ah(async (req, res) => {
+    const url = String(req.body.url || '').trim();
+    if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'URL ảnh phải bắt đầu bằng http:// hoặc https://' });
+    await db.setKv('admin_background_url', url);
+    res.json({ ok: true, url: url || DEFAULT_BACKGROUND_URL });
+}));
+
+router.delete('/api/admin/background', requireAdmin, ah(async (req, res) => {
+    await db.setKv('admin_background_url', '');
+    res.json({ ok: true, url: DEFAULT_BACKGROUND_URL });
 }));
 
 // ==================== ADMIN: MEOWS COOKIE ====================

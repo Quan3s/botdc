@@ -237,15 +237,46 @@ async function enterApp(user) {
   refreshDashboard();
 }
 
+function applyTheme(theme) {
+  const t = theme === 'classic' ? 'classic' : 'bubble';
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('asynctas_theme', t); } catch (e) { /* bỏ qua */ }
+  $$('[data-theme-choice]').forEach(b => b.classList.toggle('active', b.dataset.themeChoice === t));
+  const label = $('#theme-current');
+  if (label) label.textContent = t === 'bubble' ? 'Bubble' : 'Classic';
+}
+
+function applyBackground(url) {
+  const value = url ? `url("${String(url).replace(/"/g, '%22').replace(/\n/g, '')}")` : 'none';
+  document.documentElement.style.setProperty('--wallpaper', value);
+  try { localStorage.setItem('asynctas_background', String(url || '')); } catch (e) { /* bỏ qua */ }
+}
+
 function applyUser() {
   const u = state.user;
   if (!u) return;
+  applyTheme(u.theme);
+  applyBackground(u.background);
   $('#top-balance').textContent = num(u.balance);
   $('#hero-balance').textContent = num(u.balance);
   $('#hero-name').textContent = u.username;
   $('#user-name').textContent = u.username;
   $('#user-initial').textContent = (u.username[0] || 'U').toUpperCase();
-  $('#sidebar-user').innerHTML = `<span class="dot"></span> ${esc(u.username)}`;
+  const avatar = $('#user-avatar');
+  if (u.avatar) {
+    avatar.src = u.avatar;
+    avatar.classList.remove('hidden');
+    $('#user-initial').classList.add('hidden');
+  } else {
+    avatar.classList.add('hidden');
+    $('#user-initial').classList.remove('hidden');
+  }
+  avatar.onerror = () => {
+    avatar.classList.add('hidden');
+    $('#user-initial').classList.remove('hidden');
+  };
+  const short = esc((u.username[0] || 'U').toUpperCase());
+  $('#sidebar-user').innerHTML = `<span class="sidebar-avatar">${u.avatar ? `<img src="${esc(u.avatar)}" alt="" />` : short}</span><span>${esc(u.username)}</span>`;
   $('#profile-username').textContent = u.username;
   $('#profile-balance').textContent = `${num(u.balance)} xu`;
   $('#profile-discord').textContent = u.linked ? `Đã liên kết (${u.discordId})` : 'Chưa liên kết';
@@ -256,6 +287,18 @@ function applyUser() {
   $('#regen-token-btn').classList.toggle('hidden', !!u.linked);
   $('#linked-note').classList.toggle('hidden', !u.linked);
 }
+
+$$('[data-theme-choice]').forEach(btn => btn.addEventListener('click', async () => {
+  const theme = btn.dataset.themeChoice;
+  applyTheme(theme); // đổi ngay, không đợi server
+  try {
+    const data = await api('/api/profile/theme', { method: 'POST', body: JSON.stringify({ theme }) });
+    if (state.user) state.user.theme = data.theme;
+    toast(data.theme === 'bubble' ? 'Đã dùng Bubble Interface.' : 'Đã dùng giao diện Classic.');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}));
 
 async function refreshUser() {
   const data = await api('/api/me');
@@ -771,7 +814,7 @@ async function loadAdmin() {
     $('#admin-payouts').innerHTML = data.payouts.length
       ? data.payouts.map(p => `<div class="mini-row"><span>Kỳ ${esc(p.period)}</span><b>${num(p.total)} coin</b></div>`).join('')
       : '<div class="empty">Chưa trả thưởng lần nào.</div>';
-    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie()]);
+    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminBackground()]);
   } catch (err) { toast(err.message, 'error'); }
 }
 
@@ -785,6 +828,7 @@ function switchAdminTab(tabName) {
   else if (tabName === 'user') loadAdminUsers().catch(() => {});
   else if (tabName === 'plugin') loadAdminPlugins();
   else if (tabName === 'meows') loadMeowsCookie();
+  else if (tabName === 'appearance') loadAdminBackground();
 }
 
 async function loadAdminItems() {
@@ -818,6 +862,41 @@ async function loadAdminUsers() {
     </div>`).join('') : '<div class="empty">Chưa có người dùng.</div>';
   $$('[data-coins]').forEach(b => b.addEventListener('click', () => coinsModal(b.dataset.coins)));
 }
+
+// ==================== ADMIN: GIAO DIỆN ====================
+async function loadAdminBackground() {
+  const data = await api('/api/admin/background');
+  $('#admin-background-url').value = data.url || '';
+  const preview = $('#admin-background-preview');
+  preview.style.backgroundImage = data.url ? `url("${data.url.replace(/"/g, '%22')}")` : 'none';
+  preview.title = data.url || '';
+}
+
+$('#admin-background-save-btn').addEventListener('click', async () => {
+  const box = $('#admin-background-result');
+  try {
+    const url = $('#admin-background-url').value.trim();
+    const data = await api('/api/admin/background', { method: 'POST', body: JSON.stringify({ url }) });
+    applyBackground(data.url);
+    await loadAdminBackground();
+    box.className = 'result-box';
+    box.textContent = '✅ Đã lưu ảnh nền. Cập nhật ngay trên toàn dashboard.';
+    box.classList.remove('hidden');
+  } catch (err) {
+    box.className = 'result-box error';
+    box.textContent = `❌ ${err.message}`;
+    box.classList.remove('hidden');
+  }
+});
+
+$('#admin-background-default-btn').addEventListener('click', async () => {
+  try {
+    const data = await api('/api/admin/background', { method: 'DELETE' });
+    applyBackground(data.url);
+    await loadAdminBackground();
+    toast('Đã dùng ảnh nền mặc định.');
+  } catch (err) { toast(err.message, 'error'); }
+});
 
 // ==================== ADMIN: MEOWS ====================
 async function loadMeowsCookie() {
