@@ -23,32 +23,24 @@ body {
   margin: 0;
   font-family: var(--font);
   color: var(--text);
-  background: var(--bg);
+  background-color: var(--bg);
+  /* Ảnh nền nằm trực tiếp trên body: lớp phủ tối nhẹ để chữ đọc được, ảnh vẫn thấy rõ. */
+  background-image:
+    linear-gradient(180deg, rgba(3, 10, 16, 0.26) 0%, rgba(3, 10, 16, 0.38) 45%, rgba(3, 10, 16, 0.62) 100%),
+    var(--wallpaper);
+  background-size: cover, cover;
+  background-position: center, center;
+  background-attachment: fixed, fixed;
   -webkit-font-smoothing: antialiased;
-}
-/* Ảnh nền do admin cấu hình (mặc định: Kirito / SAO). */
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image: var(--wallpaper);
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
-  opacity: 0.2;
-  pointer-events: none;
-  z-index: 0;
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgba(0,0,0,0.55) 55%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, rgba(0,0,0,0.55) 55%, transparent 100%);
 }
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(900px 500px at 12% -5%, rgba(57, 245, 138, 0.14), transparent 60%),
-    radial-gradient(800px 500px at 100% 0%, rgba(20, 200, 255, 0.1), transparent 55%),
-    radial-gradient(700px 600px at 60% 110%, rgba(255, 193, 7, 0.06), transparent 60%);
+    radial-gradient(900px 500px at 12% -5%, rgba(57, 245, 138, 0.1), transparent 60%),
+    radial-gradient(800px 500px at 100% 0%, rgba(20, 200, 255, 0.08), transparent 55%),
+    radial-gradient(700px 600px at 60% 110%, rgba(255, 193, 7, 0.05), transparent 60%);
   pointer-events: none;
   z-index: 0;
 }
@@ -504,34 +496,50 @@ textarea { resize: vertical; }
   --radius: 26px;
   --shadow: 0 24px 70px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.16);
 }
-[data-theme="bubble"] body { background: radial-gradient(1200px 700px at 15% -10%, #10344a 0%, transparent 55%), linear-gradient(160deg, #07121c, #04090f 70%); }
-[data-theme="bubble"] body::after { opacity: .34; mask-image: linear-gradient(to bottom, #000 0%, rgba(0,0,0,.7) 60%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgba(0,0,0,.7) 60%, transparent 100%); }
+[data-theme="bubble"] body {
+  background-color: #050c14;
+  background-image:
+    radial-gradient(1100px 620px at 12% -8%, rgba(125,255,196,.1), transparent 58%),
+    linear-gradient(180deg, rgba(2,8,14,.18) 0%, rgba(2,8,14,.34) 50%, rgba(2,8,14,.58) 100%),
+    var(--wallpaper);
+  background-size: cover, cover, cover;
+  background-position: center, center, center;
+  background-attachment: fixed, fixed, fixed;
+}
 [data-theme="bubble"] body::before {
   background:
-    radial-gradient(900px 520px at 8% -5%, rgba(125,255,196,.2), transparent 60%),
-    radial-gradient(760px 520px at 105% 5%, rgba(111,214,255,.2), transparent 58%),
-    radial-gradient(700px 620px at 55% 115%, rgba(255,215,106,.08), transparent 60%);
+    radial-gradient(900px 520px at 8% -5%, rgba(125,255,196,.16), transparent 60%),
+    radial-gradient(760px 520px at 105% 5%, rgba(111,214,255,.16), transparent 58%),
+    radial-gradient(700px 620px at 55% 115%, rgba(255,215,106,.06), transparent 60%);
 }
-[data-theme="classic"] body::after { display: none; }
+/* Classic giữ nền cũ: không dùng ảnh nền dashboard. */
+[data-theme="classic"] body { background-image: none; }
 
 [data-theme="bubble"] .auth-glow { background: radial-gradient(circle, rgba(125,255,196,.3), transparent 65%); }
 [data-theme="bubble"] .card,
 [data-theme="bubble"] .auth-card,
 [data-theme="bubble"] .modal {
+  /* Specular highlight góc trên + kính mờ: ảnh nền lọt qua rõ nhưng chữ vẫn đọc được. */
   background:
-    linear-gradient(145deg, rgba(255,255,255,.14), rgba(255,255,255,.035) 45%, rgba(125,255,196,.06)),
-    var(--panel);
-  border-color: rgba(255,255,255,.18);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(28px) saturate(160%);
+    radial-gradient(340px 180px at 100% -10%, rgba(255,255,255,.22), transparent 62%),
+    linear-gradient(145deg, rgba(255,255,255,.13), rgba(255,255,255,.035) 46%, rgba(125,255,196,.07));
+  border-color: rgba(255,255,255,.24);
+  box-shadow:
+    0 22px 60px rgba(0,0,0,.32),
+    inset 0 1px 0 rgba(255,255,255,.3),
+    inset 0 -1px 0 rgba(255,255,255,.06);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
 }
 [data-theme="bubble"] .sidebar,
 [data-theme="bubble"] .topbar {
-  background: linear-gradient(180deg, rgba(16,38,52,.8), rgba(7,16,25,.62));
-  border-color: rgba(255,255,255,.12);
-  backdrop-filter: blur(30px) saturate(170%);
+  background: linear-gradient(180deg, rgba(10,30,42,.5), rgba(5,14,22,.34));
+  border-color: rgba(255,255,255,.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+  backdrop-filter: blur(22px) saturate(185%);
+  -webkit-backdrop-filter: blur(22px) saturate(185%);
 }
-[data-theme="bubble"] .topbar { box-shadow: 0 10px 40px rgba(0,0,0,.2); }
+[data-theme="bubble"] .topbar { box-shadow: 0 10px 40px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.18); }
 [data-theme="bubble"] .nav-item { border-radius: 15px; margin: 1px 4px; padding: 10px 12px; }
 [data-theme="bubble"] .nav-item:hover { background: rgba(255,255,255,.07); color: var(--text); }
 [data-theme="bubble"] .nav-item.active {
@@ -550,6 +558,8 @@ textarea { resize: vertical; }
 [data-theme="bubble"] .btn { padding: 11px 19px; background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.18); backdrop-filter: blur(14px); }
 [data-theme="bubble"] .btn-primary { background: linear-gradient(135deg, #a2ffd9, #6fd6ff); color: #032018; border-color: transparent; box-shadow: 0 14px 32px rgba(111,214,255,.3); }
 [data-theme="bubble"] .btn-primary:hover { box-shadow: 0 18px 40px rgba(111,214,255,.42); }
+[data-theme="bubble"] .btn:active { transform: scale(.96); }
+[data-theme="bubble"] .nav-item:active { transform: scale(.97); }
 [data-theme="bubble"] .btn-soft { background: rgba(125,255,196,.14); color: #d9fff0; }
 [data-theme="bubble"] .btn-ghost { background: rgba(255,255,255,.04); }
 [data-theme="bubble"] .btn-sm { padding: 7px 14px; }
@@ -566,7 +576,13 @@ textarea { resize: vertical; }
   border-color: var(--accent-2);
   box-shadow: 0 0 0 4px rgba(111,214,255,.16);
 }
-[data-theme="bubble"] .hero { border-radius: 32px; background: linear-gradient(135deg, rgba(125,255,196,.2), rgba(111,214,255,.13) 55%, rgba(255,255,255,.04)); }
+[data-theme="bubble"] .hero {
+  border-radius: 32px;
+  background:
+    radial-gradient(420px 200px at 92% 0%, rgba(255,255,255,.16), transparent 60%),
+    linear-gradient(135deg, rgba(125,255,196,.18), rgba(111,214,255,.1) 55%, rgba(255,255,255,.03));
+  border-color: rgba(255,255,255,.28);
+}
 [data-theme="bubble"] .hero-balance { color: #f0fff9; text-shadow: 0 0 40px rgba(125,255,196,.5); }
 [data-theme="bubble"] .hero-orb { width: 320px; height: 320px; background: radial-gradient(circle, rgba(111,214,255,.38), transparent 65%); }
 [data-theme="bubble"] .stat,
@@ -578,10 +594,22 @@ textarea { resize: vertical; }
 [data-theme="bubble"] .admin-item,
 [data-theme="bubble"] .result-box,
 [data-theme="bubble"] .link-box {
-  border-radius: 19px; background: rgba(255,255,255,.055); border-color: rgba(255,255,255,.13);
+  border-radius: 19px;
+  background: rgba(255,255,255,.085);
+  border-color: rgba(255,255,255,.2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
-[data-theme="bubble"] .stat-ico { border-radius: 16px; background: rgba(125,255,196,.14); }
-[data-theme="bubble"] .product { border-radius: 28px; background: var(--panel); box-shadow: 0 18px 40px rgba(0,0,0,.24); }
+[data-theme="bubble"] .stat-ico { border-radius: 16px; background: rgba(125,255,196,.16); }
+[data-theme="bubble"] .product {
+  border-radius: 28px;
+  background: linear-gradient(160deg, rgba(255,255,255,.12), rgba(255,255,255,.035));
+  border-color: rgba(255,255,255,.2);
+  box-shadow: 0 18px 40px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.18);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
 [data-theme="bubble"] .product:hover { transform: translateY(-6px) scale(1.01); box-shadow: 0 28px 60px rgba(0,0,0,.36), inset 0 1px 0 rgba(255,255,255,.18); }
 [data-theme="bubble"] .product-logo { background: linear-gradient(135deg, rgba(125,255,196,.18), rgba(111,214,255,.12)); }
 [data-theme="bubble"] .tab.active { background: linear-gradient(135deg, rgba(125,255,196,.22), rgba(111,214,255,.14)); color: #fff; border-color: rgba(125,255,196,.48); box-shadow: inset 0 1px 0 rgba(255,255,255,.2); }
