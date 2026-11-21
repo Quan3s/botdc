@@ -472,6 +472,15 @@ router.get('/api/purchases', requireAuth, ah(async (req, res) => {
     });
 }));
 
+// Test POST qua chain hiện tại, KHÔNG gọi API mua máy (đích là /api/cloud-status).
+router.get('/api/debug/meows-post', ah(async (req, res) => {
+    try {
+        res.json(await services.probeMeowsPost());
+    } catch (e) {
+        res.json({ error: e.message });
+    }
+}));
+
 // ==================== CHẨN ĐOÁN PROXY (public, không lộ cookie) ====================
 router.get('/api/debug/meows', ah(async (req, res) => {
     const mask = (u) => String(u || '').replace(/\/\/[^@/]*@/, '//***@');

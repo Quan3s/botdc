@@ -449,4 +449,32 @@ module.exports = {
     buyMeows,
     normalizeStatusProxy,
     getCloudStatus,
+    probeMeowsPost,
 };
+
+/** Test POST qua đúng chain đang dùng, tới endpoint KHÔNG mua máy. Trả về status/nguồn để biết 403 ở đâu. */
+async function probeMeowsPost() {
+    const cookie = await getMeowsCookie();
+    const result = await requestWithFallback('https://meows.vn/api/cloud-status', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            Origin: 'https://meows.vn',
+            Referer: 'https://meows.vn/client/cloud-manager',
+            'User-Agent': MEOWS_UA,
+            ...(cookie ? { Cookie: cookie } : {}),
+        },
+        body: '{}',
+        signal: AbortSignal.timeout(15000),
+        timeout: 15000,
+    }, { includeWww: false });
+    return {
+        ok: result.ok,
+        status: result.status,
+        source: result.source,
+        failures: result.failures,
+        body: String(result.raw || '').replace(/\s+/g, ' ').slice(0, 200),
+        cookieSet: !!cookie,
+    };
+}
