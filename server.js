@@ -11,11 +11,23 @@ const shop = require('./shop');
 const linkProviders = require('./link-providers');
 const pluginEngine = require('./plugin-engine');
 const { generateUniqueLinkToken, randomId, hashPassword } = require('./utils');
+
+// Marketplace có thể được thêm bởi module khác: require an toàn, gọi phòng thủ.
+let marketplace = {};
+try {
+    marketplace = require('./marketplace') || {};
+} catch (e) {
+    console.warn('[marketplace] module chưa sẵn sàng:', e.message);
+}
 const { HANAMI_URL, CLOUD_NAMES, REG_COST, MEOWS_COSTS, MEOWS_NAMES, vsphoneReady, buyHanami, regVmosAccount, regVsphoneAccount } = services;
 const PAY_MIN = 10;          // số xu tối thiểu mỗi lần /pay
 const PAY_FEE_RATE = 0.05;   // phí chuyển 5%
 const LEADERBOARD_INTERVAL_MS = 10 * 60 * 1000; // cập nhật bảng xếp hạng mỗi 10 phút
 const WEEKLY_PAYOUT_INTERVAL_MS = 10 * 60 * 1000; // kiểm tra trả thưởng tuần mỗi 10 phút
+const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000; // dọn seller inactive mỗi 24h
+const DEFAULT_EXCHANGE_RATE = 5; // 5 coin = 1 ACOIN (10 coin = 2 ACOIN)
+const ACOIN_KV_PREFIX = 'acoin_balance:';
+const BOT_SELLER_INDEX_KEY = 'bot_seller_index';
 const busyUsers = new Set();
 const pendingStarUsers = new Set(); // userId đang chờ admin duyệt nhiệm vụ /star
 const STAR_REWARD = 10;
@@ -246,6 +258,162 @@ async function isAdmin(userId) {
     try { return await db.isAdmin(userId); } catch (e) { console.error('[admin] không đọc được bảng admins:', e.message); return false; }
 }
 
+// ===== MARKETPLACE: tỷ giá, ACOIN, seller (mọi helper đều có fallback) =====
+function toNonNegativeInt(value, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
+async function readJsonKv(key, fallback) {
+    try {
+        const raw = await db.getKv(key);
+        if (!raw) return fallback;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return parsed === undefined || parsed === null ? fallback : parsed;
+    } catch (e) {
+        return fallback;
+    }
+}
+
+async function getExchangeRateSafe() {
+    let raw = null;
+    if (typeof marketplace.getExchangeRate === 'function') {
+        try { raw = await marketplace.getExchangeRate(); } catch (e) { /* fallback KV */ }
+    }
+    if (raw === null || raw === undefined) {
+        try { raw = await db.getKv('exchange_coin_per_acoin'); } catch (e) { /* dùng mặc định */ }
+    }
+    const rate = toNonNegativeInt(raw, DEFAULT_EXCHANGE_RATE);
+    return rate >= 1 ? rate : DEFAULT_EXCHANGE_RATE;
+}
+
+async function readAcoinSafe(discordId) {
+    if (typeof marketplace.getAcoin === 'function') {
+        try { return toNonNegativeInt(await marketplace.getAcoin(discordId)); } catch (e) { /* thử nguồn khác */ }
+    }
+    if (typeof db.getAcoin === 'function') {
+        try { return toNonNegativeInt(await db.getAcoin(discordId)); } catch (e) { /* fallback KV */ }
+    }
+    return toNonNegativeInt(await db.getKv(`${ACOIN_KV_PREFIX}${discordId}`));
+}
+
+async function adjustAcoin(discordId, delta) {
+    const change = Number(delta) || 0;
+    // Ưu tiên hàm dùng chung của marketplace để không lệch bảng acoin_balances.
+    if (typeof marketplace.adjustAcoin === 'function') {
+        try {
+            return toNonNegativeInt(await marketplace.adjustAcoin(discordId, change), await readAcoinSafe(discordId));
+        } catch (e) {
+            console.error('[acoin] marketplace.adjustAcoin lỗi:', e.message);
+        }
+    }
+    if (typeof db.updateAcoin === 'function') {
+        const next = await db.updateAcoin(discordId, change);
+        return toNonNegativeInt(next, await readAcoinSafe(discordId));
+    }
+    // Fallback khi DB chưa có helper ACOIN.
+    const current = await readAcoinSafe(discordId);
+    const next = Math.max(0, current + change);
+    await db.setKv(`${ACOIN_KV_PREFIX}${discordId}`, String(next));
+    return next;
+}
+
+async function readSellerSafe(discordId) {
+    if (typeof marketplace.getSeller === 'function') {
+        try {
+            const row = await marketplace.getSeller(discordId);
+            if (row) return row;
+        } catch (e) { console.error('[seller] marketplace.getSeller lỗi:', e.message); }
+    }
+    if (typeof db.getSeller === 'function') {
+        try {
+            const row = await db.getSeller(discordId);
+            if (row) return row;
+        } catch (e) { /* fallback KV */ }
+    }
+    return await readJsonKv(`bot_seller:${discordId}`, null);
+}
+
+async function writeSellerSafe(discordId, patch) {
+    const current = await readSellerSafe(discordId);
+    const record = { ...(current || {}), ...patch, user_id: String(discordId), updated_at: new Date().toISOString() };
+    if (!record.created_at) record.created_at = record.updated_at;
+    if (typeof db.upsertSeller === 'function') {
+        try {
+            const saved = await db.upsertSeller(record);
+            if (saved) return saved;
+        } catch (e) { console.error('[seller] upsert lỗi:', e.message); }
+    }
+    if (current && typeof db.updateSeller === 'function') {
+        try {
+            const saved = await db.updateSeller(discordId, patch);
+            if (saved) return saved;
+        } catch (e) { console.error('[seller] update lỗi:', e.message); }
+    }
+    // Fallback KV: index + record (không đụng vào key của marketplace module).
+    const ids = await readJsonKv(BOT_SELLER_INDEX_KEY, []);
+    const list = Array.isArray(ids) ? ids : [];
+    if (!list.includes(String(discordId))) list.push(String(discordId));
+    await db.setKv(`bot_seller:${discordId}`, JSON.stringify(record));
+    await db.setKv(BOT_SELLER_INDEX_KEY, JSON.stringify(list));
+    return record;
+}
+
+async function listSellersSafe() {
+    if (typeof marketplace.listSellers === 'function') {
+        try {
+            const rows = await marketplace.listSellers();
+            if (Array.isArray(rows)) return rows;
+        } catch (e) { console.error('[seller] marketplace.listSellers lỗi:', e.message); }
+    }
+    for (const method of ['getSellers', 'listSellers']) {
+        if (typeof db[method] === 'function') {
+            try {
+                const rows = await db[method]();
+                if (Array.isArray(rows)) return rows;
+            } catch (e) { console.error(`[seller] ${method} lỗi:`, e.message); }
+        }
+    }
+    const ids = await readJsonKv(BOT_SELLER_INDEX_KEY, []);
+    const list = Array.isArray(ids) ? ids : [];
+    const rows = await Promise.all(list.map(id => readJsonKv(`bot_seller:${id}`, null)));
+    return rows.filter(Boolean);
+}
+
+async function requestSellerSafe(discordId) {
+    if (typeof marketplace.requestSeller === 'function') {
+        try {
+            const res = await marketplace.requestSeller(discordId);
+            if (res && res.ok !== false) return res;
+        } catch (e) { console.error('[seller] requestSeller lỗi:', e.message); }
+    }
+    const current = await readSellerSafe(discordId);
+    if (current && String(current.status) === 'active') {
+        return { ok: true, status: 'active', seller: current };
+    }
+    const seller = await writeSellerSafe(discordId, { status: 'pending' });
+    return { ok: true, status: 'pending', seller };
+}
+
+async function approveSellerSafe(discordId, adminId) {
+    let approved = null;
+    if (typeof marketplace.approveSeller === 'function') {
+        try { approved = await marketplace.approveSeller(discordId, adminId); } catch (e) { console.error('[seller] approveSeller lỗi:', e.message); }
+    }
+    const isActive = approved && approved.ok !== false && String((approved.seller || {}).status || 'active') === 'active';
+    if (isActive) return approved;
+    // Chưa gửi yêu cầu / approve thất bại vẫn được trust: tạo seller active luôn.
+    const seller = await writeSellerSafe(discordId, { status: 'active', approved_by: adminId });
+    return { ok: true, status: 'active', seller, fallback: true };
+}
+
+async function runMarketplaceMaintenance(source = 'manual') {
+    if (typeof marketplace.runMaintenance !== 'function') return null;
+    const result = await marketplace.runMaintenance();
+    console.log(`[marketplace] maintenance (${source}):`, result);
+    return result;
+}
+
 // ===== BẢNG XẾP HẠNG COIN QUA WEBHOOK =====
 async function updateLeaderboard() {
     const url = process.env.LEADERBOARD_WEBHOOK_URL;
@@ -380,7 +548,39 @@ client.once('ready', async () => {
         new SlashCommandBuilder().setName('gen').setDescription('Tạo Gift Code (Admin)')
             .addIntegerOption(o => o.setName('soluong').setDescription('Số lượng code').setRequired(true))
             .addIntegerOption(o => o.setName('xuthuong').setDescription('Số xu mỗi code').setRequired(true)),
-        new SlashCommandBuilder().setName('clear').setDescription('Xóa tin nhắn của Bot cũ hơn 2 giờ (Admin)')
+        new SlashCommandBuilder().setName('clear').setDescription('Xóa tin nhắn của Bot cũ hơn 2 giờ (Admin)'),
+        new SlashCommandBuilder().setName('seller').setDescription('Yeu cau lam seller, admin duyet hoac xem danh sach')
+            .addStringOption(o => o.setName('hanhdong').setDescription('request / trust / list').setRequired(true)
+                .addChoices(
+                    { name: 'request - gui yeu cau', value: 'request' },
+                    { name: 'trust - admin duyet seller', value: 'trust' },
+                    { name: 'list - admin xem danh sach', value: 'list' }
+                ))
+            .addUserOption(o => o.setName('user').setDescription('Nguoi can duyet (trust)').setRequired(false))
+            .addStringOption(o => o.setName('id').setDescription('Hoac ID Discord (trust)').setRequired(false)),
+        new SlashCommandBuilder().setName('exchange').setDescription('Doi coin sang ACOIN hoac nguoc lai')
+            .addStringOption(o => o.setName('loai').setDescription('Chieu doi').setRequired(true)
+                .addChoices({ name: 'coin -> ACOIN', value: 'coin' }, { name: 'ACOIN -> coin', value: 'acoin' }))
+            .addIntegerOption(o => o.setName('soluong').setDescription('So coin (coin->ACOIN) hoac so ACOIN (ACOIN->coin)').setRequired(true).setMinValue(1)),
+        new SlashCommandBuilder().setName('acoin').setDescription('Xem so du ACOIN va ty le quy doi'),
+        new SlashCommandBuilder().setName('shops').setDescription('Tim kiem shop trong marketplace')
+            .addStringOption(o => o.setName('q').setDescription('Tu khoa ten shop').setRequired(false))
+            .addStringOption(o => o.setName('filter').setDescription('Cach sap xep').setRequired(false)
+                .addChoices(
+                    { name: 'recommended', value: 'recommended' },
+                    { name: 'newest', value: 'newest' },
+                    { name: 'oldest', value: 'oldest' },
+                    { name: 'cheapest', value: 'cheapest' },
+                    { name: 'priciest', value: 'priciest' },
+                    { name: 'topRated', value: 'topRated' },
+                    { name: 'bestSelling', value: 'bestSelling' }
+                )),
+        new SlashCommandBuilder().setName('appeal').setDescription('(Admin) Chap nhan/tu choi review hoac khieu nai')
+            .addStringOption(o => o.setName('loai').setDescription('Loai can xu ly').setRequired(true)
+                .addChoices({ name: 'review', value: 'review' }, { name: 'complaint', value: 'complaint' }))
+            .addStringOption(o => o.setName('id').setDescription('ID cua review/complaint').setRequired(true))
+            .addBooleanOption(o => o.setName('approve').setDescription('true = chap nhan, false = tu choi').setRequired(true))
+            .addStringOption(o => o.setName('note').setDescription('Ghi chu').setRequired(false))
     ].map(c => c.toJSON());
 
     try {
@@ -391,6 +591,12 @@ client.once('ready', async () => {
     } catch (error) {
         console.error('Lỗi đăng ký lệnh:', error);
     }
+
+    // Dọn seller không hoạt động: chạy lúc startup + mỗi 24h (ready event nên DISABLE_BOT=1 tự bỏ qua).
+    runMarketplaceMaintenance('startup').catch(e => console.error('[marketplace] maintenance lỗi:', e.message));
+    setInterval(() => {
+        runMarketplaceMaintenance('auto').catch(e => console.error('[marketplace] maintenance lỗi:', e.message));
+    }, MAINTENANCE_INTERVAL_MS);
 
     if (process.env.LEADERBOARD_WEBHOOK_URL) {
         updateLeaderboard();
@@ -1436,6 +1642,245 @@ client.on('interactionCreate', async interaction => {
             await interaction.editReply({ content: `✅ Đã xóa **${messagesToDelete.size}** tin nhắn.` });
         } catch (error) {
             await interaction.editReply({ content: `❌ Lỗi: ${error.message}` });
+        }
+    }
+
+    // LỆNH /seller — gửi yêu cầu / admin duyệt / danh sách seller
+    if (interaction.commandName === 'seller') {
+        const action = String(interaction.options.getString('hanhdong') || '').toLowerCase();
+        if (!['request', 'trust', 'list'].includes(action)) {
+            return interaction.reply({ content: '[FAIL] Hanh dong khong hop le.', flags: MessageFlags.Ephemeral });
+        }
+        if (action !== 'request' && !(await isAdmin(userId))) {
+            return interaction.reply({ content: '[FAIL] Chi admin duoc dung hanh dong nay.', flags: MessageFlags.Ephemeral });
+        }
+        let targetId = null;
+        if (action === 'trust') {
+            const picked = interaction.options.getUser('user');
+            targetId = picked ? picked.id : String(interaction.options.getString('id') || '').trim();
+            if (!/^\d{15,25}$/.test(targetId)) {
+                return interaction.reply({ content: '[FAIL] Chon user hoac nhap ID Discord hop le.', flags: MessageFlags.Ephemeral });
+            }
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (busyUsers.has(userId) || (targetId && busyUsers.has(targetId))) {
+            return interaction.editReply({ content: '[WAIT] Dang co thao tac khac, thu lai sau giay lat.' });
+        }
+        busyUsers.add(userId);
+        if (targetId) busyUsers.add(targetId);
+        try {
+            if (action === 'request') {
+                const res = await requestSellerSafe(userId);
+                const ok = !res || res.ok !== false;
+                const status = (res && (res.status || (res.seller && res.seller.status))) || 'pending';
+                hook('bot:seller:request', { userId, ok, status });
+                return interaction.editReply({ content: ok
+                    ? `[OK] Da gui yeu cau lam seller. Trang thai: ${status}.`
+                    : `[FAIL] ${String((res && (res.message || res.error)) || 'Khong gui duoc yeu cau.').slice(0, 300)}` });
+            }
+            if (action === 'trust') {
+                const res = await approveSellerSafe(targetId, userId);
+                const status = (res && (res.status || (res.seller && res.seller.status))) || 'active';
+                hook('bot:seller:trust', { adminId: userId, targetId, ok: true, status, seller: (res && res.seller) || null });
+                return interaction.editReply({ content: `[OK] Da duyet seller <@${targetId}>. Trang thai: ${status}.` });
+            }
+            const rows = await listSellersSafe();
+            const lines = rows.slice(0, 20).map((row, i) => {
+                const rawId = String(row.user_id || row.discord_id || row.discordId || row.id || '?');
+                const label = /^\d{15,25}$/.test(rawId) ? `<@${rawId}>` : rawId;
+                const status = String(row.status || 'pending');
+                const name = row.name || row.shop_name || row.username;
+                return `${i + 1}. [${status}] ${label}${name ? ' | ' + String(name).slice(0, 40) : ''}`;
+            });
+            const pending = rows.filter(r => String(r.status) === 'pending').length;
+            const active = rows.filter(r => String(r.status) === 'active').length;
+            const embed = new EmbedBuilder()
+                .setColor(0x39f58a)
+                .setTitle('[SELLER] Danh sach')
+                .setDescription(lines.join('\n') || 'Chua co seller nao.')
+                .addFields({ name: 'Tong hop', value: `pending: ${pending} | active: ${active} | tong: ${rows.length}` });
+            return interaction.editReply({ embeds: [embed] });
+        } catch (e) {
+            console.error('[seller] lỗi:', e);
+            return interaction.editReply({ content: `[FAIL] Loi xu ly seller: ${e.message}`.slice(0, 1900) });
+        } finally {
+            busyUsers.delete(userId);
+            if (targetId) busyUsers.delete(targetId);
+        }
+    }
+
+    // LỆNH /exchange — đổi coin <-> ACOIN (không cho số dư âm)
+    if (interaction.commandName === 'exchange') {
+        const loai = String(interaction.options.getString('loai') || '');
+        const amount = interaction.options.getInteger('soluong');
+        if (!['coin', 'acoin'].includes(loai) || !Number.isInteger(amount) || amount <= 0) {
+            return interaction.reply({ content: '[FAIL] Chon loai va so luong > 0.', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (busyUsers.has(userId)) {
+            return interaction.editReply({ content: '[WAIT] Ban dang co thao tac khac, thu lai sau.' });
+        }
+        busyUsers.add(userId);
+        try {
+            const rate = await getExchangeRateSafe();
+            if (loai === 'coin') {
+                // Theo hợp đồng: đổi coin -> ACOIN nhận floor(amount / rate).
+                const acoinGain = Math.floor(amount / rate);
+                if (acoinGain < 1) {
+                    return interaction.editReply({ content: `[FAIL] Can it nhat **${rate} coin** de doi 1 ACOIN (ty le hien tai: ${rate}:1).` });
+                }
+                const coinBefore = await db.getCoins(userId);
+                if (coinBefore < amount) {
+                    return interaction.editReply({ content: `[FAIL] Khong du coin. Can **${amount} coin** de doi ${acoinGain} ACOIN (ty le ${rate}:1). Hien co: **${coinBefore} coin**.` });
+                }
+                const newCoin = await db.updateCoins(userId, -amount);
+                let newAcoin;
+                try {
+                    newAcoin = await adjustAcoin(userId, acoinGain);
+                } catch (e) {
+                    await db.updateCoins(userId, amount).catch(() => {}); // hoàn coin nếu cộng ACOIN thất bại
+                    throw e;
+                }
+                hook('bot:exchange', { userId, from: 'coin', to: 'acoin', amount, rate, acoinGain, coinDelta: -amount, newCoin, newAcoin });
+                return interaction.editReply({ content: `[OK] Da doi **${amount} coin** -> **${acoinGain} ACOIN**. Ty le: ${rate} coin = 1 ACOIN.\n> Coin: ${newCoin} | ACOIN: ${newAcoin}` });
+            }
+            const acoinBefore = await readAcoinSafe(userId);
+            if (acoinBefore < amount) {
+                return interaction.editReply({ content: `[FAIL] Khong du ACOIN. Can **${amount}**, hien co **${acoinBefore}**.` });
+            }
+            const coinGain = amount * rate;
+            const newAcoin = await adjustAcoin(userId, -amount);
+            let newCoin;
+            try {
+                newCoin = await db.updateCoins(userId, coinGain);
+            } catch (e) {
+                await adjustAcoin(userId, amount).catch(() => {}); // hoàn ACOIN nếu cộng coin thất bại
+                throw e;
+            }
+            hook('bot:exchange', { userId, from: 'acoin', to: 'coin', amount, rate, coinGain, acoinDelta: -amount, coinDelta: coinGain, newCoin, newAcoin });
+            return interaction.editReply({ content: `[OK] Da doi **${amount} ACOIN** -> **${coinGain} coin**. Ty le: ${rate} coin = 1 ACOIN.\n> Coin: ${newCoin} | ACOIN: ${newAcoin}` });
+        } catch (e) {
+            console.error('[exchange] lỗi:', e);
+            return interaction.editReply({ content: `[FAIL] Loi doi: ${e.message}`.slice(0, 1900) });
+        } finally {
+            busyUsers.delete(userId);
+        }
+    }
+
+    // LỆNH /acoin — số dư + tỷ giá
+    if (interaction.commandName === 'acoin') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const [balance, rate] = await Promise.all([readAcoinSafe(userId), getExchangeRateSafe()]);
+            return interaction.editReply({ content: [
+                `[ACOIN] So du: **${balance} ACOIN**`,
+                `> Ty le: **${rate} coin = 1 ACOIN** (10 coin = 2 ACOIN)`,
+                `> Doi coin: /exchange coin ${rate} (nhan 1 ACOIN) | Doi ACOIN: /exchange acoin 1 (nhan ${rate} coin)`,
+                '> Gia $100 = 100 ACOIN',
+            ].join('\n') });
+        } catch (e) {
+            console.error('[acoin] lỗi:', e);
+            return interaction.editReply({ content: `[FAIL] Loi doc so du: ${e.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /shops — tìm shop marketplace (tối đa 10)
+    if (interaction.commandName === 'shops') {
+        const q = String(interaction.options.getString('q') || '').replace(/[<>\n@`]/g, ' ').trim().slice(0, 80);
+        const filter = String(interaction.options.getString('filter') || 'all');
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            let shops = [];
+            let page = 1, totalPages = 1, total = 0, source = 'marketplace';
+            if (typeof marketplace.searchShops === 'function') {
+                const res = await marketplace.searchShops({ q, filter, page: 1 });
+                shops = (res && Array.isArray(res.shops)) ? res.shops : [];
+                page = Number(res && res.page) || 1;
+                totalPages = Number(res && res.totalPages) || Math.max(1, Math.ceil(shops.length / 10));
+                total = Number(res && res.total) || shops.length;
+            } else if (typeof db.getShopItems === 'function') {
+                const items = await db.getShopItems(true);
+                shops = (items || [])
+                    .filter(i => !q || String(i.name || '').toLowerCase().includes(q.toLowerCase()))
+                    .map(i => ({ id: i.id, name: i.name, rating: null, sales: null, price: i.price }));
+                source = 'shop_items';
+                total = shops.length;
+                totalPages = Math.max(1, Math.ceil(total / 10));
+            }
+            const top = shops.slice(0, 10);
+            if (!top.length) {
+                return interaction.editReply({ content: `[SHOP] Khong tim thay shop${q ? ' cho "' + q + '"' : ''}.` });
+            }
+            const lines = top.map((s, i) => {
+                const name = String(s.name || s.shop_name || s.id || '?').replace(/[<>\n@`]/g, ' ').slice(0, 60);
+                const id = String(s.id || s.shop_id || '-').slice(0, 40);
+                const rating = (s.rating === null || s.rating === undefined) ? '-' : Number(s.rating).toFixed(1);
+                const sales = Number(s.sales || s.total_sales || 0);
+                const price = (s.price === null || s.price === undefined) ? '' : ` | gia: ${s.price}`;
+                return `${i + 1}. **${name}** | id: \`${id}\` | danh gia: ${rating} | ban: ${sales}${price}`;
+            });
+            const embed = new EmbedBuilder()
+                .setColor(0x39f58a)
+                .setTitle('[SHOP] Marketplace')
+                .setDescription(lines.join('\n').slice(0, 4000))
+                .setFooter({ text: `filter: ${filter} | Trang ${page}/${totalPages} | Tong: ${total} | nguon: ${source}` });
+            return interaction.editReply({ embeds: [embed] });
+        } catch (e) {
+            console.error('[shops] lỗi:', e);
+            return interaction.editReply({ content: `[FAIL] Loi tim shop: ${e.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /appeal — admin override review/complaint
+    if (interaction.commandName === 'appeal') {
+        if (!(await isAdmin(userId))) {
+            return interaction.reply({ content: '[FAIL] Chi admin duoc dung lenh nay.', flags: MessageFlags.Ephemeral });
+        }
+        const type = String(interaction.options.getString('loai') || '');
+        const id = String(interaction.options.getString('id') || '').trim();
+        const approve = interaction.options.getBoolean('approve');
+        const note = String(interaction.options.getString('note') || '').replace(/[<>\n@]/g, ' ').trim().slice(0, 500);
+        if (!['review', 'complaint'].includes(type) || !id || typeof approve !== 'boolean') {
+            return interaction.reply({ content: '[FAIL] Thieu loai, id hoac approve.', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const decision = {
+                status: approve ? 'approved' : 'rejected',
+                approved: approve,
+                note,
+                decided_by: userId,
+                decided_at: new Date().toISOString(),
+            };
+            const mpMethod = type === 'review' ? 'decideReview' : 'decideComplaint';
+            const dbMethod = type === 'review' ? 'updateReview' : 'updateComplaint';
+            let decidedVia = null;
+            // Ưu tiên hàm dùng chung của marketplace (cùng luật với web).
+            if (typeof marketplace[mpMethod] === 'function') {
+                try {
+                    const res = await marketplace[mpMethod](id, approve, note);
+                    if (!res || res.ok !== false) decidedVia = 'marketplace';
+                } catch (e) {
+                    console.error(`[appeal] marketplace.${mpMethod} lỗi:`, e.message);
+                }
+            }
+            if (!decidedVia && typeof db[dbMethod] === 'function') {
+                try {
+                    await db[dbMethod](id, decision);
+                    decidedVia = 'db';
+                } catch (e) {
+                    console.error(`[appeal] ${dbMethod} lỗi:`, e.message);
+                }
+            }
+            if (!decidedVia) {
+                await db.setKv(`bot_appeal:${type}:${id}`, JSON.stringify(decision));
+                decidedVia = 'kv';
+            }
+            hook('bot:appeal:decision', { adminId: userId, type, id, approve, note, decidedVia, updatedInDb: decidedVia === 'db' });
+            return interaction.editReply({ content: `[OK] Da ${approve ? 'chap nhan' : 'tu choi'} ${type} \`${id}\`. Ghi chu: ${note || '-'}.${decidedVia === 'kv' ? ' (Da luu KV vi cac helper chua san sang)' : ''}` });
+        } catch (e) {
+            console.error('[appeal] lỗi:', e);
+            return interaction.editReply({ content: `[FAIL] Loi xu ly appeal: ${e.message}`.slice(0, 1900) });
         }
     }
 });

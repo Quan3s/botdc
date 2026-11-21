@@ -15,6 +15,8 @@ const db = require('./database');
 const { vnNow, getTodayString } = require('./utils');
 
 const REWARDS = [300, 150, 75, 40, 40, 40, 40, 40, 40, 40];
+/** Tối thiểu 5 link trong kỳ mới được lên BXH tuần / nhận thưởng. */
+const MIN_WEEKLY_LINKS = 5;
 const PERIOD_KEY = 'link_period_start';
 const LAST_PAYOUT_KEY = 'link_last_payout';
 
@@ -58,7 +60,8 @@ async function runWeeklyPayout({ force = false } = {}) {
     if (!force && lastPayout === today) return { skipped: 'already-paid' };
 
     const period = await getLinkPeriod();
-    const top = await db.getLinkLeaderboard(period, 10);
+    const top = (await db.getLinkLeaderboard(period, 10, MIN_WEEKLY_LINKS))
+        .filter(row => Number(row.count) >= MIN_WEEKLY_LINKS);
     const details = [];
 
     for (let i = 0; i < top.length; i++) {
@@ -90,4 +93,4 @@ async function runWeeklyPayout({ force = false } = {}) {
     return { period, date: today, total, details };
 }
 
-module.exports = { REWARDS, getLinkPeriod, runWeeklyPayout, isSundayVn };
+module.exports = { REWARDS, MIN_WEEKLY_LINKS, getLinkPeriod, runWeeklyPayout, isSundayVn };

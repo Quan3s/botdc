@@ -375,6 +375,10 @@ Timer tạo qua `setTimeout`/`setInterval` trong sandbox được engine theo d�
 | `bot:device:meows` | `userId`, `provider`, `cost`, `newBalance`, `source` |
 | `bot:plugin:command` | `pluginId`, `pluginName`, `commandName`, `userId` |
 | `bot:plugin:executed` | `pluginId`, `pluginName`, `commandName`, `userId` |
+| `bot:exchange` | `userId`, `from` (`coin`/`acoin`), `to` (`acoin`/`coin`), `amount`, `rate`, `acoinGain`/`coinGain`, `coinDelta`, `newCoin`, `newAcoin` |
+| `bot:seller:request` | `userId`, `ok`, `status` |
+| `bot:seller:trust` | `adminId`, `targetId`, `ok`, `status`, `seller` |
+| `bot:appeal:decision` | `adminId`, `type` (`review`/`complaint`), `id`, `approve`, `note`, `decidedVia` (`marketplace`/`db`/`kv`), `updatedInDb` |
 | `bot:weekly:payout` | `source` (`startup`/`auto`), `result` |
 | `bot:weekly:payout:error` | `source`, `error` |
 

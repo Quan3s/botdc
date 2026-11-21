@@ -140,11 +140,110 @@ create table if not exists plugins (
   updated_at timestamptz default now()
 );
 
+-- ---------- Marketplace / seller / ACOIN / chat ----------
+create table if not exists sellers (
+  user_id text primary key,
+  status text not null default 'pending', -- pending | active | suspended
+  note text default '',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists shops (
+  id text primary key,
+  owner_id text not null,
+  name text not null,
+  description text default '',
+  logo_url text default '',
+  background_url text default '',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create index if not exists shops_owner_idx on shops (owner_id);
+
+-- shop_items được mở rộng thành sản phẩm của user-shop (xem alter bên dưới).
+
+create table if not exists orders (
+  id text primary key,
+  buyer_id text not null,
+  seller_id text not null,
+  shop_id text not null,
+  shop_name text default '',
+  product_id text not null,
+  item_name text default '',
+  quantity integer not null default 1,
+  total bigint not null default 0,
+  currency text not null default 'coin', -- coin | acoin
+  status text not null default 'pending', -- pending | completed | returned | complained
+  viewed boolean not null default false,
+  payout_state text not null default 'pending', -- pending | released | lost | returned
+  seller_amount bigint not null default 0,
+  hold_until timestamptz,
+  accounts text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create index if not exists orders_buyer_idx on orders (buyer_id, created_at desc);
+create index if not exists orders_seller_idx on orders (seller_id, created_at desc);
+create index if not exists orders_shop_idx on orders (shop_id);
+
+create table if not exists reviews (
+  id text primary key,
+  shop_id text not null,
+  product_id text not null,
+  order_id text not null,
+  buyer_id text not null,
+  stars integer not null default 5,
+  content text not null default '',
+  status text not null default 'visible', -- visible | hidden | appealed
+  admin_reply text,
+  appealed boolean not null default false,
+  appeal_reason text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create index if not exists reviews_shop_idx on reviews (shop_id, created_at desc);
+
+create table if not exists complaints (
+  id text primary key,
+  order_id text not null,
+  shop_id text not null,
+  seller_id text not null,
+  buyer_id text not null,
+  reason text not null default '',
+  status text not null default 'pending', -- pending | appealed | approved | rejected
+  note text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create index if not exists complaints_order_idx on complaints (order_id);
+create index if not exists complaints_seller_idx on complaints (seller_id);
+
+create table if not exists acoin_balances (
+  user_id text primary key,
+  balance bigint not null default 0,
+  updated_at timestamptz default now()
+);
+
+create table if not exists device_accounts (
+  device_id text primary key,
+  user_id text not null,
+  created_at timestamptz default now()
+);
+create index if not exists device_accounts_user_idx on device_accounts (user_id);
+
 -- ---------- Nếu bảng shop_items đã tồn tại từ trước, bổ sung cột còn thiếu ----------
 alter table shop_items add column if not exists stock_content text;
 alter table shop_items add column if not exists gist_filename text;
 alter table shop_items add column if not exists gist_id text;
 alter table shop_items add column if not exists active boolean not null default true;
+alter table shop_items add column if not exists shop_id text;
+alter table shop_items add column if not exists currency text not null default 'coin';
+alter table shop_items add column if not exists price_value bigint not null default 0;
+alter table shop_items add column if not exists max_lines integer not null default 2000;
+alter table shop_items add column if not exists line_count integer not null default 0;
+-- Cho phép seller cũ/set-admin giữ item không thuộc shop nào (shop_id null).
+create index if not exists shop_items_shop_idx on shop_items (shop_id);
 
 -- ---------- Bật RLS (chỉ service_role truy cập) ----------
 alter table user_coins enable row level security;
@@ -161,3 +260,10 @@ alter table purchases enable row level security;
 alter table transfers enable row level security;
 alter table payouts enable row level security;
 alter table plugins enable row level security;
+alter table sellers enable row level security;
+alter table shops enable row level security;
+alter table orders enable row level security;
+alter table reviews enable row level security;
+alter table complaints enable row level security;
+alter table acoin_balances enable row level security;
+alter table device_accounts enable row level security;

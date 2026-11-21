@@ -20,6 +20,11 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 - `/meows` — mua nhanh **UGPhone (49 xu)** hoặc **VSPhone VIP (15 xu)**.
 - `/plugin ten:lenh` — gọi lệnh do plugin đăng ký.
 - `/vi`, `/daily`, `/code`, `/pay`, `/star`, `/sdone`, `/adcoin`, `/gen`, `/op`, `/unop`, `/clear`.
+- `/seller` — gửi yêu cầu làm seller (`request`); admin duyệt (`trust`, chỉ định `user` hoặc `id`) và xem danh sách (`list`).
+- `/exchange` — đổi `coin -> ACOIN` hoặc `ACOIN -> coin` theo tỷ giá hiện hành (mặc định **5 coin = 1 ACOIN**). `soluong` là số coin khi đổi sang ACOIN (`floor(soluong / rate)`) hoặc số ACOIN khi đổi sang coin (`soluong * rate`).
+- `/acoin` — xem số dư ACOIN và tỷ giá quy đổi.
+- `/shops` — tìm kiếm shop trên marketplace (lọc theo `recommended` / `newest` / `oldest` / `cheapest` / `priciest` / `topRated` / `bestSelling`).
+- `/appeal` — (Admin) chấp nhận hoặc từ chối review/khiếu nại theo `id`, kèm ghi chú.
 - Sau khi tạo tài khoản, bot gửi kèm nút **📋 Copy acc|pass** (bấm để nhận lại đúng định dạng `tài khoản|mật_khẩu`).
 
 ### Web dashboard
@@ -50,6 +55,14 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 | Top 4-10 | 40 coin |
 
 Sau khi trả thưởng, bộ đếm vượt link bắt đầu kỳ mới. Có thể chạy thủ công trong trang Quản trị.
+
+## Marketplace, ACOIN và Seller
+
+- **ACOIN** là đơn vị thanh toán của marketplace. Tỷ giá mặc định do KV `exchange_coin_per_acoin` quyết định: **5 coin = 1 ACOIN** (nghĩa là **10 coin = 2 ACOIN**). Dùng `/exchange` để đổi hai chiều; số dư không bao giờ xuống dưới 0 và mỗi lần đổi đều ghi event `bot:exchange`.
+- Bảng giá tham khảo: **$100 = 100 ACOIN**. Lệnh `/acoin` hiển thị số dư kèm tỷ giá hiện tại.
+- Seller gửi yêu cầu bằng `/seller request`, admin duyệt bằng `/seller trust`. Có thể trust trực tiếp user chưa từng gửi yêu cầu; hệ thống sẽ tạo luôn seller ở trạng thái `active`.
+- Duyệt maintenance tự động lúc bot sẵn sàng và sau mỗi 24 giờ: seller **không hoạt động 30 ngày bị giáng quyền**, **180 ngày bị xoá**.
+- `/shops` hiển thị tối đa 10 shop (tên, tỷ lệ đánh giá, số lượt bán). `/appeal` cho phép admin override quyết định review/khiếu nại.
 
 ## Cài đặt
 

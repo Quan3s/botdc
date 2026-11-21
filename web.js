@@ -16,6 +16,7 @@ const github = require('./github');
 const weekly = require('./weekly');
 const pluginEngine = require('./plugin-engine');
 const linkProviders = require('./link-providers');
+const marketplace = require('./marketplace');
 const { getTodayString, generateUniqueLinkToken, sha256, randomId, hashPassword, verifyPassword } = require('./utils');
 
 const router = express.Router();
@@ -25,6 +26,8 @@ const PAY_MIN = 10;
 const PAY_FEE_RATE = 0.05;
 const REG_COST = services.REG_COST;
 const busyUsers = new Set();
+const lastActiveWrites = new Map();
+const LAST_ACTIVE_TTL_MS = 60 * 1000;
 
 // ==================== TIỆN ÍCH ====================
 function ah(fn) {
@@ -61,6 +64,21 @@ async function isDiscordAdmin(discordId) {
 
 function balanceKey(user) {
     return user.discord_id ? String(user.discord_id) : `web_${user.id}`;
+}
+
+/** 1 device/browser chỉ gắn với 1 tài khoản. Trả false nếu device đã gắn user khác. */
+async function bindDevice(req, res, userId) {
+    const deviceId = String(req.body.deviceId || req.get('x-device-id') || '').trim();
+    if (!deviceId || typeof db.getDeviceAccount !== 'function') return true;
+    const existing = await db.getDeviceAccount(deviceId);
+    if (existing && String(existing.user_id) !== String(userId)) {
+        res.status(409).json({ error: 'Thiết bị này đã gắn với tài khoản khác. Hãy dùng tài khoản đó hoặc thiết bị khác.' });
+        return false;
+    }
+    if (!existing && typeof db.bindDeviceAccount === 'function') {
+        await db.bindDeviceAccount(deviceId, userId);
+    }
+    return true;
 }
 
 // Nền mặc định cho toàn dashboard (admin đổi trong Quản trị → Giao diện).
@@ -101,11 +119,16 @@ async function discordAvatar(discordId) {
 async function publicUser(user) {
     const balance = await db.getCoins(balanceKey(user));
     const admin = await isDiscordAdmin(user.discord_id);
+    const extra = await marketplace.summaryForUser(user);
     let theme = 'bubble';
     let background = DEFAULT_BACKGROUND_URL;
+    let youtubeUrl = null;
+    let discordUrl = null;
     try {
         theme = (await db.getKv(`theme:${user.id}`)) === 'classic' ? 'classic' : 'bubble';
         background = (await db.getKv('admin_background_url')) || DEFAULT_BACKGROUND_URL;
+        youtubeUrl = (await db.getKv('youtube_url')) || null;
+        discordUrl = (await db.getKv('discord_url')) || null;
     } catch (e) { /* bỏ qua */ }
     return {
         id: user.id,
@@ -119,6 +142,9 @@ async function publicUser(user) {
         theme,
         avatar: await discordAvatar(user.discord_id),
         background,
+        youtubeUrl,
+        discordUrl,
+        ...extra,
     };
 }
 
@@ -173,6 +199,13 @@ router.use(ah(async (req, res, next) => {
             if (user) {
                 req.webUser = user;
                 req.sessionId = sha256(raw);
+                // Chỉ lưu timestamp (không log request). Bỏ qua API auth & throttle 60s.
+                const key = `last_active:${user.id}`;
+                const now = Date.now();
+                if (!/^\/api\/auth\//.test(req.path) && now - (lastActiveWrites.get(key) || 0) > LAST_ACTIVE_TTL_MS) {
+                    lastActiveWrites.set(key, now);
+                    Promise.resolve(db.setKv(key, new Date(now).toISOString())).catch(() => {});
+                }
             }
         }
     }
@@ -212,6 +245,16 @@ function usernameHasLetter(value) {
 }
 
 // Lấy tên Discord thật để hiển thị BXH (cache trong RAM)
+// Bot đã lưu tên vào KV discord_name:<id> — ưu tiên KV, kể cả tên toàn ký tự đặc biệt.
+async function discordNameFromKv(id) {
+    try {
+        const saved = await db.getKv(`discord_name:${id}`);
+        return saved && String(saved).trim() ? String(saved) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 const discordNameCache = new Map();
 async function discordUsername(id) {
     const key = String(id || '');
@@ -252,6 +295,12 @@ router.post('/api/auth/register', ah(async (req, res) => {
     const existing = await db.getWebUserByUsername(username);
     if (existing) return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại.' });
 
+    const deviceId = String(req.body.deviceId || req.get('x-device-id') || '').trim();
+    if (deviceId && typeof db.getDeviceAccount === 'function') {
+        const bound = await db.getDeviceAccount(deviceId);
+        if (bound) return res.status(409).json({ error: 'Thiết bị này đã gắn với tài khoản khác. Hãy đăng nhập tài khoản đó hoặc dùng thiết bị khác.' });
+    }
+
     const linkToken = await generateUniqueLinkToken(db);
     const user = await db.createWebUser({
         id: randomId(),
@@ -259,6 +308,7 @@ router.post('/api/auth/register', ah(async (req, res) => {
         password_hash: hashPassword(password),
         link_token: linkToken,
     });
+    if (!(await bindDevice(req, res, user.id))) return;
     await createSession(req, res, user.id);
     hook('web:user:registered', { id: user.id, username: user.username, ip: req.ip });
     res.json({ user: await publicUser(user) });
@@ -281,6 +331,7 @@ router.post('/api/auth/login', ah(async (req, res) => {
             currentUsername: user.username,
         });
     }
+    if (!(await bindDevice(req, res, user.id))) return;
     await createSession(req, res, user.id);
     hook('web:user:login', { id: user.id, username: user.username, method: 'password', ip: req.ip });
     res.json({ user: await publicUser(user) });
@@ -332,6 +383,7 @@ router.post('/api/auth/discord-token', ah(async (req, res) => {
             token,
         });
     }
+    if (!(await bindDevice(req, res, user.id))) return;
     await createSession(req, res, user.id);
     hook('web:user:login', { id: user.id, username: user.username, method: 'discord-token', discordId: user.discord_id || null });
     res.json({ user: await publicUser(user) });
@@ -346,7 +398,12 @@ router.post('/api/auth/logout', ah(async (req, res) => {
 
 router.get('/api/me', ah(async (req, res) => {
     if (!req.webUser) return res.json({ user: null });
-    res.json({ user: await publicUser(req.webUser) });
+    const user = await publicUser(req.webUser);
+    const extra = await marketplace.summaryForUser(req.webUser);
+    const { language, acoin, exchangeRate, sellerStatus, isSeller, unreadMessages } = extra;
+    // FE đọc cả 2 dạng: me.user.acoin và me.acoin.
+    // contacts.unread (số tin chưa reply) được tính trong GET /api/messages/contacts.
+    res.json({ user, language, acoin, exchangeRate, sellerStatus, isSeller, unreadMessages });
 }));
 
 // ==================== HỒ SƠ ====================
@@ -857,11 +914,18 @@ async function decorate(rows, valueKey) {
     byDiscord.forEach(u => map.set(String(u.discord_id), u.username));
     byId.forEach(u => map.set(`web_${u.id}`, u.username));
 
-    // Discord chưa liên kết web -> lấy username thật qua Discord API
+    // Ưu tiên tên đã lưu từ bot (có thể chứa ký tự đặc biệt), rồi đến Discord API.
+    // Không dùng usernameHasLetter ở đây — tên lạ vẫn phải hiển thị.
+    const kvNames = await Promise.all(discordIds.map(id => discordNameFromKv(id)));
+    kvNames.forEach((name, i) => { if (name) map.set(discordIds[i], name); });
+
     const unresolved = discordIds.filter(id => !map.has(id));
     if (unresolved.length) {
         const names = await Promise.all(unresolved.map(id => discordUsername(id)));
-        names.forEach((name, i) => { if (name) map.set(unresolved[i], name); });
+        names.forEach((name, i) => {
+            if (name && String(name).trim()) map.set(unresolved[i], String(name));
+            else map.set(unresolved[i], `Discord ${unresolved[i]}`);
+        });
     }
 
     return rows.map((r, i) => ({
@@ -877,17 +941,23 @@ router.get('/api/leaderboard/coins', requireAuth, ah(async (req, res) => {
     res.json({ leaderboard: await decorate(top, 'balance') });
 }));
 
+/** BXH tuần chỉ nhận user có >=5 link trong kỳ. */
+function weeklyQualified(rows) {
+    const min = weekly.MIN_WEEKLY_LINKS || 5;
+    return (rows || []).filter(row => Number(row.count) >= min);
+}
+
 router.get('/api/leaderboard/links', requireAuth, ah(async (req, res) => {
     const period = await weekly.getLinkPeriod();
-    const top = await db.getLinkLeaderboard(period, 10);
-    res.json({ leaderboard: await decorate(top, 'count'), period, rewards: weekly.REWARDS });
+    const top = weeklyQualified(await db.getLinkLeaderboard(period, 100));
+    res.json({ leaderboard: await decorate(top.slice(0, 10), 'count'), period, rewards: weekly.REWARDS });
 }));
 
 // Bảng vượt link 7 ngày (có thưởng, reset sau mỗi kỳ thanh toán)
 router.get('/api/leaderboard/links/week', requireAuth, ah(async (req, res) => {
     const period = await weekly.getLinkPeriod();
-    const top = await db.getLinkLeaderboard(period, 10);
-    res.json({ leaderboard: await decorate(top, 'count'), period, rewards: weekly.REWARDS });
+    const top = weeklyQualified(await db.getLinkLeaderboard(period, 100));
+    res.json({ leaderboard: await decorate(top.slice(0, 10), 'count'), period, rewards: weekly.REWARDS });
 }));
 
 // Bảng vượt link tổng (không có thưởng)
@@ -1210,6 +1280,36 @@ router.delete('/api/admin/plugins/:id', requireAdmin, ah(async (req, res) => {
     hook('web:plugin:removed', { id });
     res.json({ ok: true });
 }));
+
+// ==================== MARKETPLACE / SELLER / CHAT / ACOIN ====================
+// FE/Bot gọi trực tiếp các path dưới đây. Alias chỉ chuyển tiếp tới
+// marketplace.router để giữ một luật xử lý duy nhất (không nhân bản logic).
+// GET /api/profile/language?, /api/exchange?, /api/admin/exchange-rate,
+// /api/orders/history, /api/messages/contacts, /api/messages,
+// /api/seller/request, /api/seller/dashboard, /api/seller/shop,
+// /api/user-shop, /api/admin/sellers.
+const MARKETPLACE_ALIASES = [
+    ['post', '/api/profile/language'],
+    ['post', '/api/exchange'],
+    ['get', '/api/admin/exchange-rate'],
+    ['post', '/api/admin/exchange-rate'],
+    ['get', '/api/orders/history'],
+    ['get', '/api/messages/contacts'],
+    ['get', '/api/messages'],
+    ['post', '/api/messages'],
+    ['post', '/api/seller/request'],
+    ['get', '/api/seller/dashboard'],
+    ['post', '/api/seller/shop'],
+    ['get', '/api/user-shop'],
+    ['get', '/api/admin/sellers'],
+];
+function forwardToMarketplace(req, res, next) {
+    return marketplace.router.handle(req, res, next);
+}
+for (const [method, route] of MARKETPLACE_ALIASES) router[method](route, forwardToMarketplace);
+
+// BXH tuần: count >= 5 mới được lên bảng và nhận thưởng.
+router.use(marketplace.router);
 
 // ==================== LỖI ====================
 router.use((err, req, res, next) => {

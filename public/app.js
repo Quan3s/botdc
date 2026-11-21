@@ -1,5 +1,13 @@
-/* ASYNCTAS dashboard — vanilla JS */
+/* ASYNCTAS dashboard — vanilla JS, i18n + SVG icons (contract-aligned). */
 'use strict';
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+const t = (key, vars) => (window.t ? window.t(key, vars) : key);
+const icon = (name, size) => (window.icons && window.icons.icon ? window.icons.icon(name, size) : '');
+const getLanguage = () => (window.getLanguage ? window.getLanguage() : 'vi');
+const setLanguage = lang => (window.setLanguage ? window.setLanguage(lang) : lang);
 
 const state = {
   user: null,
@@ -8,14 +16,18 @@ const state = {
   lbTab: 'coins',
   adminTab: 'user',
   plugins: [],
+  orders: [],
+  skipLangRefresh: false,
+  seller: { revenue: 'week', data: null },
+  userShop: { q: '', filter: 'recommended', page: 1, detail: null },
+  chat: { contacts: [], with: null, messages: [], poll: null, unread: 0, open: false },
+  adminReviews: [],
 };
 
 let cloudStatusTimer = null;
+let deviceIdCache = null;
 
 // ==================== HELPERS ====================
-const $ = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
-
 function esc(value) {
   return String(value == null ? '' : value)
     .replace(/&/g, '&amp;')
@@ -25,14 +37,13 @@ function esc(value) {
     .replace(/'/g, '&#39;');
 }
 
-function num(value) {
-  return Number(value || 0).toLocaleString('en-US');
-}
+function num(value) { return Number(value || 0).toLocaleString('en-US'); }
 
 function toast(message, type = 'ok') {
   const el = document.createElement('div');
   el.className = `toast${type === 'error' ? ' error' : ''}`;
-  el.textContent = message;
+  el.innerHTML = icon(type === 'error' ? 'warning' : 'checkCircle', 15) + '<span></span>';
+  el.querySelector('span').textContent = message;
   $('#toasts').appendChild(el);
   setTimeout(() => {
     el.style.opacity = '0';
@@ -42,16 +53,28 @@ function toast(message, type = 'ok') {
   }, 3200);
 }
 
+function getDeviceId() {
+  if (deviceIdCache) return deviceIdCache;
+  try { deviceIdCache = localStorage.getItem('asynctas_device_id') || ''; } catch (e) { deviceIdCache = ''; }
+  if (!deviceIdCache) {
+    deviceIdCache = (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `d-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    try { localStorage.setItem('asynctas_device_id', deviceIdCache); } catch (e) { /* ignore */ }
+  }
+  return deviceIdCache;
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Device-ID': getDeviceId(), ...(options.headers || {}) },
     ...options,
   });
   let data = null;
   try { data = await res.json(); } catch (e) { data = null; }
   if (!res.ok) {
-    const err = new Error((data && data.error) || `Lỗi ${res.status}`);
+    const err = new Error((data && data.error) || `${t('common.error')} ${res.status}`);
     err.data = data || {};
     err.status = res.status;
     throw err;
@@ -59,10 +82,28 @@ async function api(path, options = {}) {
   return data;
 }
 
+function isAuthError(err) {
+  return err && (err.status === 401 || /đăng nhập|login|unauthorized/i.test(err.message || ''));
+}
+
+function renderIcons(root = document) {
+  $$('[data-icon]', root).forEach(el => {
+    const size = Number(el.dataset.size) || 18;
+    el.innerHTML = icon(el.dataset.icon, size);
+    el.removeAttribute('data-icon');
+  });
+}
+
+function labelButton(btn, key, vars) {
+  if (!btn) return;
+  let label = btn.querySelector('[data-i18n]');
+  if (!label) label = btn.querySelector('span:last-child') || btn;
+  label.textContent = t(key, vars);
+  label.setAttribute('data-i18n', key);
+}
+
 async function copyText(text, btn) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch (e) {
+  try { await navigator.clipboard.writeText(text); } catch (e) {
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.style.position = 'fixed';
@@ -74,10 +115,10 @@ async function copyText(text, btn) {
   }
   if (btn) {
     const old = btn.textContent;
-    btn.textContent = 'Đã copy ✓';
+    btn.textContent = t('auth.copied');
     setTimeout(() => { btn.textContent = old; }, 1500);
   }
-  toast('Đã copy vào clipboard');
+  toast(t('auth.copyDone'));
 }
 
 function openModal({ title, body, actions }) {
@@ -104,7 +145,8 @@ function openModal({ title, body, actions }) {
   });
   modal.appendChild(actionsEl);
   root.appendChild(modal);
-  root.onclick = (e) => { if (e.target === root) closeModal(); };
+  renderIcons(modal);
+  root.onclick = e => { if (e.target === root) closeModal(); };
 }
 
 function closeModal() {
@@ -113,27 +155,57 @@ function closeModal() {
   root.innerHTML = '';
 }
 
+function priceLabel(price, currency, priceText) {
+  const cur = String(currency || '').toLowerCase();
+  const text = String(priceText == null ? '' : priceText);
+  if (cur === 'acoin' || text.trim().charAt(0) === '$') {
+    const value = text.trim().charAt(0) === '$' ? text.trim() : `$${num(price)}`;
+    return `${value} ACOIN`;
+  }
+  return `${num(price)} ${t('topbar.coinShort')}`;
+}
+
+function statusLabel(status) {
+  const key = ({
+    pending: 'userShop.pending', completed: 'orders.completed', complete: 'orders.completed',
+    complaint: 'orders.complain', complained: 'orders.complain', appealed: 'userShop.appealed',
+    approved: 'userShop.approved', rejected: 'userShop.rejected', returned: 'orders.return',
+    active: 'seller.status.active', suspended: 'seller.status.suspended', none: 'seller.status.none',
+  })[String(status || '').toLowerCase()];
+  return key ? t(key) : (status || '—');
+}
+
+function renderStars(value, appealed = false) {
+  const n = Math.max(0, Math.min(5, Number(value) || 0));
+  let out = '<span class="stars' + (appealed ? ' appealed' : '') + '">';
+  for (let i = 1; i <= 5; i++) out += icon(i <= n ? 'star-filled' : 'star', 14);
+  return out + '</span>';
+}
+
 // ==================== AUTH ====================
 function showAuth() {
   $('#auth-screen').classList.remove('hidden');
   $('#app').classList.add('hidden');
+  closeChatPanel();
+  closeSidebar();
 }
 
 function showApp() {
   $('#auth-screen').classList.add('hidden');
   $('#app').classList.remove('hidden');
+  renderIcons(document);
 }
 
 $$('.auth-tab').forEach(tab => tab.addEventListener('click', () => {
-  $$('.auth-tab').forEach(t => t.classList.remove('active'));
+  $$('.auth-tab').forEach(x => x.classList.remove('active'));
   tab.classList.add('active');
-  const tabName = tab.dataset.tab;
-  $('#login-form').classList.toggle('hidden', tabName !== 'login');
-  $('#register-form').classList.toggle('hidden', tabName !== 'register');
-  $('#token-form').classList.toggle('hidden', tabName !== 'token');
+  const name = tab.dataset.tab;
+  $('#login-form').classList.toggle('hidden', name !== 'login');
+  $('#register-form').classList.toggle('hidden', name !== 'register');
+  $('#token-form').classList.toggle('hidden', name !== 'token');
 }));
 
-$('#login-form').addEventListener('submit', async (e) => {
+$('#login-form').addEventListener('submit', async e => {
   e.preventDefault();
   try {
     const data = await api('/api/auth/login', {
@@ -142,25 +214,20 @@ $('#login-form').addEventListener('submit', async (e) => {
     });
     await enterApp(data.user);
   } catch (err) {
-    if (err.data && err.data.requiresUsernameChange) {
-      promptUsernameChange(err.data, { password: $('#login-password').value });
-    } else toast(err.message, 'error');
+    if (err.data && err.data.requiresUsernameChange) promptUsernameChange(err.data, { password: $('#login-password').value });
+    else toast(err.message, 'error');
   }
 });
 
-$('#token-form').addEventListener('submit', async (e) => {
+$('#token-form').addEventListener('submit', async e => {
   e.preventDefault();
   const token = $('#token-login-token').value.trim();
   try {
-    const data = await api('/api/auth/discord-token', {
-      method: 'POST',
-      body: JSON.stringify({ token }),
-    });
+    const data = await api('/api/auth/discord-token', { method: 'POST', body: JSON.stringify({ token }) });
     await enterApp(data.user);
   } catch (err) {
-    if (err.data && err.data.requiresUsernameChange) {
-      promptUsernameChange({ ...err.data, token }, {});
-    } else toast(err.message, 'error');
+    if (err.data && err.data.requiresUsernameChange) promptUsernameChange({ ...err.data, token }, {});
+    else toast(err.message, 'error');
   }
 });
 
@@ -168,22 +235,22 @@ function promptUsernameChange(info, credentials) {
   const wrap = document.createElement('div');
   const isToken = Boolean(info.token);
   const passwordField = isToken
-    ? '<p class="muted">Đang xác thực bằng token Discord, không cần mật khẩu.</p>'
-    : '<label>Mật khẩu hiện tại<input id="rename-password" type="password" value="' + esc(credentials.password || '') + '" /></label>';
+    ? `<p class="muted">${esc(t('auth.tokenRenameInfo'))}</p>`
+    : `<label>${esc(t('auth.currentPassword'))}<input id="rename-password" type="password" value="${esc(credentials.password || '')}" /></label>`;
   wrap.innerHTML = `
-    <p class="muted">Tài khoản cũ <b>${esc(info.currentUsername)}</b> chỉ có số. Đặt tên mới có ít nhất <b>1 chữ cái</b> để tiếp tục.</p>
+    <p class="muted">${esc(t('auth.renameDesc', { name: info.currentUsername }))}</p>
     ${passwordField}
-    <label>Tên mới<input id="rename-username" placeholder="VD: gamer123" value="" /></label>`;
+    <label>${esc(t('auth.newUsername'))}<input id="rename-username" data-i18n-placeholder="auth.newUsernamePlaceholder" placeholder="${esc(t('auth.newUsernamePlaceholder'))}" /></label>`;
   openModal({
-    title: '⚠️ Đổi tên tài khoản',
+    title: t('auth.renameTitle'),
     body: wrap,
     actions: [
-      { label: 'Huỷ', onClick: closeModal },
+      { label: t('auth.cancel'), onClick: closeModal },
       {
-        label: 'Đổi tên & đăng nhập', className: 'btn-primary', onClick: async (btn) => {
+        label: t('auth.renameAction'), className: 'btn-primary', onClick: async btn => {
           const newUsername = wrap.querySelector('#rename-username').value.trim();
           if (!/^[a-zA-Z0-9_]{3,24}$/.test(newUsername) || !/[A-Za-z]/.test(newUsername)) {
-            toast('Tên mới phải 3-24 ký tự, có ít nhất 1 chữ cái.', 'error');
+            toast(t('auth.renameInvalid'), 'error');
             return;
           }
           btn.disabled = true;
@@ -198,7 +265,7 @@ function promptUsernameChange(info, credentials) {
               }),
             });
             closeModal();
-            toast('Đổi tên thành công!');
+            toast(t('auth.renameSuccess'));
             await enterApp(data.user);
           } catch (err) {
             btn.disabled = false;
@@ -208,48 +275,97 @@ function promptUsernameChange(info, credentials) {
       },
     ],
   });
-  $('#modal-root').onclick = null; // bắt buộc phải đổi tên mới thoát được
+  $('#modal-root').onclick = null;
 }
 
-$('#register-form').addEventListener('submit', async (e) => {
+$('#register-form').addEventListener('submit', async e => {
   e.preventDefault();
   try {
     const data = await api('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username: $('#reg-username').value, password: $('#reg-password').value }),
+      body: JSON.stringify({
+        username: $('#reg-username').value,
+        password: $('#reg-password').value,
+        deviceId: getDeviceId(),
+      }),
     });
-    toast('Tạo tài khoản thành công!');
+    toast(t('auth.registerSuccess'));
     await enterApp(data.user);
   } catch (err) { toast(err.message, 'error'); }
 });
 
-$('#logout-btn').addEventListener('click', async () => {
-  try { await api('/api/auth/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
+function logout() {
+  stopChatPolling();
+  closeAvatarMenu();
+  closeChatPanel();
+  api('/api/auth/logout', { method: 'POST' }).catch(() => {});
   state.user = null;
+  state.orders = [];
   showAuth();
-});
+}
+
+$('#logout-btn').addEventListener('click', logout);
+$('#avatar-logout').addEventListener('click', logout);
 
 async function enterApp(user) {
   state.user = user;
   showApp();
+  syncLanguageFromUser(user && user.language);
   applyUser();
   switchView('dashboard');
   refreshDashboard();
 }
 
+// ==================== THEME / LANGUAGE / USER ====================
 function applyTheme(theme) {
-  const t = theme === 'classic' ? 'classic' : 'bubble';
-  document.documentElement.dataset.theme = t;
-  try { localStorage.setItem('asynctas_theme', t); } catch (e) { /* bỏ qua */ }
-  $$('[data-theme-choice]').forEach(b => b.classList.toggle('active', b.dataset.themeChoice === t));
+  const value = theme === 'classic' ? 'classic' : 'bubble';
+  document.documentElement.dataset.theme = value;
+  try { localStorage.setItem('asynctas_theme', value); } catch (e) { /* ignore */ }
+  $$('[data-theme-choice]').forEach(b => b.classList.toggle('active', b.dataset.themeChoice === value));
   const label = $('#theme-current');
-  if (label) label.textContent = t === 'bubble' ? 'Bubble' : 'Classic';
+  if (label) label.textContent = value === 'bubble' ? 'Bubble' : 'Classic';
 }
 
 function applyBackground(url) {
   const value = url ? `url("${String(url).replace(/"/g, '%22').replace(/\n/g, '')}")` : 'none';
   document.documentElement.style.setProperty('--wallpaper', value);
-  try { localStorage.setItem('asynctas_background', String(url || '')); } catch (e) { /* bỏ qua */ }
+  try { localStorage.setItem('asynctas_background', String(url || '')); } catch (e) { /* ignore */ }
+}
+
+function updateLanguageChrome() {
+  $('#lang-label').textContent = getLanguage() === 'en' ? 'EN' : 'VI';
+  document.documentElement.lang = getLanguage();
+  $$('[data-language-choice]').forEach(b => b.classList.toggle('active', b.dataset.languageChoice === getLanguage()));
+}
+
+function syncLanguageFromUser(lang) {
+  const next = String(lang || '').toLowerCase().indexOf('en') === 0 ? 'en' : 'vi';
+  if (next === getLanguage()) { updateLanguageChrome(); return; }
+  state.skipLangRefresh = true;
+  setLanguage(next);
+  state.skipLangRefresh = false;
+  updateLanguageChrome();
+}
+
+async function changeLanguage(lang) {
+  const next = String(lang || '').toLowerCase().indexOf('en') === 0 ? 'en' : 'vi';
+  setLanguage(next);
+  updateLanguageChrome();
+  try {
+    const data = await api('/api/profile/language', { method: 'POST', body: JSON.stringify({ language: next }) });
+    if (state.user) state.user.language = data.language || next;
+    toast(t('profile.languageSaved', { language: next === 'vi' ? 'Tiếng Việt' : 'English' }));
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function setUnreadCount(count) {
+  const value = Math.max(0, Number(count) || 0);
+  state.chat.unread = value;
+  if (state.user) state.user.unreadMessages = value;
+  const badge = $('#chat-unread-badge');
+  if (!badge) return;
+  badge.textContent = value > 99 ? '99+' : num(value);
+  badge.classList.toggle('hidden', value === 0);
 }
 
 function applyUser() {
@@ -257,11 +373,25 @@ function applyUser() {
   if (!u) return;
   applyTheme(u.theme);
   applyBackground(u.background);
+  updateLanguageChrome();
   $('#top-balance').textContent = num(u.balance);
+  $('#top-acoin').textContent = num(u.acoin);
   $('#hero-balance').textContent = num(u.balance);
   $('#hero-name').textContent = u.username;
   $('#user-name').textContent = u.username;
   $('#user-initial').textContent = (u.username[0] || 'U').toUpperCase();
+
+  const heroAcoin = $('#hero-acoin');
+  heroAcoin.removeAttribute('data-i18n');
+  heroAcoin.innerHTML = icon('acoin', 15) + '<span></span>';
+  heroAcoin.querySelector('span').textContent = t('dashboard.acoinBalance', { value: num(u.acoin) });
+  const rate = $('#exchange-rate');
+  rate.removeAttribute('data-i18n');
+  rate.textContent = t('dashboard.exchangeRate', { rate: num(u.exchangeRate || 5) });
+
+  $('#youtube-link').href = u.youtubeUrl || 'https://youtube.com';
+  $('#discord-link').href = u.discordUrl || 'https://discord.com';
+
   const avatar = $('#user-avatar');
   if (u.avatar) {
     avatar.src = u.avatar;
@@ -271,94 +401,154 @@ function applyUser() {
     avatar.classList.add('hidden');
     $('#user-initial').classList.remove('hidden');
   }
-  avatar.onerror = () => {
-    avatar.classList.add('hidden');
-    $('#user-initial').classList.remove('hidden');
-  };
+  avatar.onerror = () => { avatar.classList.add('hidden'); $('#user-initial').classList.remove('hidden'); };
   const short = esc((u.username[0] || 'U').toUpperCase());
   $('#sidebar-user').innerHTML = `<span class="sidebar-avatar">${u.avatar ? `<img src="${esc(u.avatar)}" alt="" />` : short}</span><span>${esc(u.username)}</span>`;
   $('#profile-username').textContent = u.username;
-  $('#profile-balance').textContent = `${num(u.balance)} xu`;
-  $('#profile-discord').textContent = u.linked ? `Đã liên kết (${u.discordId})` : 'Chưa liên kết';
-  $('#profile-role').textContent = u.isAdmin ? 'Admin 🛡️' : 'Thành viên';
+  $('#profile-balance').textContent = t('profile.coinUnit', { amount: num(u.balance) });
+  $('#profile-discord').textContent = u.linked ? t('profile.linked', { id: u.discordId }) : t('profile.notLinked');
+  $('#profile-role').textContent = u.isAdmin ? `${t('profile.admin')} / ${t('nav.admin')}` : t('profile.member');
   $('#link-token').textContent = u.linkToken || '—';
   $$('.admin-only').forEach(el => el.classList.toggle('hidden', !u.isAdmin));
+  $$('.seller-only').forEach(el => el.classList.toggle('hidden', !isSeller()));
   $('#link-box').classList.toggle('hidden', !!u.linked);
   $('#regen-token-btn').classList.toggle('hidden', !!u.linked);
   $('#linked-note').classList.toggle('hidden', !u.linked);
+  setUnreadCount(u.unreadMessages != null ? u.unreadMessages : state.chat.unread);
+}
+
+function isSeller() { return !!(state.user && (state.user.isSeller || state.user.sellerStatus === 'active')); }
+
+async function refreshUser() {
+  const data = await api('/api/me');
+  const user = data.user || data;
+  if (!user) { showAuth(); return; }
+  state.user = user;
+  applyUser();
 }
 
 $$('[data-theme-choice]').forEach(btn => btn.addEventListener('click', async () => {
   const theme = btn.dataset.themeChoice;
-  applyTheme(theme); // đổi ngay, không đợi server
+  applyTheme(theme);
   try {
     const data = await api('/api/profile/theme', { method: 'POST', body: JSON.stringify({ theme }) });
     if (state.user) state.user.theme = data.theme;
-    toast(data.theme === 'bubble' ? 'Đã dùng Bubble Interface.' : 'Đã dùng giao diện Classic.');
-  } catch (err) {
-    toast(err.message, 'error');
-  }
+    toast(t(data.theme === 'bubble' ? 'profile.themeBubbleToast' : 'profile.themeClassicToast'));
+  } catch (err) { toast(err.message, 'error'); }
 }));
 
-async function refreshUser() {
-  const data = await api('/api/me');
-  if (!data.user) { showAuth(); return; }
-  state.user = data.user;
-  applyUser();
-}
+$$('[data-language-choice]').forEach(btn => btn.addEventListener('click', () => changeLanguage(btn.dataset.languageChoice)));
+$('#lang-toggle').addEventListener('click', () => changeLanguage(getLanguage() === 'vi' ? 'en' : 'vi'));
 
-// ==================== NAVIGATION ====================
-const VIEW_TITLES = {
-  dashboard: 'Tổng quan',
-  shop: 'Shop',
-  buydevice: 'Buy Device',
-  cloudstatus: 'Cloud Status',
-  tasks: 'Nhiệm vụ',
-  giftcode: 'Giftcode',
-  leaderboard: 'Bảng xếp hạng',
-  transfer: 'Chuyển tiền',
-  profile: 'Hồ sơ',
-  admin: 'Quản trị',
+window.addEventListener('asynctas:languagechange', () => {
+  updateLanguageChrome();
+  if (state.skipLangRefresh) return;
+  renderIcons(document);
+  if (state.user) {
+    applyUser();
+    loadView(state.view);
+  }
+  renderChatContacts();
+  renderChatMessages();
+  renderOrders();
+});
+
+// ==================== NAVIGATION / SIDEBAR / AVATAR MENU ====================
+const VIEW_TITLE_KEYS = {
+  dashboard: 'nav.dashboard', shop: 'nav.shop', 'user-shop': 'nav.userShop',
+  buydevice: 'nav.buydevice', cloudstatus: 'nav.cloudstatus', tasks: 'nav.tasks',
+  giftcode: 'nav.giftcode', leaderboard: 'nav.leaderboard', transfer: 'nav.transfer',
+  orders: 'nav.orders', seller: 'nav.seller', profile: 'nav.profile',
+  admin: 'nav.admin', messages: 'chat.title',
 };
 
+function openSidebar() {
+  $('.sidebar').classList.add('open');
+  $('#sidebar-overlay').classList.remove('hidden');
+  $('#menu-toggle').setAttribute('aria-expanded', 'true');
+}
+
+function closeSidebar() {
+  $('.sidebar').classList.remove('open');
+  $('#sidebar-overlay').classList.add('hidden');
+  $('#menu-toggle').setAttribute('aria-expanded', 'false');
+}
+
+$('#menu-toggle').addEventListener('click', () => {
+  if ($('.sidebar').classList.contains('open')) closeSidebar(); else openSidebar();
+});
+$('#sidebar-close').addEventListener('click', closeSidebar);
+$('#sidebar-overlay').addEventListener('click', closeSidebar);
+
+function closeAvatarMenu() {
+  $('#avatar-dropdown').classList.add('hidden');
+  $('#avatar-menu-btn').setAttribute('aria-expanded', 'false');
+}
+
+function toggleAvatarMenu() {
+  const hidden = $('#avatar-dropdown').classList.toggle('hidden');
+  $('#avatar-menu-btn').setAttribute('aria-expanded', String(!hidden));
+  if (!hidden) closeChatPanel();
+}
+
+$('#avatar-menu-btn').addEventListener('click', e => { e.stopPropagation(); toggleAvatarMenu(); });
+document.addEventListener('click', e => {
+  if (!e.target.closest('.avatar-menu-wrap')) closeAvatarMenu();
+});
+
+$('#avatar-profile').addEventListener('click', () => { closeAvatarMenu(); switchView('profile'); });
+$('#avatar-orders').addEventListener('click', () => { closeAvatarMenu(); switchView('orders'); });
+$('#avatar-seller').addEventListener('click', () => { closeAvatarMenu(); requestSeller(); });
+
 function switchView(view) {
+  if (!VIEW_TITLE_KEYS[view]) view = 'dashboard';
   state.view = view;
   $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
   $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
-  $('#view-title').textContent = VIEW_TITLES[view] || 'Dashboard';
-  $('.sidebar').classList.remove('open');
+  $('#view-title').textContent = t(VIEW_TITLE_KEYS[view]);
+  closeSidebar();
+  closeAvatarMenu();
   if (location.hash !== `#${view}`) history.replaceState(null, '', `#${view}`);
-  if (view === 'cloudstatus') startCloudStatusPolling();
-  else stopCloudStatusPolling();
+  if (view === 'cloudstatus') startCloudStatusPolling(); else stopCloudStatusPolling();
   loadView(view);
 }
 
 $$('.nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
 $$('[data-goto]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.goto)));
-$('#menu-toggle').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  closeSidebar();
+  closeAvatarMenu();
+  if (state.chat.open) closeChatPanel();
+});
 
 function loadView(view) {
+  if (!state.user) return;
   if (view === 'dashboard') refreshDashboard();
   else if (view === 'shop') loadShop();
+  else if (view === 'user-shop') loadUserShop();
+  else if (view === 'orders') loadOrders();
+  else if (view === 'seller') loadSeller();
   else if (view === 'cloudstatus') loadCloudStatus();
   else if (view === 'tasks') loadTasks();
   else if (view === 'giftcode') $('#giftcode-input').focus();
   else if (view === 'leaderboard') loadLeaderboard();
   else if (view === 'transfer') loadTransfers();
   else if (view === 'admin') loadAdmin();
+  else if (view === 'messages') { /* panel được mở từ nút chat trên topbar */ }
 }
 
-// ==================== DASHBOARD ====================
+$('#messages-open-chat').addEventListener('click', () => openChatPanel());
+
+// ==================== DASHBOARD / EXCHANGE ====================
 async function refreshDashboard() {
   try {
     await refreshUser();
-    const [tasks, purchases] = await Promise.all([
-      api('/api/tasks'),
-      api('/api/purchases'),
-    ]);
-    const providerList = tasks.providers || [];
-    const daily = providerList.reduce((sum, p) => sum + Number(p.used || tasks.daily[p.id] || 0), 0);
-    const dailyTotal = providerList.reduce((sum, p) => sum + Number(p.dailyMax || 0), 0);
+    const [tasks, purchases] = await Promise.all([api('/api/tasks'), api('/api/purchases')]);
+    const providers = tasks.providers || [];
+    const daily = providers.reduce((sum, p) => sum + Number(p.used || tasks.daily[p.id] || 0), 0);
+    const dailyTotal = providers.reduce((sum, p) => sum + Number(p.dailyMax || 0), 0);
     $('#stat-weekly').textContent = num(tasks.weeklyCount);
     $('#stat-daily').textContent = `${daily}/${dailyTotal || tasks.dailyMax * 2}`;
     $('#stat-purchases').textContent = num(purchases.purchases.length);
@@ -369,19 +559,20 @@ async function refreshDashboard() {
     $('#stat-rank').textContent = idx >= 0 ? `#${idx + 1}` : '—';
     renderRecentPurchases(purchases.purchases.slice(0, 3));
   } catch (err) {
-    if (/đăng nhập/i.test(err.message)) return showAuth();
+    if (isAuthError(err)) return showAuth();
     toast(err.message, 'error');
   }
 }
 
 function renderRecentPurchases(list) {
   const root = $('#recent-purchases');
-  if (!list.length) { root.innerHTML = '<div class="empty">Chưa mua gì. Ghé shop nhé!</div>'; return; }
+  if (!list.length) { root.innerHTML = `<div class="empty">${esc(t('dashboard.noPurchases'))}</div>`; return; }
   root.innerHTML = list.map(p => `
     <div class="mini-row">
-      <span>📦 ${esc(p.itemName)} ×${p.quantity}</span>
-      <b>${num(p.totalPrice)} xu</b>
+      <span>${icon('package', 15)} ${esc(p.itemName)} ×${p.quantity}</span>
+      <b>${num(p.totalPrice)} ${t('topbar.coinShort')}</b>
     </div>`).join('');
+  renderIcons(root);
 }
 
 function updateDailyCard(tasks) {
@@ -389,18 +580,14 @@ function updateDailyCard(tasks) {
   const freeClaimed = !!tasks.freeVmosClaimed;
   const unlocked = Number(tasks.linkCountAllTime || 0) > 0;
   $('#daily-date').textContent = tasks.date || '—';
-
   const claimBtn = $('#daily-claim-btn');
   claimBtn.disabled = claimed;
-  claimBtn.textContent = claimed ? '✅ Đã nhận hôm nay' : '🎁 Claim 1–20 xu';
-  $('#daily-claim-status').textContent = claimed ? 'Quà xu: đã nhận' : 'Quà xu: chưa nhận';
-
+  labelButton(claimBtn, claimed ? 'dashboard.claimedToday' : 'dashboard.claim');
+  $('#daily-claim-status').textContent = t(claimed ? 'dashboard.coinGiftClaimed' : 'dashboard.coinGiftPending');
   const vmosBtn = $('#daily-vmos-btn');
   vmosBtn.disabled = freeClaimed || !unlocked;
-  vmosBtn.textContent = freeClaimed ? '✅ Đã lấy hôm nay' : '🆓 Lấy VMOS free';
-  $('#daily-vmos-status').textContent = freeClaimed
-    ? 'VMOS free: đã lấy'
-    : unlocked ? 'VMOS free: khả dụng' : 'VMOS free: cần ≥ 1 link';
+  labelButton(vmosBtn, freeClaimed ? 'dashboard.takenToday' : 'dashboard.getVmos');
+  $('#daily-vmos-status').textContent = t(freeClaimed ? 'dashboard.vmosTaken' : unlocked ? 'dashboard.vmosAvailable' : 'dashboard.vmosLocked');
 }
 
 $('#daily-claim-btn').addEventListener('click', async () => {
@@ -410,12 +597,12 @@ $('#daily-claim-btn').addEventListener('click', async () => {
   try {
     const data = await api('/api/daily/claim', { method: 'POST' });
     box.className = 'result-box';
-    box.innerHTML = `🎉 Bạn nhận được <b>${num(data.reward)} xu</b>! Số dư mới: <b>${num(data.newBalance)} xu</b>.`;
+    box.textContent = t('dashboard.dailyReward', { amount: num(data.reward), balance: num(data.newBalance) });
     box.classList.remove('hidden');
     await refreshDashboard();
   } catch (err) {
     box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
+    box.textContent = err.message;
     box.classList.remove('hidden');
     btn.disabled = false;
   }
@@ -428,19 +615,40 @@ $('#daily-vmos-btn').addEventListener('click', async () => {
   try {
     const data = await api('/api/device/vmos-free', { method: 'POST' });
     box.className = 'result-box';
-    box.innerHTML = `
-      <div>🆓 VMOS miễn phí hôm nay (đã vượt ${num(data.linkCount)} link):</div>
-      <div class="accounts-box" id="free-vmos-acc">${esc(data.copyText)}</div>
-      <div class="copy-row"><button class="btn btn-soft btn-sm" id="free-vmos-copy">📋 Copy acc|pass</button></div>`;
+    box.innerHTML = `<div>${esc(t('dashboard.freeVmos', { count: num(data.linkCount) }))}</div>
+      <div class="accounts-box">${esc(data.copyText)}</div>
+      <div class="copy-row"><button class="btn btn-soft btn-sm" id="free-vmos-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
     box.classList.remove('hidden');
-    $('#free-vmos-copy').addEventListener('click', ev => copyText(data.copyText, ev.target));
+    renderIcons(box);
+    $('#free-vmos-copy').addEventListener('click', ev => copyText(data.copyText, ev.currentTarget));
     await refreshDashboard();
   } catch (err) {
     box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
+    box.textContent = err.message;
     box.classList.remove('hidden');
     btn.disabled = false;
   }
+});
+
+$('#exchange-btn').addEventListener('click', async e => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  const amount = Math.floor(Number($('#exchange-amount').value) || 0);
+  if (amount <= 0) { toast(t('dashboard.exchangeAmount'), 'error'); btn.disabled = false; return; }
+  try {
+    const data = await api('/api/exchange', {
+      method: 'POST',
+      body: JSON.stringify({ from: $('#exchange-from').value, amount }),
+    });
+    if (state.user) {
+      state.user.balance = data.coin != null ? data.coin : data.newCoin;
+      state.user.acoin = data.acoin != null ? data.acoin : data.newAcoin;
+    }
+    applyUser();
+    toast(t('dashboard.exchangeSuccess', { coin: num(state.user.balance), acoin: num(state.user.acoin) }));
+    if (state.view !== 'dashboard') loadView(state.view);
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
 });
 
 // ==================== SHOP ====================
@@ -455,47 +663,47 @@ async function loadShop() {
 
 function renderShop(items) {
   const grid = $('#shop-grid');
-  if (!items.length) { grid.innerHTML = '<div class="card empty">Shop chưa có sản phẩm nào.</div>'; return; }
+  if (!items.length) { grid.innerHTML = `<div class="card empty">${esc(t('shop.empty'))}</div>`; return; }
   grid.innerHTML = items.map(item => {
     const logo = /^https?:\/\//i.test(item.logoUrl)
-      ? `<img class="product-logo" src="${esc(item.logoUrl)}" alt="${esc(item.name)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'product-logo placeholder',textContent:'📦'}))" />`
-      : `<div class="product-logo placeholder">📦</div>`;
+      ? `<img class="product-logo" src="${esc(item.logoUrl)}" alt="${esc(item.name)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'product-logo placeholder',innerHTML:window.icons.icon('package',42)}))" />`
+      : `<div class="product-logo placeholder">${icon('package', 42)}</div>`;
     return `
       <div class="product">
         ${logo}
         <div class="product-body">
           <h4>${esc(item.name)}</h4>
-          <p>${esc(item.description || 'Không có mô tả.')}</p>
+          <p>${esc(item.description || t('shop.noDescription'))}</p>
           <div class="product-foot">
-            <span class="price">${num(item.price)} xu</span>
-            <span class="stock-badge">Kho: ${num(item.stock)}</span>
+            <span class="price">${priceLabel(item.price, item.currency, item.priceText)}</span>
+            <span class="stock-badge">${esc(t('shop.stock', { count: num(item.stock) }))}</span>
           </div>
           <button class="btn btn-primary btn-block btn-sm" data-buy="${esc(item.id)}" ${item.stock < 1 ? 'disabled' : ''}>
-            ${item.stock < 1 ? 'Hết hàng' : '🛒 Mua'}
+            ${icon(item.stock < 1 ? 'warning' : 'cart', 15)}<span>${esc(t(item.stock < 1 ? 'shop.outOfStock' : 'shop.buy'))}</span>
           </button>
         </div>
       </div>`;
   }).join('');
-  $$('[data-buy]').forEach(btn => btn.addEventListener('click', () => buyItem(btn.dataset.buy)));
+  $$('[data-buy]', grid).forEach(btn => btn.addEventListener('click', () => buyItem(btn.dataset.buy)));
 }
 
 function renderPurchases(list) {
   const root = $('#purchases-list');
-  if (!list.length) { root.innerHTML = '<div class="empty">Bạn chưa mua sản phẩm nào.</div>'; return; }
+  if (!list.length) { root.innerHTML = `<div class="empty">${esc(t('shop.noPurchases'))}</div>`; return; }
   root.innerHTML = list.map(p => `
     <div class="purchase-card">
       <div class="purchase-head">
-        <span>📦 ${esc(p.itemName)} ×${p.quantity}</span>
-        <b>${num(p.totalPrice)} xu</b>
+        <span>${icon('package', 15)} ${esc(p.itemName)} ×${p.quantity}</span>
+        <b>${num(p.totalPrice)} ${t('topbar.coinShort')}</b>
       </div>
-      <div class="accounts-box">${esc(p.accounts.join('\n'))}</div>
+      <div class="accounts-box">${esc((p.accounts || []).join('\n'))}</div>
       <div class="copy-row">
-        <button class="btn btn-soft btn-sm" data-copy-acc="${esc(p.id)}">📋 Copy tất cả</button>
+        <button class="btn btn-soft btn-sm" data-copy-acc="${esc(p.id)}">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button>
       </div>
     </div>`).join('');
-  $$('[data-copy-acc]').forEach(btn => btn.addEventListener('click', () => {
+  $$('[data-copy-acc]', root).forEach(btn => btn.addEventListener('click', () => {
     const p = list.find(x => x.id === btn.dataset.copyAcc);
-    if (p) copyText(p.accounts.join('\n'), btn);
+    if (p) copyText((p.accounts || []).join('\n'), btn);
   }));
 }
 
@@ -504,36 +712,35 @@ function buyItem(itemId) {
   if (!item) return;
   const wrap = document.createElement('div');
   wrap.innerHTML = `
-    <p class="muted">${esc(item.name)} — <b class="price">${num(item.price)} xu</b>/cái · Kho: ${num(item.stock)}</p>
-    <label style="margin-top:14px">Số lượng<input id="buy-qty" type="number" min="1" max="${item.stock}" value="1" /></label>
-    <div class="fee-preview">Tổng: <b id="buy-total">${num(item.price)} xu</b></div>`;
-  const input = wrap.querySelector('#buy-qty');
-  input.addEventListener('input', () => {
-    const q = Math.max(1, Math.min(item.stock, parseInt(input.value, 10) || 1));
-    wrap.querySelector('#buy-total').textContent = `${num(item.price * q)} xu`;
-  });
+    <p class="muted">${esc(item.name)} — <b class="price">${esc(priceLabel(item.price, item.currency, item.priceText))}</b> · ${esc(t('shop.stock', { count: num(item.stock) }))}</p>
+    <label style="margin-top:14px">${esc(t('shop.quantity'))}<input id="buy-qty" type="number" min="1" max="${item.stock}" value="1" /></label>
+    <div class="fee-preview" id="buy-total"></div>`;
+  const price = Number(item.price) || 0;
+  const currency = item.currency;
+  const totalEl = wrap.querySelector('#buy-total');
+  const updateTotal = () => {
+    const q = Math.max(1, Math.min(item.stock, parseInt(wrap.querySelector('#buy-qty').value, 10) || 1));
+    totalEl.textContent = t('shop.total', { total: priceLabel(price * q, currency, item.priceText) });
+  };
+  updateTotal();
+  wrap.querySelector('#buy-qty').addEventListener('input', updateTotal);
   openModal({
-    title: 'Xác nhận mua',
+    title: t('shop.confirm'),
     body: wrap,
     actions: [
-      { label: 'Huỷ', onClick: closeModal },
+      { label: t('auth.cancel'), onClick: closeModal },
       {
-        label: 'Mua ngay',
-        className: 'btn-primary',
-        onClick: async (btn) => {
-          const quantity = Math.max(1, Math.min(item.stock, parseInt(input.value, 10) || 1));
+        label: t('dashboard.buyNow'), className: 'btn-primary', onClick: async btn => {
+          const quantity = Math.max(1, Math.min(item.stock, parseInt(wrap.querySelector('#buy-qty').value, 10) || 1));
           btn.disabled = true;
           try {
             const data = await api('/api/shop/buy', { method: 'POST', body: JSON.stringify({ itemId, quantity }) });
             closeModal();
-            toast(`Mua thành công ${quantity} sản phẩm!`);
-            showAccountsModal(item.name, data.accounts);
+            toast(t('shop.success', { count: num(quantity) }));
+            showAccountsModal(item.name, data.accounts || []);
             await refreshUser();
             loadShop();
-          } catch (err) {
-            btn.disabled = false;
-            toast(err.message, 'error');
-          }
+          } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
         },
       },
     ],
@@ -542,45 +749,567 @@ function buyItem(itemId) {
 
 function showAccountsModal(title, accounts) {
   const wrap = document.createElement('div');
-  wrap.innerHTML = `<p class="muted">Tài khoản của bạn (đã trừ coin).</p>
-    <div class="accounts-box" id="acc-box">${esc(accounts.join('\n'))}</div>`;
+  wrap.innerHTML = `<p class="muted">${esc(t('shop.accountsDesc'))}</p>
+    <div class="accounts-box">${esc((accounts || []).join('\n'))}</div>`;
   openModal({
-    title: `✅ ${title}`,
+    title: `${t('shop.accountsTitle')} — ${title}`,
     body: wrap,
     actions: [
-      { label: '📋 Copy tất cả', onClick: (btn) => copyText(accounts.join('\n'), btn) },
-      { label: 'Đóng', className: 'btn-primary', onClick: closeModal },
+      { label: t('shop.copyAll'), onClick: btn => copyText((accounts || []).join('\n'), btn) },
+      { label: t('shop.close'), className: 'btn-primary', onClick: closeModal },
     ],
   });
 }
 
-// ==================== BUY DEVICE ====================
+// ==================== USER SHOP ====================
+$('#user-shop-search-btn').addEventListener('click', () => {
+  state.userShop.q = $('#user-shop-q').value.trim();
+  state.userShop.page = 1;
+  loadUserShop();
+});
+$('#user-shop-q').addEventListener('keydown', e => { if (e.key === 'Enter') $('#user-shop-search-btn').click(); });
+$('#user-shop-filter').addEventListener('change', e => {
+  state.userShop.filter = e.target.value;
+  state.userShop.page = 1;
+  loadUserShop();
+});
+$('#user-shop-back').addEventListener('click', () => {
+  state.userShop.detail = null;
+  $('#user-shop-detail').classList.add('hidden');
+  $('#user-shop-list').classList.remove('hidden');
+  loadUserShop();
+});
+
+async function loadUserShop() {
+  const grid = $('#user-shop-grid');
+  grid.innerHTML = `<div class="empty">${esc(t('common.loading'))}</div>`;
+  try {
+    const params = new URLSearchParams({ q: state.userShop.q, filter: state.userShop.filter, page: String(state.userShop.page) });
+    const data = await api(`/api/user-shop?${params}`);
+    state.userShop.page = data.page || 1;
+    renderUserShopCards(data.shops || []);
+    $('#user-shop-total').textContent = t('userShop.total', { count: num(data.total || 0) });
+    renderPagination(data.page || 1, data.totalPages || 1);
+    $('#user-shop-filter').value = data.filter || state.userShop.filter;
+  } catch (err) {
+    grid.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+    $('#user-shop-total').textContent = '';
+    $('#user-shop-pagination').innerHTML = '';
+  }
+}
+
+function renderUserShopCards(shops) {
+  const grid = $('#user-shop-grid');
+  if (!shops.length) { grid.innerHTML = `<div class="empty">${esc(t('userShop.empty'))}</div>`; return; }
+  grid.innerHTML = shops.map(shop => `
+    <button class="product shop-card" data-shop="${esc(shop.id)}" type="button">
+      <div class="shop-cover" style="${shop.backgroundUrl ? `background-image:url('${esc(shop.backgroundUrl)}')` : ''}">
+        ${shop.logoUrl ? `<img class="shop-logo" src="${esc(shop.logoUrl)}" alt="${esc(shop.name)}" onerror="this.style.display='none'" />` : `<span class="shop-logo placeholder">${icon('store', 26)}</span>`}
+      </div>
+      <div class="product-body">
+        <h4>${esc(shop.name)}</h4>
+        <p>${esc(shop.description || t('shop.noDescription'))}</p>
+        <div class="shop-meta">
+          <span>${renderStars(shop.rating)} <small>${num(shop.rating)}</small></span>
+          <span>${esc(t('userShop.reviewCount', { count: num(shop.reviewCount) }))}</span>
+        </div>
+        <div class="product-foot">
+          <span class="price">${esc(t('userShop.fromPrice', { price: priceLabel(shop.minPrice, shop.currency) }))}</span>
+          <span class="stock-badge">${esc(t('userShop.sales', { count: num(shop.sales) }))}</span>
+        </div>
+      </div>
+    </button>`).join('');
+  $$('[data-shop]', grid).forEach(card => card.addEventListener('click', () => openUserShop(card.dataset.shop)));
+}
+
+function renderPagination(page, totalPages) {
+  const root = $('#user-shop-pagination');
+  if (!totalPages || totalPages <= 1) { root.innerHTML = ''; return; }
+  root.innerHTML = `
+    <button class="btn btn-ghost btn-sm" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>${icon('chevron', 14)}<span>${esc(t('userShop.prev'))}</span></button>
+    <span class="pill">${esc(t('userShop.page', { page: num(page), total: num(totalPages) }))}</span>
+    <button class="btn btn-ghost btn-sm" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}><span>${esc(t('userShop.next'))}</span>${icon('chevron', 14)}</button>`;
+  $$('[data-page]', root).forEach(btn => btn.addEventListener('click', () => {
+    state.userShop.page = Number(btn.dataset.page);
+    loadUserShop();
+    $('.content').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+}
+
+async function openUserShop(id) {
+  try {
+    const data = await api(`/api/user-shop/${encodeURIComponent(id)}`);
+    state.userShop.detail = data;
+    $('#user-shop-list').classList.add('hidden');
+    $('#user-shop-detail').classList.remove('hidden');
+    renderUserShopDetail();
+    $('.content').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function renderUserShopDetail() {
+  const d = state.userShop.detail;
+  if (!d) return;
+  const shop = d.shop || {};
+  const seller = d.seller || {};
+  const sellerId = seller.userId || seller.id || seller.discordId;
+  const head = $('#user-shop-detail-head');
+  head.innerHTML = `
+    <div class="shop-detail-cover" style="${shop.backgroundUrl ? `background-image:url('${esc(shop.backgroundUrl)}')` : ''}">
+      ${shop.logoUrl ? `<img class="shop-detail-logo" src="${esc(shop.logoUrl)}" alt="${esc(shop.name)}" onerror="this.style.display='none'" />` : `<span class="shop-detail-logo placeholder">${icon('store', 36)}</span>`}
+      <div class="shop-detail-info">
+        <h3>${esc(shop.name)}</h3>
+        <p class="muted">${esc(shop.description || t('shop.noDescription'))}</p>
+        <div class="shop-meta">
+          <span>${renderStars(shop.rating)} <small>${num(shop.rating)}</small></span>
+          <span>${esc(t('userShop.reviewCount', { count: num(shop.reviewCount || (d.reviews || []).length) }))}</span>
+          <span>${esc(t('userShop.sales', { count: num(shop.sales) }))}</span>
+        </div>
+      </div>
+      <button class="btn btn-soft" id="shop-message-seller">${icon('chat', 16)}<span>${esc(t('userShop.messageSeller'))}</span></button>
+    </div>`;
+  $('#shop-message-seller').addEventListener('click', () => openChatWith(sellerId, seller.display || seller.username || shop.name));
+
+  const products = d.products || [];
+  const productRoot = $('#user-shop-products');
+  productRoot.innerHTML = products.length ? products.map(p => `
+    <div class="product">
+      <div class="product-body">
+        <h4>${esc(p.name)}</h4>
+        <p>${esc(p.description || t('shop.noDescription'))}</p>
+        <div class="product-foot">
+          <span class="price">${esc(priceLabel(p.price, p.currency, p.priceText))}</span>
+          <span class="stock-badge">${esc(t('userShop.stock', { count: num(p.stock) }))}</span>
+        </div>
+        <button class="btn btn-primary btn-sm" data-buy-user-shop="${esc(p.id)}" ${Number(p.stock) < 1 ? 'disabled' : ''}>${icon('cart', 15)}<span>${esc(t('userShop.buy'))}</span></button>
+      </div>
+    </div>`).join('') : `<div class="empty">${esc(t('userShop.noProducts'))}</div>`;
+  $$('[data-buy-user-shop]', productRoot).forEach(btn => btn.addEventListener('click', () => buyUserShopProduct(btn.dataset.buyUserShop)));
+
+  renderShopReviews(d, shop, sellerId);
+}
+
+function renderShopReviews(d, shop, sellerId) {
+  const root = $('#user-shop-reviews');
+  const reviews = d.reviews || [];
+  if (state.user && state.user.isAdmin) {
+    state.adminReviews = state.adminReviews.filter(r => !reviews.some(x => x.id === r.id));
+    state.adminReviews.push(...reviews.filter(r => r.status === 'pending').map(r => ({ ...r, shopId: shop.id })));
+  }
+  root.innerHTML = reviews.length ? reviews.map(r => {
+    const appealed = !!r.appealed || r.status === 'appealed';
+    const canManage = state.user && (state.user.isAdmin || (isSeller() && String(sellerId) === String(state.user.id)));
+    const actions = canManage ? `
+      <div class="review-actions">
+        <button class="btn btn-ghost btn-sm" data-review-reply="${esc(r.id)}">${icon('reply', 13)}<span>${esc(t('userShop.reply'))}</span></button>
+        ${state.user.isAdmin ? `
+          <button class="btn btn-soft btn-sm" data-review-decision="${esc(r.id)}" data-approve="1">${icon('check', 13)}<span>${esc(t('admin.approve'))}</span></button>
+          <button class="btn btn-danger btn-sm" data-review-decision="${esc(r.id)}" data-approve="0">${icon('close', 13)}<span>${esc(t('admin.reject'))}</span></button>` : ''}
+        ${!appealed && isSeller() ? `<button class="btn btn-ghost btn-sm" data-review-appeal="${esc(r.id)}">${icon('appeal', 13)}<span>${esc(t('userShop.appeal'))}</span></button>` : ''}
+      </div>` : '';
+    return `
+      <div class="review-card${appealed ? ' appealed' : ''}">
+        <div class="review-head">
+          ${renderStars(r.stars, appealed)}
+          <b>${esc(r.buyer || t('profile.member'))}</b>
+          <span class="pill${appealed ? ' appealed-pill' : ''}">${esc(appealed ? t('userShop.appealed') : statusLabel(r.status))}</span>
+        </div>
+        <p>${esc(r.content)}</p>
+        ${r.adminReply ? `<p class="muted">${icon('replyAll', 14)} ${esc(t('userShop.adminReply', { reply: r.adminReply }))}</p>` : ''}
+        ${actions}
+      </div>`;
+  }).join('') : `<div class="empty">${esc(t('userShop.noReviews'))}</div>`;
+
+  $$('[data-review-reply]', root).forEach(btn => btn.addEventListener('click', () => promptReviewText(t('userShop.replyTitle'), content => api(`/api/user-shop/${encodeURIComponent(shop.id)}/review/${encodeURIComponent(btn.dataset.reviewReply)}/reply`, { method: 'POST', body: JSON.stringify({ content }) }).then(() => { toast(t('userShop.replySent')); openUserShop(shop.id); }))));
+  $$('[data-review-appeal]', root).forEach(btn => btn.addEventListener('click', () => promptReviewText(t('userShop.appealTitle'), reason => api(`/api/user-shop/${encodeURIComponent(shop.id)}/review/${encodeURIComponent(btn.dataset.reviewAppeal)}/appeal`, { method: 'POST', body: JSON.stringify({ reason }) }).then(() => { toast(t('userShop.appealSent')); openUserShop(shop.id); }))));
+  $$('[data-review-decision]', root).forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await api(`/api/admin/reviews/${encodeURIComponent(btn.dataset.reviewDecision)}/decision`, {
+        method: 'POST', body: JSON.stringify({ approve: btn.dataset.approve === '1' }),
+      });
+      toast(t('admin.approved'));
+      openUserShop(shop.id);
+    } catch (err) { toast(err.message, 'error'); }
+  }));
+
+  renderReviewForm(shop, d.products || []);
+}
+
+function promptReviewText(title, onConfirm, defaultValue = '') {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `<label>${esc(t('orders.reason'))}<textarea id="dialog-text" rows="3" data-i18n-placeholder="userShop.replyPlaceholder" placeholder="${esc(t('userShop.replyPlaceholder'))}">${esc(defaultValue)}</textarea></label>`;
+  openModal({
+    title,
+    body: wrap,
+    actions: [
+      { label: t('auth.cancel'), onClick: closeModal },
+      {
+        label: t('common.save'), className: 'btn-primary', onClick: async btn => {
+          const text = wrap.querySelector('#dialog-text').value.trim();
+          if (!text) { toast(t('orders.reasonRequired'), 'error'); return; }
+          btn.disabled = true;
+          try { await onConfirm(text); closeModal(); }
+          catch (err) { btn.disabled = false; toast(err.message, 'error'); }
+        },
+      },
+    ],
+  });
+}
+
+function renderReviewForm(shop, products) {
+  const root = $('#user-shop-review-form');
+  const completed = state.orders.filter(o => String(o.shopName || '') === String(shop.name || '') && /complete/i.test(String(o.status || '')));
+  if (!completed.length) { root.classList.add('hidden'); root.innerHTML = ''; return; }
+  root.classList.remove('hidden');
+  root.innerHTML = `
+    <h4>${esc(t('userShop.reviewTitle'))}</h4>
+    <p class="muted">${esc(t('userShop.reviewDesc'))}</p>
+    <div class="grid two-col">
+      <label>${esc(t('userShop.selectProduct'))}<select id="review-product">${products.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label>
+      <label>${esc(t('userShop.selectOrder'))}<select id="review-order">${completed.map(o => `<option value="${esc(o.id)}">${esc(o.itemName)} · ${esc(o.id)}</option>`).join('')}</select></label>
+    </div>
+    <label>${esc(t('userShop.stars'))}<select id="review-stars"><option value="5">5</option><option value="4">4</option><option value="3">3</option><option value="2">2</option><option value="1">1</option></select></label>
+    <label>${esc(t('userShop.reviewContent'))}<textarea id="review-content" rows="3" data-i18n-placeholder="userShop.reviewPlaceholder" placeholder="${esc(t('userShop.reviewPlaceholder'))}"></textarea></label>
+    <button id="review-submit" class="btn btn-primary">${icon('check', 15)}<span>${esc(t('userShop.submitReview'))}</span></button>`;
+  $('#review-submit').addEventListener('click', async e => {
+    const productId = $('#review-product').value;
+    const orderId = $('#review-order').value;
+    const stars = Number($('#review-stars').value);
+    const content = $('#review-content').value.trim();
+    if (!productId || !orderId || !stars || !content) { toast(t('userShop.reviewRequired'), 'error'); return; }
+    e.currentTarget.disabled = true;
+    try {
+      await api(`/api/user-shop/${encodeURIComponent(shop.id)}/review`, {
+        method: 'POST', body: JSON.stringify({ productId, orderId, stars, content }),
+      });
+      toast(t('userShop.reviewSent'));
+      openUserShop(shop.id);
+    } catch (err) { e.currentTarget.disabled = false; toast(err.message, 'error'); }
+  });
+}
+
+function buyUserShopProduct(productId) {
+  const d = state.userShop.detail;
+  if (!d) return;
+  const product = (d.products || []).find(p => p.id === productId);
+  if (!product) return;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <p class="muted">${esc(t('userShop.buyDesc', { name: product.name, price: priceLabel(product.price, product.currency, product.priceText) }))}</p>
+    <label>${esc(t('shop.quantity'))}<input id="us-qty" type="number" min="1" max="${Number(product.stock) || 1}" value="1" /></label>`;
+  openModal({
+    title: t('userShop.buyTitle'),
+    body: wrap,
+    actions: [
+      { label: t('auth.cancel'), onClick: closeModal },
+      {
+        label: t('userShop.buy'), className: 'btn-primary', onClick: async btn => {
+          const quantity = Math.max(1, Number(wrap.querySelector('#us-qty').value) || 1);
+          btn.disabled = true;
+          try {
+            await api(`/api/user-shop/${encodeURIComponent(d.shop.id)}/buy`, {
+              method: 'POST', body: JSON.stringify({ productId, quantity }),
+            });
+            closeModal();
+            toast(t('userShop.buySuccess'));
+            await Promise.all([refreshUser(), loadOrders()]);
+            openUserShop(d.shop.id);
+          } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
+        },
+      },
+    ],
+  });
+}
+
+// ==================== ORDERS ====================
+$('#orders-refresh').addEventListener('click', () => loadOrders());
+
+async function loadOrders() {
+  const root = $('#orders-list');
+  if (!root) return;
+  root.innerHTML = `<div class="empty">${esc(t('common.loading'))}</div>`;
+  try {
+    const data = await api('/api/orders/history');
+    state.orders = data.orders || [];
+    renderOrders();
+  } catch (err) {
+    root.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
+}
+
+function renderOrders() {
+  const root = $('#orders-list');
+  if (!root) return;
+  if (!state.orders.length) { root.innerHTML = `<div class="empty">${esc(t('orders.empty'))}</div>`; return; }
+  root.innerHTML = state.orders.map(o => {
+    const status = String(o.status || '');
+    const isComplaint = /complain|appeal/i.test(status);
+    return `
+      <div class="order-card">
+        <div class="order-head">
+          <span>${icon('package', 16)} ${esc(o.itemName)} ×${num(o.quantity)}</span>
+          <b>${esc(priceLabel(o.total, o.currency))}</b>
+        </div>
+        <div class="order-meta">
+          <span>${icon('store', 13)} ${esc(o.shopName || '—')}</span>
+          <span class="pill">${esc(statusLabel(status))}</span>
+          <span class="muted">${esc(o.createdAt ? new Date(o.createdAt).toLocaleString(getLanguage() === 'en' ? 'en-US' : 'vi-VN') : '—')}</span>
+        </div>
+        <div class="order-actions">
+          ${/pending/i.test(status) ? `<button class="btn btn-soft btn-sm" data-order-action="complete" data-id="${esc(o.id)}">${icon('check', 14)}<span>${esc(t('orders.complete'))}</span></button>` : ''}
+          <button class="btn btn-ghost btn-sm" data-order-action="view" data-id="${esc(o.id)}">${icon('eye', 14)}<span>${esc(t('orders.view'))}</span></button>
+          ${/pending/i.test(status) ? `<button class="btn btn-soft btn-sm" data-order-action="complain" data-id="${esc(o.id)}">${icon('complaint', 14)}<span>${esc(t('orders.complain'))}</span></button>` : ''}
+          ${/pending/i.test(status) ? `<button class="btn btn-danger btn-sm" data-order-action="return" data-id="${esc(o.id)}">${icon('refund', 14)}<span>${esc(t('orders.return'))}</span></button>` : ''}
+          ${isComplaint && isSeller() ? `<button class="btn btn-soft btn-sm" data-order-action="appeal" data-id="${esc(o.id)}">${icon('appeal', 14)}<span>${esc(t('orders.appeal'))}</span></button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+  $$('[data-order-action]', root).forEach(btn => btn.addEventListener('click', () => handleOrderAction(btn.dataset.orderAction, btn.dataset.id)));
+}
+
+async function handleOrderAction(action, id) {
+  const order = state.orders.find(o => o.id === id) || {};
+  if (action === 'view') {
+    openModal({
+      title: t('orders.viewTitle'),
+      body: `<pre class="accounts-box">${esc(t('orders.viewBody', {
+        id, item: order.itemName || '—', shop: order.shopName || '—', qty: num(order.quantity),
+        total: priceLabel(order.total, order.currency), status: statusLabel(order.status),
+      }))}</pre>`,
+      actions: [{ label: t('shop.close'), className: 'btn-primary', onClick: closeModal }],
+    });
+    api(`/api/orders/${encodeURIComponent(id)}/view`, { method: 'POST' }).catch(() => {});
+    return;
+  }
+  if (action === 'complain' || action === 'appeal') {
+    promptReviewText(action === 'appeal' ? t('orders.appeal') : t('orders.complain'), async reason => {
+      await api(`/api/orders/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: JSON.stringify({ reason }) });
+      toast(t('orders.actionDone'));
+      await loadOrders();
+    });
+    return;
+  }
+  try {
+    await api(`/api/orders/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+    toast(t('orders.actionDone'));
+    await Promise.all([loadOrders(), refreshUser()]);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+// ==================== SELLER ====================
+async function requestSeller() {
+  try {
+    const data = await api('/api/seller/request', { method: 'POST' });
+    if (state.user) state.user.sellerStatus = data.status || 'pending';
+    toast(t('seller.requestSent'));
+    if (state.view === 'seller') loadSeller();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+$('#seller-request-btn').addEventListener('click', requestSeller);
+$('#seller-refresh').addEventListener('click', () => loadSeller());
+$$('#seller-revenue-tabs .tab').forEach(btn => btn.addEventListener('click', () => {
+  state.seller.revenue = btn.dataset.revenue;
+  $$('#seller-revenue-tabs .tab').forEach(x => x.classList.toggle('active', x === btn));
+  if (state.seller.data) renderSellerDashboard(state.seller.data);
+}));
+
+async function loadSeller() {
+  if (!state.user) return;
+  const status = state.user.sellerStatus || 'none';
+  const active = isSeller();
+  const requestCard = $('#seller-request-card');
+  const pending = $('#seller-pending-note');
+  const content = $('#seller-dashboard-content');
+  requestCard.classList.toggle('hidden', active);
+  pending.classList.toggle('hidden', active || status !== 'pending');
+  content.classList.toggle('hidden', !active);
+  $('#seller-status-pill').textContent = t(`seller.status.${status}`) || status;
+  if (!active) return;
+  try {
+    const data = await api('/api/seller/dashboard');
+    state.seller.data = data;
+    renderSellerDashboard(data);
+  } catch (err) {
+    if (err.status === 403) {
+      requestCard.classList.remove('hidden');
+      pending.classList.remove('hidden');
+      content.classList.add('hidden');
+    } else toast(err.message, 'error');
+  }
+}
+
+const SELLER_STAT_KEYS = [
+  ['accountsImported', 'package'], ['shops', 'store'], ['pendingCoin', 'pending'], ['processedCoin', 'coin'],
+  ['complainants', 'complaint'], ['complaintPercent', 'warning'], ['completedOrders', 'check'],
+  ['completedPercent', 'chart'], ['returns', 'refund'], ['returnPercent', 'arrowDown'],
+];
+
+function renderSellerDashboard(data) {
+  const stats = data.stats || {};
+  $('#seller-stats').innerHTML = SELLER_STAT_KEYS.map(([key, ico]) => `
+    <div class="card stat"><span class="ico stat-ico">${icon(ico, 20)}</span><div><b>${esc(stats[key] == null ? '0' : stats[key])}</b><small>${esc(t(`seller.stat.${key}`))}</small></div></div>`).join('');
+  const orders = data.orders || {};
+  $('#seller-orders-summary').textContent = t('seller.ordersSummary', { total: num(orders.total), pending: num(orders.pending) });
+  renderRevenueChart(data.revenue || {}, state.seller.revenue);
+  renderSellerShops(data.shops || []);
+}
+
+function renderRevenueChart(revenue, period) {
+  const root = $('#seller-revenue-chart');
+  const rows = Array.isArray(revenue[period]) ? revenue[period] : [];
+  if (!rows.length) { root.innerHTML = `<div class="empty">${esc(t('userShop.empty'))}</div>`; return; }
+  const values = rows.map(r => Number(r.value) || 0);
+  const max = Math.max(...values, 1);
+  const step = rows.length > 1 ? 520 / (rows.length - 1) : 0;
+  const points = rows.map((r, i) => `${40 + i * step},${148 - (values[i] / max) * 118}`).join(' ');
+  const labelStep = Math.max(1, Math.ceil(rows.length / 8));
+  const labels = rows.map((r, i) => (i % labelStep === 0 || i === rows.length - 1)
+    ? `<text x="${40 + i * step}" y="174" text-anchor="middle">${esc(r.label)}</text>` : '').join('');
+  const dots = rows.map((r, i) => `<circle cx="${40 + i * step}" cy="${148 - (values[i] / max) * 118}" r="3"><title>${esc(r.label)}: ${num(values[i])}</title></circle>`).join('');
+  root.innerHTML = `
+    <svg viewBox="0 0 600 185" class="revenue-svg" role="img" aria-label="${esc(t('seller.revenueTitle'))}">
+      <line x1="40" y1="148" x2="560" y2="148" class="chart-axis" />
+      <polyline points="${points}" class="chart-line" fill="none" />
+      ${dots}${labels}
+    </svg>`;
+}
+
+function renderSellerShops(shops) {
+  const root = $('#seller-shops');
+  const select = $('#seller-product-shop');
+  const previous = select.value;
+  select.innerHTML = shops.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  if (previous && shops.some(s => s.id === previous)) select.value = previous;
+  if (!shops.length) { root.innerHTML = `<div class="empty">${esc(t('seller.noShops'))}</div>`; return; }
+  root.innerHTML = shops.map(s => `
+    <div class="mini-row shop-row">
+      <span>${s.logoUrl ? `<img class="shop-mini-logo" src="${esc(s.logoUrl)}" alt="" onerror="this.style.display='none'" />` : icon('store', 16)} <b>${esc(s.name)}</b></span>
+      <span class="shop-row-actions">
+        <button class="btn btn-ghost btn-sm" data-shop-products="${esc(s.id)}">${icon('eye', 13)}<span>${esc(t('seller.viewProducts'))}</span></button>
+        <button class="btn btn-soft btn-sm" data-shop-edit="${esc(s.id)}">${icon('settings', 13)}<span>${esc(t('admin.edit'))}</span></button>
+      </span>
+    </div>`).join('');
+  $$('[data-shop-products]', root).forEach(btn => btn.addEventListener('click', () => showSellerProducts(btn.dataset.shopProducts)));
+  $$('[data-shop-edit]', root).forEach(btn => btn.addEventListener('click', () => {
+    const shop = shops.find(s => s.id === btn.dataset.shopEdit);
+    if (!shop) return;
+    $('#seller-shop-id').value = shop.id;
+    $('#seller-shop-name').value = shop.name || '';
+    $('#seller-shop-desc').value = shop.description || '';
+    $('#seller-shop-logo').value = shop.logoUrl || '';
+    $('#seller-shop-bg').value = shop.backgroundUrl || '';
+    $('#seller-shop-submit').querySelector('span:last-child').textContent = t('seller.saveShopBtn');
+    $('#seller-shop-submit').setAttribute('data-i18n', 'seller.saveShopBtn');
+    $('#seller-shop-form-title').querySelector('span:last-child').textContent = t('seller.editShop');
+    $('#seller-shop-form-title').setAttribute('data-i18n', 'seller.editShop');
+    $('#seller-shop-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+}
+
+async function showSellerProducts(shopId) {
+  try {
+    const data = await api(`/api/seller/shop/${encodeURIComponent(shopId)}/products`);
+    const wrap = document.createElement('div');
+    const products = data.products || [];
+    wrap.innerHTML = products.length ? products.map(p => `
+      <div class="mini-row"><span>${icon('package', 15)} ${esc(p.name)}</span><b>${esc(priceLabel(p.price, p.currency, p.priceText))}</b></div>`).join('')
+      : `<div class="empty">${esc(t('seller.productEmpty'))}</div>`;
+    openModal({
+      title: t('seller.shopProducts', { name: (state.seller.data?.shops || []).find(s => s.id === shopId)?.name || '' }),
+      body: wrap,
+      actions: [{ label: t('shop.close'), className: 'btn-primary', onClick: closeModal }],
+    });
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+$('#seller-shop-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const id = $('#seller-shop-id').value;
+  const shops = (state.seller.data && state.seller.data.shops) || [];
+  if (!id && shops.length >= 3) { toast(t('seller.shopLimit'), 'error'); return; }
+  const payload = {
+    name: $('#seller-shop-name').value.trim(),
+    description: $('#seller-shop-desc').value.trim(),
+    logoUrl: $('#seller-shop-logo').value.trim(),
+    backgroundUrl: $('#seller-shop-bg').value.trim(),
+  };
+  if (!payload.name) return;
+  const btn = $('#seller-shop-submit');
+  btn.disabled = true;
+  try {
+    await api(id ? `/api/seller/shop/${encodeURIComponent(id)}` : '/api/seller/shop', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+    toast(t(id ? 'seller.shopUpdated' : 'seller.shopCreated'));
+    e.target.reset();
+    $('#seller-shop-id').value = '';
+    labelButton($('#seller-shop-submit'), 'seller.createShopBtn');
+    labelButton($('#seller-shop-form-title'), 'seller.createShop');
+    loadSeller();
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
+
+$('#seller-product-accounts').addEventListener('input', updateSellerLinesCount);
+$('#seller-product-maxlines').addEventListener('input', updateSellerLinesCount);
+
+function updateSellerLinesCount() {
+  const lines = $('#seller-product-accounts').value.split('\n').filter(x => x.trim()).length;
+  const max = Math.min(2000, Math.max(1, Number($('#seller-product-maxlines').value) || 2000));
+  $('#seller-lines-count').textContent = t('seller.linesCount', { count: num(lines), max: num(max) });
+}
+
+$('#seller-product-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const shopId = $('#seller-product-shop').value;
+  const accountsText = $('#seller-product-accounts').value;
+  const lines = accountsText.split('\n').filter(x => x.trim()).length;
+  const maxLines = Math.min(2000, Math.max(1, Number($('#seller-product-maxlines').value) || 2000));
+  if (!lines) { toast(t('seller.noAccounts'), 'error'); return; }
+  if (lines > maxLines) { toast(t('seller.tooManyLines', { max: num(maxLines) }), 'error'); return; }
+  const btn = $('#seller-product-submit');
+  btn.disabled = true;
+  try {
+    await api(`/api/seller/shop/${encodeURIComponent(shopId)}/product`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: $('#seller-product-name').value.trim(),
+        description: $('#seller-product-desc').value.trim(),
+        priceText: $('#seller-product-price').value.trim(),
+        accountsText,
+        maxLines,
+      }),
+    });
+    toast(t('seller.productCreated'));
+    $('#seller-product-name').value = '';
+    $('#seller-product-desc').value = '';
+    $('#seller-product-price').value = '';
+    $('#seller-product-accounts').value = '';
+    updateSellerLinesCount();
+    loadSeller();
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
+
+// ==================== BUY DEVICE / TASKS / STATUS / GIFTS / LB / TRANSFER ====================
 $('#cloud-provider').addEventListener('change', () => {
   $('#cloud-server-wrap').classList.toggle('hidden', $('#cloud-provider').value !== 'UG');
 });
 
-$('#cloud-buy-btn').addEventListener('click', async (e) => {
-  const btn = e.target;
+$('#cloud-buy-btn').addEventListener('click', async e => {
+  const btn = e.currentTarget;
   btn.disabled = true;
   const box = $('#cloud-result');
   try {
     const data = await api('/api/device/buycloud', {
       method: 'POST',
-      body: JSON.stringify({
-        provider: $('#cloud-provider').value,
-        server: $('#cloud-server').value,
-        inputData: $('#cloud-input').value,
-      }),
+      body: JSON.stringify({ provider: $('#cloud-provider').value, server: $('#cloud-server').value, inputData: $('#cloud-input').value }),
     });
     box.className = 'result-box';
-    box.textContent = `✅ Mua ${data.provider} thành công!\n${data.message}`;
-  } catch (err) {
-    box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
-  } finally {
-    box.classList.remove('hidden');
-    btn.disabled = false;
-  }
+    box.textContent = t('device.success', { provider: data.provider, message: data.message });
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; }
+  finally { box.classList.remove('hidden'); btn.disabled = false; }
 });
 
 $$('[data-reg]').forEach(btn => btn.addEventListener('click', async () => {
@@ -590,49 +1319,39 @@ $$('[data-reg]').forEach(btn => btn.addEventListener('click', async () => {
     const data = await api('/api/device/reg', { method: 'POST', body: JSON.stringify({ service: btn.dataset.reg }) });
     box.className = 'result-box';
     box.innerHTML = `
-      <div>✅ Tạo <b>${esc(data.service.toUpperCase())}</b> thành công! (Đã trừ 10 xu)</div>
-      <div class="accounts-box" id="reg-acc">${esc(data.copyText)}</div>
-      <div class="copy-row"><button class="btn btn-soft btn-sm" id="reg-copy">📋 Copy acc|pass</button></div>`;
+      <div>${esc(data.service.toUpperCase())} · ${esc(t('topbar.coinShort'))} 10 ${esc(t('common.yes'))}</div>
+      <div class="accounts-box">${esc(data.copyText)}</div>
+      <div class="copy-row"><button class="btn btn-soft btn-sm" id="reg-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
     box.classList.remove('hidden');
-    $('#reg-copy').addEventListener('click', (ev) => copyText(data.copyText, ev.target));
+    $('#reg-copy').addEventListener('click', ev => copyText(data.copyText, ev.currentTarget));
     await refreshUser();
-  } catch (err) {
-    box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
-    box.classList.remove('hidden');
-  } finally {
-    btn.disabled = false;
-  }
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  finally { btn.disabled = false; }
 }));
 
-// ==================== MEOWS DEVICE ====================
 $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
   const provider = btn.dataset.meows;
   const box = $('#meows-result');
   const cost = provider === 'UG' ? 49 : 15;
-  if (!confirm(`Xác nhận mua ${provider === 'UG' ? 'UGPhone' : 'VSPhone VIP'} với ${cost} xu?`)) return;
+  const name = provider === 'UG' ? 'UGPhone' : 'VSPhone VIP';
+  if (!window.confirm(t('device.confirmQuick', { name, cost: num(cost) }))) return;
   btn.disabled = true;
   try {
     const data = await api('/api/device/meows', { method: 'POST', body: JSON.stringify({ provider }) });
     box.className = 'result-box';
     box.innerHTML = `
-      <div>✅ Mua <b>${esc(data.provider)}</b> thành công! Đã trừ <b>${num(data.cost)} xu</b>.</div>
-      ${data.account ? `<div>📧 ${esc(data.account)}</div>` : ''}
-      ${data.password ? `<div>🔑 ${esc(data.password)}</div>` : ''}
-      <div class="accounts-box" id="meows-acc">${esc(data.copyText)}</div>
-      <div class="copy-row"><button class="btn btn-soft btn-sm" id="meows-copy">📋 Copy thông tin</button></div>
-      <div class="muted" style="margin-top:8px">Số dư mới: <b>${num(data.newBalance)} xu</b></div>`;
+      <div>${esc(name)} · ${esc(t('device.newBalance', { amount: num(data.newBalance) }))}</div>
+      ${data.account ? `<div>${esc(data.account)}</div>` : ''}
+      ${data.password ? `<div>${esc(data.password)}</div>` : ''}
+      <div class="accounts-box">${esc(data.copyText)}</div>
+      <div class="copy-row"><button class="btn btn-soft btn-sm" id="meows-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
     box.classList.remove('hidden');
-    $('#meows-copy').addEventListener('click', (ev) => copyText(data.copyText, ev.target));
+    $('#meows-copy').addEventListener('click', ev => copyText(data.copyText, ev.currentTarget));
     await refreshUser();
-  } catch (err) {
-    box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
-    box.classList.remove('hidden');
-  } finally { btn.disabled = false; }
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  finally { btn.disabled = false; }
 }));
 
-// ==================== TASKS ====================
 async function loadTasks() {
   try {
     const data = await api('/api/tasks');
@@ -645,49 +1364,37 @@ async function loadTasks() {
         const label = `${p.name} — ${p.reward} xu (${used}/${p.dailyMax})`;
         return `<option value="${esc(p.id)}"${p.id === selected ? ' selected' : ''}>${esc(label)}</option>`;
       }).join('');
-      const hint = providers.map(p => `${p.name}: <b>${p.reward} xu</b> (${p.dailyMax} lượt/ngày)`).join('. ');
-      const hintEl = $('#task-hint');
-      if (hintEl) hintEl.innerHTML = hint + '.';
+      $('#task-hint').textContent = providers.map(p => `${p.name}: ${p.reward} xu (${p.dailyMax}/day)`).join('. ') + '.';
     }
-    $('#task-daily').innerHTML = `
-      ${providers.map(p => {
-        const used = Number(p.used || data.daily[p.id] || 0);
-        return `<span class="pill">${esc(p.name)}: ${used}/${p.dailyMax} · +${p.reward} xu</span>`;
-      }).join('')}
-      <span class="pill">Tuần này: ${num(data.weeklyCount)} link</span>`;
-    $('#task-period').textContent = data.period;
-    const rewards = data.rewards || [];
-    const labels = ['Top 1', 'Top 2', 'Top 3', 'Top 4', 'Top 5', 'Top 6', 'Top 7', 'Top 8', 'Top 9', 'Top 10'];
-    $('#reward-list').innerHTML = rewards.map((r, i) => `<li><span>${labels[i] || `#${i + 1}`}</span><b>+${num(r)} coin</b></li>`).join('');
+    $('#task-daily').innerHTML = providers.map(p => {
+      const used = Number(p.used || data.daily[p.id] || 0);
+      return `<span class="pill">${esc(p.name)}: ${used}/${p.dailyMax} · +${p.reward} xu</span>`;
+    }).join('') + `<span class="pill">${esc(t('tasks.weekly', { count: num(data.weeklyCount) }))}</span>`;
+    $('#task-period').textContent = data.period || '—';
+    const labels = Array.from({ length: 10 }, (_, i) => `Top ${i + 1}`);
+    $('#reward-list').innerHTML = (data.rewards || []).map((r, i) => `<li><span>${labels[i] || `#${i + 1}`}</span><b>+${num(r)} coin</b></li>`).join('');
   } catch (err) { toast(err.message, 'error'); }
 }
 
-$('#task-get-btn').addEventListener('click', async (e) => {
-  const btn = e.target;
+$('#task-get-btn').addEventListener('click', async e => {
+  const btn = e.currentTarget;
   btn.disabled = true;
   const box = $('#task-result');
   try {
     const data = await api('/api/tasks/link', { method: 'POST', body: JSON.stringify({ provider: $('#task-provider').value }) });
     box.className = 'result-box';
-    box.innerHTML = `✅ Đã tạo link nhiệm vụ${data.reward ? ` (+${data.reward} xu)` : ''} (còn ${data.remaining} lượt hôm nay):<br>
+    box.innerHTML = `${icon('check', 15)} ${esc(t('tasks.created', { reward: num(data.reward), remaining: num(data.remaining) }))}<br>
       <a href="${esc(data.url)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">${esc(data.url)}</a>`;
     box.classList.remove('hidden');
     loadTasks();
-  } catch (err) {
-    box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
-    box.classList.remove('hidden');
-  } finally { btn.disabled = false; }
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  finally { btn.disabled = false; }
 });
 
-// ==================== CLOUD STATUS ====================
 function startCloudStatusPolling() {
   if (cloudStatusTimer) return;
-  cloudStatusTimer = setInterval(() => {
-    if (state.view === 'cloudstatus') loadCloudStatus(true).catch(() => {});
-  }, 60000);
+  cloudStatusTimer = setInterval(() => { if (state.view === 'cloudstatus') loadCloudStatus(true).catch(() => {}); }, 60000);
 }
-
 function stopCloudStatusPolling() {
   if (!cloudStatusTimer) return;
   clearInterval(cloudStatusTimer);
@@ -698,10 +1405,10 @@ function setDeviceStatus(sel, msgSel, device) {
   const online = device && device.status === 'online';
   const el = $(sel);
   el.className = `status-badge ${online ? 'online' : ''}`;
-  el.textContent = online ? 'Có máy' : 'Hết máy';
+  el.innerHTML = icon(online ? 'dot-online' : 'dot-offline', 12) + `<span>${esc(t(online ? 'status.hasMachine' : 'status.noMachine'))}</span>`;
   const parts = [];
   if (device && device.message) parts.push(device.message);
-  if (device && device.lastBuyAt) parts.push(`Lần mua cuối: ${new Date(device.lastBuyAt).toLocaleString('vi-VN')}`);
+  if (device && device.lastBuyAt) parts.push(t('status.lastBuy', { time: new Date(device.lastBuyAt).toLocaleString(getLanguage() === 'en' ? 'en-US' : 'vi-VN') }));
   $(msgSel).textContent = parts.join(' · ');
 }
 
@@ -709,51 +1416,40 @@ async function loadCloudStatus(force = false) {
   try {
     const data = await api(`/api/status/cloud${force ? '?force=1' : ''}`);
     const sourceLabel = { direct: '', www: 'www', proxy: 'proxy' }[data.source] || '';
-    $('#cloud-status-time').textContent = `Cập nhật: ${new Date(data.checkedAt).toLocaleTimeString('vi-VN')}${sourceLabel ? ` · ${sourceLabel}` : ''}`;
+    $('#cloud-status-time').textContent = t('status.updated', { time: new Date(data.checkedAt).toLocaleTimeString(getLanguage() === 'en' ? 'en-US' : 'vi-VN') }) + (sourceLabel ? ` · ${sourceLabel}` : '');
     setDeviceStatus('#status-meows-vmos', '#status-meows-vmos-msg', data.vmos);
     setDeviceStatus('#status-meows-vsphone', '#status-meows-vsphone-msg', data.vsphone);
     const errorBox = $('#cloud-status-errors');
-    if (data.errors && data.errors.length) {
-      errorBox.textContent = `⚠️ ${data.errors.join(' · ')}`;
-      errorBox.classList.remove('hidden');
-    } else errorBox.classList.add('hidden');
-  } catch (err) {
-    toast(err.message, 'error');
-  }
+    if (data.errors && data.errors.length) { errorBox.textContent = data.errors.join(' · '); errorBox.classList.remove('hidden'); }
+    else errorBox.classList.add('hidden');
+  } catch (err) { toast(err.message, 'error'); }
 }
 
-$('#cloud-status-refresh').addEventListener('click', async (e) => {
-  e.target.disabled = true;
-  try { await loadCloudStatus(true); toast('Đã cập nhật trạng thái.'); }
+$('#cloud-status-refresh').addEventListener('click', async e => {
+  e.currentTarget.disabled = true;
+  try { await loadCloudStatus(true); toast(t('status.refreshed')); }
   catch (err) { toast(err.message, 'error'); }
-  finally { e.target.disabled = false; }
+  finally { e.currentTarget.disabled = false; }
 });
 
-// ==================== GIFTCODE ====================
-$('#giftcode-btn').addEventListener('click', async (e) => {
-  const btn = e.target;
+$('#giftcode-btn').addEventListener('click', async e => {
+  const btn = e.currentTarget;
   const box = $('#giftcode-result');
   const code = $('#giftcode-input').value.trim();
-  if (!code) { toast('Nhập mã gift code.', 'error'); return; }
+  if (!code) { toast(t('giftcode.empty'), 'error'); return; }
   btn.disabled = true;
   try {
     const data = await api('/api/giftcode', { method: 'POST', body: JSON.stringify({ code }) });
     box.className = 'result-box';
-    box.innerHTML = `✅ Nhập mã <b>${esc(code)}</b> thành công! Nhận <b>${num(data.amount)} xu</b>.<br>Số dư mới: <b>${num(data.newBalance)} xu</b>`;
+    box.textContent = t('giftcode.success', { code, amount: num(data.amount), balance: num(data.newBalance) });
     $('#giftcode-input').value = '';
     await refreshUser();
-  } catch (err) {
-    box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
-  } finally {
-    box.classList.remove('hidden');
-    btn.disabled = false;
-  }
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; }
+  finally { box.classList.remove('hidden'); btn.disabled = false; }
 });
 
-// ==================== LEADERBOARD ====================
 $$('[data-lb]').forEach(tab => tab.addEventListener('click', () => {
-  $$('[data-lb]').forEach(t => t.classList.remove('active'));
+  $$('[data-lb]').forEach(x => x.classList.remove('active'));
   tab.classList.add('active');
   state.lbTab = tab.dataset.lb;
   loadLeaderboard();
@@ -763,73 +1459,60 @@ async function loadLeaderboard() {
   const root = $('#lb-list');
   const note = $('#lb-note');
   const banner = $('#lb-rewards');
-  root.innerHTML = '<div class="empty">Đang tải...</div>';
+  root.innerHTML = `<div class="empty">${esc(t('common.loading'))}</div>`;
   note.classList.add('hidden');
   banner.classList.add('hidden');
   try {
-    if (state.lbTab === 'coins') {
-      const data = await api('/api/leaderboard/coins');
-      renderLb(root, data.leaderboard, 'xu');
-      return;
-    }
-
+    if (state.lbTab === 'coins') { const data = await api('/api/leaderboard/coins'); renderLb(root, data.leaderboard, t('lb.coins')); return; }
     if (state.lbTab === 'week') {
       const data = await api('/api/leaderboard/links/week');
-      note.textContent = `🔄 Kỳ 7 ngày hiện tại: ${data.period || '—'} · Reset sau mỗi kỳ thanh toán.`;
+      note.textContent = t('tasks.weekPeriod', { period: data.period || '—' });
       note.classList.remove('hidden');
-      const labels = ['Top 1', 'Top 2', 'Top 3', 'Top 4', 'Top 5', 'Top 6', 'Top 7', 'Top 8', 'Top 9', 'Top 10'];
-      banner.innerHTML = (data.rewards || []).slice(0, 10)
-        .map((r, i) => `<span class="reward-chip">${labels[i]}: +${num(r)} coin</span>`).join('');
+      banner.innerHTML = (data.rewards || []).slice(0, 10).map((r, i) => `<span class="reward-chip">Top ${i + 1}: +${num(r)} coin</span>`).join('');
       if ((data.rewards || []).length) banner.classList.remove('hidden');
-      renderLb(root, data.leaderboard, 'link');
+      renderLb(root, data.leaderboard, t('nav.tasks'));
       return;
     }
-
     const data = await api('/api/leaderboard/links/all');
-    note.textContent = '🏅 Tổng số link vượt từ trước đến nay · chỉ để vinh danh, không có thưởng.';
+    note.textContent = t('tasks.allNote');
     note.classList.remove('hidden');
-    renderLb(root, data.leaderboard, 'link');
-  } catch (err) {
-    root.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
-  }
+    renderLb(root, data.leaderboard, t('nav.tasks'));
+  } catch (err) { root.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
 }
 
 function renderLb(root, rows, unit) {
-  if (!rows.length) { root.innerHTML = '<div class="empty">Chưa có dữ liệu xếp hạng.</div>'; return; }
-  const medals = ['🥇', '🥈', '🥉'];
+  if (!rows || !rows.length) { root.innerHTML = `<div class="empty">${esc(t('lb.empty'))}</div>`; return; }
   root.innerHTML = rows.map(r => `
     <div class="lb-row ${r.rank <= 3 ? `top${r.rank}` : ''}">
-      <span class="lb-rank">${medals[r.rank - 1] || r.rank}</span>
+      <span class="lb-rank">${num(r.rank)}</span>
       <span class="lb-name">${esc(r.display)}</span>
-      <span class="lb-value">${num(r.value)} ${unit}</span>
+      <span class="lb-value">${num(r.value)} ${esc(unit)}</span>
     </div>`).join('');
 }
 
-// ==================== TRANSFER ====================
 function updateFeePreview() {
   const amount = parseInt($('#transfer-amount').value, 10) || 0;
   const fee = Math.ceil(amount * 0.05);
-  $('#transfer-fee').innerHTML = amount >= 10
-    ? `Người nhận thực nhận: <b>${num(amount - fee)} xu</b> (phí ${num(fee)} xu)`
-    : 'Tối thiểu 10 xu.';
+  $('#transfer-fee').textContent = amount >= 10
+    ? t('transfer.preview', { amount: num(amount - fee), fee: num(fee) })
+    : t('transfer.min');
 }
 $('#transfer-amount').addEventListener('input', updateFeePreview);
 
-$('#transfer-btn').addEventListener('click', async (e) => {
-  const btn = e.target;
+$('#transfer-btn').addEventListener('click', async e => {
+  const btn = e.currentTarget;
   btn.disabled = true;
   try {
     const data = await api('/api/transfers', {
       method: 'POST',
       body: JSON.stringify({ to: $('#transfer-to').value, amount: parseInt($('#transfer-amount').value, 10) || 0 }),
     });
-    toast(`Đã chuyển cho ${data.to}. Số dư: ${num(data.newBalance)} xu`);
+    toast(t('transfer.success', { to: data.to, balance: num(data.newBalance) }));
     $('#transfer-to').value = '';
     await refreshUser();
     loadTransfers();
-  } catch (err) {
-    toast(err.message, 'error');
-  } finally { btn.disabled = false; }
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
 });
 
 async function loadTransfers() {
@@ -838,41 +1521,38 @@ async function loadTransfers() {
     const data = await api('/api/transfers');
     const root = $('#transfer-history');
     root.innerHTML = data.transfers.length
-      ? data.transfers.map(t => `
+      ? data.transfers.map(x => `
         <div class="mini-row">
-          <span>➡️ ${esc(t.to_label)}</span>
-          <span>${num(t.amount)} xu <small class="muted">(phí ${num(t.fee)})</small></span>
+          <span>${icon('transfer', 14)} ${esc(x.to_label)}</span>
+          <span>${num(x.amount)} xu <small class="muted">(${esc(t('transfer.fee', { fee: num(x.fee) }))})</small></span>
         </div>`).join('')
-      : '<div class="empty">Chưa có giao dịch nào.</div>';
+      : `<div class="empty">${esc(t('transfer.empty'))}</div>`;
   } catch (err) { toast(err.message, 'error'); }
 }
 
 // ==================== PROFILE ====================
-$('#copy-token-btn').addEventListener('click', (e) => copyText(state.user.linkToken || '', e.target));
-
-$('#regen-token-btn').addEventListener('click', async (e) => {
-  e.target.disabled = true;
+$('#copy-token-btn').addEventListener('click', e => copyText(state.user?.linkToken || '', e.currentTarget));
+$('#regen-token-btn').addEventListener('click', async e => {
+  e.currentTarget.disabled = true;
   try {
     const data = await api('/api/profile/token', { method: 'POST' });
-    state.user.linkToken = data.linkToken;
+    if (state.user) state.user.linkToken = data.linkToken;
     $('#link-token').textContent = data.linkToken;
-    toast('Đã tạo token mới.');
+    toast(t('profile.regenerated'));
   } catch (err) { toast(err.message, 'error'); }
-  finally { e.target.disabled = false; }
+  finally { e.currentTarget.disabled = false; }
 });
-
-$('#pw-btn').addEventListener('click', async (e) => {
-  e.target.disabled = true;
+$('#pw-btn').addEventListener('click', async e => {
+  e.currentTarget.disabled = true;
   try {
     await api('/api/profile/password', {
-      method: 'POST',
-      body: JSON.stringify({ currentPassword: $('#pw-current').value, newPassword: $('#pw-new').value }),
+      method: 'POST', body: JSON.stringify({ currentPassword: $('#pw-current').value, newPassword: $('#pw-new').value }),
     });
     $('#pw-current').value = '';
     $('#pw-new').value = '';
-    toast('Đổi mật khẩu thành công.');
+    toast(t('profile.passwordSuccess'));
   } catch (err) { toast(err.message, 'error'); }
-  finally { e.target.disabled = false; }
+  finally { e.currentTarget.disabled = false; }
 });
 
 // ==================== ADMIN ====================
@@ -881,17 +1561,18 @@ async function loadAdmin() {
     const data = await api('/api/admin/overview');
     const s = data.stats;
     $('#admin-stats').innerHTML = `
-      <div class="card stat"><span class="stat-ico">👥</span><div><b>${num(s.users)}</b><small>Người dùng (${num(s.linked)} đã liên kết)</small></div></div>
-      <div class="card stat"><span class="stat-ico">🛍️</span><div><b>${num(s.items)}</b><small>Sản phẩm</small></div></div>
-      <div class="card stat"><span class="stat-ico">🧾</span><div><b>${num(s.purchases)}</b><small>Đơn hàng</small></div></div>
-      <div class="card stat"><span class="stat-ico">💰</span><div><b>${num(s.revenue)}</b><small>Coin đã bán (${s.gistEnabled ? 'Gist ✓' : 'Local'})</small></div></div>`;
+      <div class="card stat">${icon('users', 20)}<div><b>${num(s.users)}</b><small>${esc(t('admin.userCount', { count: num(s.linked) }))}</small></div></div>
+      <div class="card stat">${icon('shop', 20)}<div><b>${num(s.items)}</b><small>${esc(t('admin.products'))}</small></div></div>
+      <div class="card stat">${icon('orders', 20)}<div><b>${num(s.purchases)}</b><small>${esc(t('admin.orders'))}</small></div></div>
+      <div class="card stat">${icon('coin', 20)}<div><b>${num(s.revenue)}</b><small>${esc(t('admin.coinSold', { source: s.gistEnabled ? 'Gist' : 'Local' }))}</small></div></div>`;
     $('#admin-purchases').innerHTML = data.recentPurchases.length
       ? data.recentPurchases.map(p => `<div class="mini-row"><span>${esc(p.itemName)} ×${p.quantity}</span><b>${num(p.totalPrice)} xu</b></div>`).join('')
-      : '<div class="empty">Chưa có đơn hàng.</div>';
+      : `<div class="empty">${esc(t('admin.noOrders'))}</div>`;
     $('#admin-payouts').innerHTML = data.payouts.length
-      ? data.payouts.map(p => `<div class="mini-row"><span>Kỳ ${esc(p.period)}</span><b>${num(p.total)} coin</b></div>`).join('')
-      : '<div class="empty">Chưa trả thưởng lần nào.</div>';
+      ? data.payouts.map(p => `<div class="mini-row"><span>${esc(t('admin.period', { period: p.period }))}</span><b>${num(p.total)} coin</b></div>`).join('')
+      : `<div class="empty">${esc(t('admin.noPayouts'))}</div>`;
     await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminBackground()]);
+    if (state.adminTab === 'market') loadAdminMarket();
   } catch (err) { toast(err.message, 'error'); }
 }
 
@@ -899,12 +1580,13 @@ $$('.admin-tabs .tab').forEach(tab => tab.addEventListener('click', () => switch
 
 function switchAdminTab(tabName) {
   state.adminTab = tabName;
-  $$('.admin-tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.admin === tabName));
+  $$('.admin-tabs .tab').forEach(x => x.classList.toggle('active', x.dataset.admin === tabName));
   $$('.admin-sub').forEach(el => el.classList.toggle('hidden', el.id !== `admin-sub-${tabName}`));
   if (tabName === 'shop') loadAdminItems();
   else if (tabName === 'user') loadAdminUsers().catch(() => {});
   else if (tabName === 'plugin') loadAdminPlugins();
   else if (tabName === 'meows') loadMeowsCookie();
+  else if (tabName === 'market') loadAdminMarket();
   else if (tabName === 'appearance') loadAdminBackground();
 }
 
@@ -913,34 +1595,98 @@ async function loadAdminItems() {
   const root = $('#admin-items');
   root.innerHTML = data.items.length ? data.items.map(item => `
     <div class="admin-item">
-      ${/^https?:\/\//i.test(item.logoUrl) ? `<img src="${esc(item.logoUrl)}" alt="" onerror="this.style.display='none'" />` : '<img alt="" />'}
+      ${/^https?:\/\//i.test(item.logoUrl) ? `<img src="${esc(item.logoUrl)}" alt="" onerror="this.style.display='none'" />` : `<span class="ico">${icon('package', 24)}</span>`}
       <div class="info">
-        <b>${esc(item.name)} ${item.active ? '' : '<span class="muted">(ẩn)</span>'}</b>
-        <small>${num(item.price)} xu · Kho: ${num(item.stock)} · ${esc(item.category)}</small>
+        <b>${esc(item.name)} ${item.active ? '' : `<small class="muted">(${esc(t('admin.hide'))})</small>`}</b>
+        <small>${num(item.price)} xu · ${esc(t('shop.stock', { count: num(item.stock) }))} · ${esc(item.category)}</small>
       </div>
       <div class="actions">
-        <button class="btn btn-soft btn-sm" data-addstock="${esc(item.id)}">+ Kho</button>
-        <button class="btn btn-ghost btn-sm" data-edititem="${esc(item.id)}">Sửa</button>
-        <button class="btn btn-danger btn-sm" data-delitem="${esc(item.id)}">Xoá</button>
+        <button class="btn btn-soft btn-sm" data-addstock="${esc(item.id)}">${icon('plus', 13)}<span>${esc(t('admin.addStock'))}</span></button>
+        <button class="btn btn-ghost btn-sm" data-edititem="${esc(item.id)}">${icon('settings', 13)}<span>${esc(t('admin.edit'))}</span></button>
+        <button class="btn btn-danger btn-sm" data-delitem="${esc(item.id)}">${icon('close', 13)}<span>${esc(t('admin.delete'))}</span></button>
       </div>
-    </div>`).join('') : '<div class="empty">Chưa có sản phẩm.</div>';
-
-  $$('[data-addstock]').forEach(b => b.addEventListener('click', () => addStockModal(b.dataset.addstock, data.items.find(i => i.id === b.dataset.addstock))));
-  $$('[data-edititem]').forEach(b => b.addEventListener('click', () => editItemModal(data.items.find(i => i.id === b.dataset.edititem))));
-  $$('[data-delitem]').forEach(b => b.addEventListener('click', () => deleteItem(b.dataset.delitem)));
+    </div>`).join('') : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
+  $$('[data-addstock]', root).forEach(b => b.addEventListener('click', () => addStockModal(b.dataset.addstock, data.items.find(i => i.id === b.dataset.addstock))));
+  $$('[data-edititem]', root).forEach(b => b.addEventListener('click', () => editItemModal(data.items.find(i => i.id === b.dataset.edititem))));
+  $$('[data-delitem]', root).forEach(b => b.addEventListener('click', () => deleteItem(b.dataset.delitem)));
 }
 
 async function loadAdminUsers() {
   const data = await api('/api/admin/users');
   $('#admin-users').innerHTML = data.users.length ? data.users.map(u => `
     <div class="mini-row">
-      <span>${esc(u.username)} ${u.isAdmin ? '🛡️' : ''} ${u.linked ? '<small class="muted">Discord ✓</small>' : ''}</span>
-      <span><b>${num(u.balance)} xu</b> <button class="btn btn-ghost btn-sm" data-coins="${esc(u.username)}">Sửa</button></span>
-    </div>`).join('') : '<div class="empty">Chưa có người dùng.</div>';
+      <span>${esc(u.username)} ${u.isAdmin ? icon('admin', 13) : ''} ${u.linked ? `<small class="muted">Discord ${icon('check', 12)}</small>` : ''}</span>
+      <span><b>${num(u.balance)} xu</b> <button class="btn btn-ghost btn-sm" data-coins="${esc(u.username)}">${esc(t('admin.edit'))}</button></span>
+    </div>`).join('') : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
   $$('[data-coins]').forEach(b => b.addEventListener('click', () => coinsModal(b.dataset.coins)));
 }
 
-// ==================== ADMIN: GIAO DIỆN ====================
+async function loadAdminExchangeRate() {
+  try {
+    const data = await api('/api/admin/exchange-rate');
+    $('#admin-exchange-rate').value = data.coinPerAcoin || 5;
+  } catch (err) { /* giữ giá trị mặc định nếu route chưa sẵn */ }
+}
+
+$('#admin-exchange-rate-save').addEventListener('click', async e => {
+  const box = $('#admin-exchange-rate-result');
+  const coinPerAcoin = Math.max(1, Number($('#admin-exchange-rate').value) || 5);
+  e.currentTarget.disabled = true;
+  try {
+    const data = await api('/api/admin/exchange-rate', {
+      method: 'POST', body: JSON.stringify({ coinPerAcoin }),
+    });
+    if (state.user) state.user.exchangeRate = data.coinPerAcoin;
+    applyUser();
+    box.className = 'result-box';
+    box.textContent = t('admin.rateSaved', { rate: num(data.coinPerAcoin) });
+    box.classList.remove('hidden');
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  finally { e.currentTarget.disabled = false; }
+});
+
+async function loadAdminMarket() {
+  loadAdminExchangeRate().catch(() => {});
+  const sellersRoot = $('#admin-sellers');
+  const reviewsRoot = $('#admin-reviews');
+  const complaintsRoot = $('#admin-complaints');
+  sellersRoot.innerHTML = `<div class="empty">${esc(t('common.loading'))}</div>`;
+  try {
+    const data = await api('/api/admin/sellers');
+    const sellers = data.sellers || [];
+    sellersRoot.innerHTML = sellers.length ? sellers.map(s => `
+      <div class="mini-row">
+        <span>${icon('seller', 14)} ${esc(s.display || s.username || s.userId || s.id)} <span class="pill">${esc(statusLabel(s.status))}</span></span>
+        ${s.status === 'pending' ? `<button class="btn btn-soft btn-sm" data-approve-seller="${esc(s.id || s.userId || s.discordId)}">${icon('check', 13)}<span>${esc(t('admin.approve'))}</span></button>` : ''}
+      </div>`).join('') : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
+    $$('[data-approve-seller]', sellersRoot).forEach(btn => btn.addEventListener('click', async () => {
+      try {
+        await api(`/api/admin/sellers/${encodeURIComponent(btn.dataset.approveSeller)}/approve`, { method: 'POST' });
+        toast(t('admin.approved'));
+        loadAdminMarket();
+      } catch (err) { toast(err.message, 'error'); }
+    }));
+  } catch (err) { sellersRoot.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+
+  reviewsRoot.innerHTML = state.adminReviews.length ? state.adminReviews.map(r => `
+    <div class="mini-row">
+      <span>${icon('star', 13)} ${esc(r.buyer || r.content || r.id)}</span>
+      <span><button class="btn btn-soft btn-sm" data-admin-review="${esc(r.id)}" data-approve="1">${icon('check', 13)}</button>
+      <button class="btn btn-danger btn-sm" data-admin-review="${esc(r.id)}" data-approve="0">${icon('close', 13)}</button></span>
+    </div>`).join('') : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
+  $$('[data-admin-review]', reviewsRoot).forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await api(`/api/admin/reviews/${encodeURIComponent(btn.dataset.adminReview)}/decision`, {
+        method: 'POST', body: JSON.stringify({ approve: btn.dataset.approve === '1' }),
+      });
+      state.adminReviews = state.adminReviews.filter(r => r.id !== btn.dataset.adminReview);
+      toast(t('admin.approved'));
+      loadAdminMarket();
+    } catch (err) { toast(err.message, 'error'); }
+  }));
+  complaintsRoot.innerHTML = `<div class="empty">${esc(t('admin.noPending'))}</div>`;
+}
+
 async function loadAdminBackground() {
   const data = await api('/api/admin/background');
   $('#admin-background-url').value = data.url || '';
@@ -957,13 +1703,9 @@ $('#admin-background-save-btn').addEventListener('click', async () => {
     applyBackground(data.url);
     await loadAdminBackground();
     box.className = 'result-box';
-    box.textContent = '✅ Đã lưu ảnh nền. Cập nhật ngay trên toàn dashboard.';
+    box.textContent = t('admin.backgroundSaved');
     box.classList.remove('hidden');
-  } catch (err) {
-    box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
-    box.classList.remove('hidden');
-  }
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
 });
 
 $('#admin-background-default-btn').addEventListener('click', async () => {
@@ -971,17 +1713,16 @@ $('#admin-background-default-btn').addEventListener('click', async () => {
     const data = await api('/api/admin/background', { method: 'DELETE' });
     applyBackground(data.url);
     await loadAdminBackground();
-    toast('Đã dùng ảnh nền mặc định.');
+    toast(t('admin.backgroundDefault'));
   } catch (err) { toast(err.message, 'error'); }
 });
 
-// ==================== ADMIN: MEOWS ====================
 async function loadMeowsCookie() {
   const data = await api('/api/admin/meows/cookie');
   $('#admin-meows-cookie').value = data.cookie || '';
   const status = $('#meows-status');
-  status.textContent = data.configured ? '✅ Đã lưu' : '⚠️ Chưa có cookie';
-  status.title = data.updatedAt ? `Cập nhật: ${data.updatedAt}` : '';
+  status.textContent = data.configured ? t('admin.savedCookie') : t('admin.noCookie');
+  status.title = data.updatedAt ? `${t('status.updated')} ${data.updatedAt}` : '';
   await loadStatusProxy();
 }
 
@@ -990,74 +1731,55 @@ async function loadStatusProxy() {
   $('#admin-status-proxy').value = data.proxy || '';
   const pill = $('#status-proxy-source');
   const active = data.envProxy || data.proxy;
-  pill.textContent = active ? `✅ ${active}` : '⚠️ Chưa có proxy';
+  pill.textContent = active ? active : t('admin.noProxy');
 }
 
-$('#admin-meows-save-btn').addEventListener('click', async (e) => {
-  const btn = e.target;
+$('#admin-meows-save-btn').addEventListener('click', async e => {
+  const btn = e.currentTarget;
   const box = $('#admin-meows-result');
   btn.disabled = true;
   try {
-    await api('/api/admin/meows/cookie', {
-      method: 'POST',
-      body: JSON.stringify({ cookie: $('#admin-meows-cookie').value }),
-    });
+    await api('/api/admin/meows/cookie', { method: 'POST', body: JSON.stringify({ cookie: $('#admin-meows-cookie').value }) });
     box.className = 'result-box';
-    box.textContent = '✅ Đã lưu cookie vào database. Có thể đổi bất cứ lúc nào.';
+    box.textContent = t('admin.cookieSaved');
     box.classList.remove('hidden');
     await loadMeowsCookie();
-  } catch (err) {
-    box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
-    box.classList.remove('hidden');
-  } finally { btn.disabled = false; }
-});
-
-$('#admin-meows-clear-btn').addEventListener('click', async (e) => {
-  if (!confirm('Xoá cookie? Các lệnh mua nhanh sẽ không chạy cho đến khi lưu cookie mới.')) return;
-  const btn = e.target;
-  btn.disabled = true;
-  try {
-    await api('/api/admin/meows/cookie', { method: 'DELETE' });
-    toast('Đã xoá cookie.');
-    await loadMeowsCookie();
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
   finally { btn.disabled = false; }
 });
 
-$('#admin-status-proxy-save-btn').addEventListener('click', async (e) => {
-  const btn = e.target;
+$('#admin-meows-clear-btn').addEventListener('click', async e => {
+  if (!window.confirm(t('admin.cookieConfirm'))) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try { await api('/api/admin/meows/cookie', { method: 'DELETE' }); toast(t('admin.cookieCleared')); await loadMeowsCookie(); }
+  catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
+
+$('#admin-status-proxy-save-btn').addEventListener('click', async e => {
+  const btn = e.currentTarget;
   const box = $('#admin-status-proxy-result');
   btn.disabled = true;
   try {
-    await api('/api/admin/status-proxy', {
-      method: 'POST',
-      body: JSON.stringify({ proxy: $('#admin-status-proxy').value }),
-    });
+    await api('/api/admin/status-proxy', { method: 'POST', body: JSON.stringify({ proxy: $('#admin-status-proxy').value }) });
     box.className = 'result-box';
-    box.textContent = '✅ Đã lưu proxy. Cloud Status sẽ ưu tiên dùng nguồn này.';
+    box.textContent = t('admin.proxySaved');
     box.classList.remove('hidden');
     await loadStatusProxy();
-  } catch (err) {
-    box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
-    box.classList.remove('hidden');
-  } finally { btn.disabled = false; }
-});
-
-$('#admin-status-proxy-clear-btn').addEventListener('click', async (e) => {
-  if (!confirm('Xoá proxy status? Hệ thống sẽ quay lại gọi trực tiếp Meows.')) return;
-  const btn = e.target;
-  btn.disabled = true;
-  try {
-    await api('/api/admin/status-proxy', { method: 'DELETE' });
-    toast('Đã xoá proxy status.');
-    await loadStatusProxy();
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
   finally { btn.disabled = false; }
 });
 
-// ==================== ADMIN: PLUGIN ====================
+$('#admin-status-proxy-clear-btn').addEventListener('click', async e => {
+  if (!window.confirm(t('admin.proxyConfirm'))) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try { await api('/api/admin/status-proxy', { method: 'DELETE' }); toast(t('admin.proxyCleared')); await loadStatusProxy(); }
+  catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
+
 async function loadAdminPlugins() {
   const data = await api('/api/admin/plugins');
   state.plugins = data.plugins;
@@ -1069,55 +1791,54 @@ async function loadAdminPlugins() {
     return `
       <div class="admin-item plugin-row">
         <div class="info">
-          <b>${esc(p.name)} ${p.enabled ? '' : '<span class="muted">(đang tắt)</span>'}</b>
+          <b>${esc(p.name)} ${p.enabled ? '' : `<small class="muted">(${esc(t('admin.pluginOffLabel'))})</small>`}</b>
           <div class="plugin-meta">
             ID: <code>${esc(p.id)}</code><br/>
-            ${p.gistUrl ? `<a href="${esc(p.gistUrl)}" target="_blank" rel="noopener">Gist</a> · ` : ''}Nguồn: ${esc(p.sourceUrl || '—')}<br/>
+            ${p.gistUrl ? `<a href="${esc(p.gistUrl)}" target="_blank" rel="noopener">Gist</a> · ` : ''}${esc(t('admin.pluginUrl'))}: ${esc(p.sourceUrl || '—')}<br/>
             Routes: ${esc(routes)}<br/>
             Discord commands: ${esc(cmds)}<br/>
-            Load lần cuối: ${esc(p.lastLoadedAt || '—')}
+            ${esc(t('admin.pluginLastLoaded'))}: ${esc(p.lastLoadedAt || '—')}
           </div>
-          ${p.error ? `<div class="plugin-error">⚠️ ${esc(p.error)}</div>` : ''}
+          ${p.error ? `<div class="plugin-error">${icon('warning', 13)} ${esc(p.error)}</div>` : ''}
         </div>
         <div class="actions">
-          <button class="btn btn-soft btn-sm" data-plugin-reload="${esc(p.id)}">Reload</button>
-          <button class="btn btn-ghost btn-sm" data-plugin-source="${esc(p.id)}">Đổi link</button>
-          <button class="btn btn-ghost btn-sm" data-plugin-toggle="${esc(p.id)}">${p.enabled ? 'Tắt' : 'Bật'}</button>
-          <button class="btn btn-danger btn-sm" data-plugin-del="${esc(p.id)}">Xoá</button>
+          <button class="btn btn-soft btn-sm" data-plugin-reload="${esc(p.id)}">${icon('refresh', 13)}<span>${esc(t('admin.pluginReload'))}</span></button>
+          <button class="btn btn-ghost btn-sm" data-plugin-source="${esc(p.id)}">${icon('link', 13)}<span>${esc(t('admin.pluginSource'))}</span></button>
+          <button class="btn btn-ghost btn-sm" data-plugin-toggle="${esc(p.id)}">${esc(t(p.enabled ? 'admin.pluginOff' : 'admin.pluginOn'))}</button>
+          <button class="btn btn-danger btn-sm" data-plugin-del="${esc(p.id)}">${icon('close', 13)}<span>${esc(t('admin.delete'))}</span></button>
         </div>
       </div>`;
-  }).join('') : '<div class="empty">Chưa có plugin nào.</div>';
+  }).join('') : `<div class="empty">${esc(t('admin.pluginEmpty'))}</div>`;
 
-  $$('[data-plugin-reload]').forEach(b => b.addEventListener('click', async () => {
+  $$('[data-plugin-reload]', root).forEach(b => b.addEventListener('click', async () => {
     b.disabled = true;
     try {
       const res = await api(`/api/admin/plugins/${encodeURIComponent(b.dataset.pluginReload)}/reload`, { method: 'POST' });
-      toast(`Reload thành công: ${(res.runtime.routes || []).length} route, ${(res.runtime.commands || []).length} lệnh.`);
+      toast(t('admin.pluginReloaded', { routes: num((res.runtime.routes || []).length), commands: num((res.runtime.commands || []).length) }));
       loadAdminPlugins();
     } catch (err) { toast(err.message, 'error'); b.disabled = false; }
   }));
 
-  $$('[data-plugin-source]').forEach(b => b.addEventListener('click', () => {
+  $$('[data-plugin-source]', root).forEach(b => b.addEventListener('click', () => {
     const plugin = state.plugins.find(p => p.id === b.dataset.pluginSource);
     if (!plugin) return;
     const wrap = document.createElement('div');
-    wrap.innerHTML = `<label>Link raw script mới<input id="plugin-source-url" value="${esc(plugin.sourceUrl)}" /></label>
-      <p class="muted">Script sẽ được ghi đè vào Gist hiện tại rồi load lại ngay.</p>`;
+    wrap.innerHTML = `<label>${esc(t('admin.pluginUrl'))}<input id="plugin-source-url" value="${esc(plugin.sourceUrl)}" /></label>
+      <p class="muted">${esc(t('admin.pluginSourceDesc'))}</p>`;
     openModal({
-      title: `Đổi source: ${plugin.name}`,
+      title: t('admin.pluginSourceTitle', { name: plugin.name }),
       body: wrap,
       actions: [
-        { label: 'Huỷ', onClick: closeModal },
+        { label: t('auth.cancel'), onClick: closeModal },
         {
-          label: 'Lưu & reload', className: 'btn-primary', onClick: async (btn) => {
+          label: t('admin.pluginSaveReload'), className: 'btn-primary', onClick: async btn => {
             btn.disabled = true;
             try {
               await api(`/api/admin/plugins/${encodeURIComponent(plugin.id)}/source`, {
-                method: 'POST',
-                body: JSON.stringify({ url: wrap.querySelector('#plugin-source-url').value.trim() }),
+                method: 'POST', body: JSON.stringify({ url: wrap.querySelector('#plugin-source-url').value.trim() }),
               });
               closeModal();
-              toast('Đã cập nhật source.');
+              toast(t('admin.pluginSourceSaved'));
               loadAdminPlugins();
             } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
           },
@@ -1126,36 +1847,31 @@ async function loadAdminPlugins() {
     });
   }));
 
-  $$('[data-plugin-toggle]').forEach(b => b.addEventListener('click', async () => {
+  $$('[data-plugin-toggle]', root).forEach(b => b.addEventListener('click', async () => {
     const plugin = state.plugins.find(p => p.id === b.dataset.pluginToggle);
     if (!plugin) return;
     b.disabled = true;
     try {
-      await api(`/api/admin/plugins/${encodeURIComponent(plugin.id)}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ enabled: !plugin.enabled }),
-      });
-      toast(plugin.enabled ? 'Đã tắt plugin.' : 'Đã bật plugin.');
+      await api(`/api/admin/plugins/${encodeURIComponent(plugin.id)}`, { method: 'PATCH', body: JSON.stringify({ enabled: !plugin.enabled }) });
+      toast(t(plugin.enabled ? 'admin.pluginDisabled' : 'admin.pluginEnabled'));
       loadAdminPlugins();
     } catch (err) { toast(err.message, 'error'); b.disabled = false; }
   }));
 
-  $$('[data-plugin-del]').forEach(b => b.addEventListener('click', () => {
+  $$('[data-plugin-del]', root).forEach(b => b.addEventListener('click', () => {
     const plugin = state.plugins.find(p => p.id === b.dataset.pluginDel);
     if (!plugin) return;
     openModal({
-      title: `Xoá plugin ${plugin.name}?`,
-      body: '<p class="muted">Gist chứa script cũng sẽ bị xoá. Plugin sẽ ngừng hoạt động ngay.</p>',
+      title: t('admin.pluginDelete', { name: plugin.name }),
+      body: `<p class="muted">${esc(t('admin.pluginDeleteDesc'))}</p>`,
       actions: [
-        { label: 'Huỷ', onClick: closeModal },
+        { label: t('auth.cancel'), onClick: closeModal },
         {
-          label: 'Xoá', className: 'btn-danger', onClick: async (btn) => {
+          label: t('admin.delete'), className: 'btn-danger', onClick: async btn => {
             btn.disabled = true;
             try {
               await api(`/api/admin/plugins/${encodeURIComponent(plugin.id)}`, { method: 'DELETE' });
-              closeModal();
-              toast('Đã xoá plugin.');
-              loadAdminPlugins();
+              closeModal(); toast(t('admin.deleted')); loadAdminPlugins();
             } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
           },
         },
@@ -1164,39 +1880,30 @@ async function loadAdminPlugins() {
   }));
 }
 
-$('#admin-plugin-create-btn').addEventListener('click', async (e) => {
-  const btn = e.target;
+$('#admin-plugin-create-btn').addEventListener('click', async e => {
+  const btn = e.currentTarget;
   const box = $('#admin-plugin-result');
   btn.disabled = true;
   try {
     const data = await api('/api/admin/plugins', {
-      method: 'POST',
-      body: JSON.stringify({ name: $('#admin-plugin-name').value.trim(), url: $('#admin-plugin-url').value.trim() }),
+      method: 'POST', body: JSON.stringify({ name: $('#admin-plugin-name').value.trim(), url: $('#admin-plugin-url').value.trim() }),
     });
     box.className = 'result-box';
-    box.innerHTML = `✅ Đã lưu script vào <a href="${esc(data.plugin.gistUrl)}" target="_blank" rel="noopener">Gist</a> và kích hoạt plugin <b>${esc(data.plugin.name)}</b>.<br/>
-      Routes: ${(data.runtime.routes || []).map(r => esc(`${r.method} /plugin/${data.plugin.id}${r.path}`)).join(', ') || '—'}<br/>
-      Lệnh Discord: ${(data.runtime.commands || []).map(c => esc(c.name)).join(', ') || '—'}`;
+    box.textContent = t('admin.pluginInstalled', { name: data.plugin.name });
     $('#admin-plugin-name').value = '';
     $('#admin-plugin-url').value = '';
     loadAdminPlugins();
-  } catch (err) {
-    box.className = 'result-box error';
-    box.textContent = `❌ ${err.message}`;
-  } finally {
-    box.classList.remove('hidden');
-    btn.disabled = false;
-  }
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; }
+  finally { box.classList.remove('hidden'); btn.disabled = false; }
 });
 
 $('#admin-plugin-refresh').addEventListener('click', () => loadAdminPlugins().catch(err => toast(err.message, 'error')));
 
-$('#admin-create-btn').addEventListener('click', async (e) => {
-  e.target.disabled = true;
+$('#admin-create-btn').addEventListener('click', async e => {
+  e.currentTarget.disabled = true;
   try {
     await api('/api/admin/items', {
-      method: 'POST',
-      body: JSON.stringify({
+      method: 'POST', body: JSON.stringify({
         name: $('#admin-item-name').value,
         price: parseInt($('#admin-item-price').value, 10) || 0,
         logoUrl: $('#admin-item-logo').value,
@@ -1205,42 +1912,39 @@ $('#admin-create-btn').addEventListener('click', async (e) => {
         accounts: $('#admin-item-accounts').value,
       }),
     });
-    toast('Đã tạo sản phẩm & upload kho.');
+    toast(t('admin.createUpload'));
     ['#admin-item-name', '#admin-item-logo', '#admin-item-desc', '#admin-item-accounts'].forEach(s => { $(s).value = ''; });
     loadAdmin();
   } catch (err) { toast(err.message, 'error'); }
-  finally { e.target.disabled = false; }
+  finally { e.currentTarget.disabled = false; }
 });
 
 $('#admin-refresh').addEventListener('click', loadAdminItems);
-
-$('#admin-payout-btn').addEventListener('click', async (e) => {
-  e.target.disabled = true;
+$('#admin-payout-btn').addEventListener('click', async e => {
+  e.currentTarget.disabled = true;
   try {
     const data = await api('/api/admin/payout', { method: 'POST' });
-    toast(`Đã trả thưởng: ${data.result.details ? data.result.details.length : 0} người.`);
+    toast(t('admin.payoutDone', { count: num(data.result.details ? data.result.details.length : 0) }));
     loadAdmin();
   } catch (err) { toast(err.message, 'error'); }
-  finally { e.target.disabled = false; }
+  finally { e.currentTarget.disabled = false; }
 });
 
 function addStockModal(itemId, item) {
   const wrap = document.createElement('div');
-  wrap.innerHTML = `<p class="muted">Thêm tài khoản vào <b>${esc(item ? item.name : '')}</b> (mỗi dòng 1 tài khoản).</p>
+  wrap.innerHTML = `<p class="muted">${esc(t('admin.stockDesc', { name: item ? item.name : '' }))}</p>
     <textarea id="addstock-text" rows="6" placeholder="mail|pass"></textarea>`;
   openModal({
-    title: '+ Thêm kho',
+    title: t('admin.stockTitle'),
     body: wrap,
     actions: [
-      { label: 'Huỷ', onClick: closeModal },
+      { label: t('auth.cancel'), onClick: closeModal },
       {
-        label: 'Thêm', className: 'btn-primary', onClick: async (btn) => {
+        label: t('admin.add'), className: 'btn-primary', onClick: async btn => {
           btn.disabled = true;
           try {
             await api(`/api/admin/items/${itemId}/stock`, { method: 'POST', body: JSON.stringify({ accounts: wrap.querySelector('#addstock-text').value }) });
-            closeModal();
-            toast('Đã thêm kho.');
-            loadAdminItems();
+            closeModal(); toast(t('admin.stockAdded')); loadAdminItems();
           } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
         },
       },
@@ -1252,23 +1956,22 @@ function editItemModal(item) {
   if (!item) return;
   const wrap = document.createElement('div');
   wrap.innerHTML = `
-    <label>Tên<input id="edit-name" value="${esc(item.name)}" /></label>
-    <label>Giá (xu)<input id="edit-price" type="number" min="1" value="${item.price}" /></label>
-    <label>Logo<input id="edit-logo" value="${esc(item.logoUrl)}" /></label>
-    <label>Mô tả<input id="edit-desc" value="${esc(item.description)}" /></label>
-    <label>Hiển thị<select id="edit-active"><option value="1" ${item.active ? 'selected' : ''}>Có</option><option value="0" ${!item.active ? 'selected' : ''}>Ẩn</option></select></label>`;
+    <label>${esc(t('common.name'))}<input id="edit-name" value="${esc(item.name)}" /></label>
+    <label>${esc(t('admin.priceCoin'))}<input id="edit-price" type="number" min="1" value="${item.price}" /></label>
+    <label>${esc(t('admin.logo'))}<input id="edit-logo" value="${esc(item.logoUrl)}" /></label>
+    <label>${esc(t('admin.description'))}<input id="edit-desc" value="${esc(item.description)}" /></label>
+    <label>${esc(t('admin.visible'))}<select id="edit-active"><option value="1" ${item.active ? 'selected' : ''}>${esc(t('admin.show'))}</option><option value="0" ${!item.active ? 'selected' : ''}>${esc(t('admin.hidden'))}</option></select></label>`;
   openModal({
-    title: 'Sửa sản phẩm',
+    title: t('admin.editProduct'),
     body: wrap,
     actions: [
-      { label: 'Huỷ', onClick: closeModal },
+      { label: t('auth.cancel'), onClick: closeModal },
       {
-        label: 'Lưu', className: 'btn-primary', onClick: async (btn) => {
+        label: t('admin.save'), className: 'btn-primary', onClick: async btn => {
           btn.disabled = true;
           try {
             await api(`/api/admin/items/${item.id}`, {
-              method: 'PATCH',
-              body: JSON.stringify({
+              method: 'PATCH', body: JSON.stringify({
                 name: wrap.querySelector('#edit-name').value,
                 price: parseInt(wrap.querySelector('#edit-price').value, 10) || 0,
                 logoUrl: wrap.querySelector('#edit-logo').value,
@@ -1276,9 +1979,7 @@ function editItemModal(item) {
                 active: wrap.querySelector('#edit-active').value === '1',
               }),
             });
-            closeModal();
-            toast('Đã lưu.');
-            loadAdminItems();
+            closeModal(); toast(t('admin.saved')); loadAdminItems();
           } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
         },
       },
@@ -1288,14 +1989,14 @@ function editItemModal(item) {
 
 function deleteItem(id) {
   openModal({
-    title: 'Xoá sản phẩm?',
-    body: '<p class="muted">Sản phẩm sẽ bị xoá khỏi shop (kho trên gist vẫn được giữ).</p>',
+    title: t('admin.deleteProduct'),
+    body: `<p class="muted">${esc(t('admin.deleteProductDesc'))}</p>`,
     actions: [
-      { label: 'Huỷ', onClick: closeModal },
+      { label: t('auth.cancel'), onClick: closeModal },
       {
-        label: 'Xoá', className: 'btn-danger', onClick: async (btn) => {
+        label: t('admin.delete'), className: 'btn-danger', onClick: async btn => {
           btn.disabled = true;
-          try { await api(`/api/admin/items/${id}`, { method: 'DELETE' }); closeModal(); toast('Đã xoá.'); loadAdminItems(); }
+          try { await api(`/api/admin/items/${id}`, { method: 'DELETE' }); closeModal(); toast(t('admin.deleted')); loadAdminItems(); }
           catch (err) { btn.disabled = false; toast(err.message, 'error'); }
         },
       },
@@ -1306,27 +2007,30 @@ function deleteItem(id) {
 function coinsModal(target) {
   const wrap = document.createElement('div');
   wrap.innerHTML = `
-    <label>Hành động<select id="coins-action"><option value="cong">Cộng</option><option value="tru">Trừ</option><option value="set">Đặt bằng</option></select></label>
-    <label>Số coin<input id="coins-amount" type="number" min="0" value="100" /></label>`;
+    <label>${esc(t('admin.action'))}<select id="coins-action">
+      <option value="cong">${esc(t('admin.coinAdd'))}</option>
+      <option value="tru">${esc(t('admin.coinSub'))}</option>
+      <option value="set">${esc(t('admin.coinSet'))}</option>
+    </select></label>
+    <label>${esc(t('transfer.amount'))}<input id="coins-amount" type="number" min="0" value="100" /></label>`;
   openModal({
-    title: `Sửa coin: ${target}`,
+    title: t('admin.coins', { target }),
     body: wrap,
     actions: [
-      { label: 'Huỷ', onClick: closeModal },
+      { label: t('auth.cancel'), onClick: closeModal },
       {
-        label: 'Áp dụng', className: 'btn-primary', onClick: async (btn) => {
+        label: t('admin.apply'), className: 'btn-primary', onClick: async btn => {
           btn.disabled = true;
           try {
             const data = await api('/api/admin/coins', {
-              method: 'POST',
-              body: JSON.stringify({
+              method: 'POST', body: JSON.stringify({
                 target,
                 action: wrap.querySelector('#coins-action').value,
                 amount: parseInt(wrap.querySelector('#coins-amount').value, 10) || 0,
               }),
             });
             closeModal();
-            toast(`Số dư mới: ${num(data.newBalance)} xu`);
+            toast(t('profile.coinUnit', { amount: num(data.newBalance) }));
             loadAdmin();
           } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
         },
@@ -1335,23 +2039,164 @@ function coinsModal(target) {
   });
 }
 
+// ==================== CHAT ====================
+$('#chat-toggle').addEventListener('click', e => { e.stopPropagation(); closeAvatarMenu(); toggleChatPanel(); });
+$('#chat-close').addEventListener('click', closeChatPanel);
+$('#chat-back').addEventListener('click', () => {
+  state.chat.with = null;
+  $('#chat-conversation-view').classList.add('hidden');
+  $('#chat-contacts-view').classList.remove('hidden');
+  renderChatContacts();
+});
+$('#chat-contact-search').addEventListener('input', renderChatContacts);
+$('#chat-form').addEventListener('submit', e => { e.preventDefault(); sendChatMessage(); });
+
+function toggleChatPanel() { if (state.chat.open) closeChatPanel(); else openChatPanel(); }
+
+function openChatPanel() {
+  state.chat.open = true;
+  $('#chat-panel').classList.remove('hidden');
+  loadChatContacts();
+  startChatPolling();
+  setTimeout(() => $('#chat-input').focus(), 50);
+}
+
+function closeChatPanel() {
+  state.chat.open = false;
+  $('#chat-panel').classList.add('hidden');
+  stopChatPolling();
+}
+
+function startChatPolling() {
+  if (state.chat.poll) return;
+  state.chat.poll = setInterval(() => {
+    if (!state.chat.open || !state.user) return;
+    loadChatContacts(true);
+    if (state.chat.with) loadChatMessages(true);
+  }, 10000);
+}
+
+function stopChatPolling() {
+  if (!state.chat.poll) return;
+  clearInterval(state.chat.poll);
+  state.chat.poll = null;
+}
+
+async function loadChatContacts(silent = false) {
+  try {
+    const data = await api('/api/messages/contacts');
+    state.chat.contacts = data.contacts || [];
+    const sum = state.chat.contacts.reduce((n, c) => n + Number(c.unread || 0), 0);
+    const count = state.chat.contacts.length ? sum : (state.user && state.user.unreadMessages) || 0;
+    setUnreadCount(count);
+    renderChatContacts();
+  } catch (err) { if (!silent) toast(err.message, 'error'); }
+}
+
+function renderChatContacts() {
+  const root = $('#chat-contacts');
+  if (!root) return;
+  const q = ($('#chat-contact-search').value || '').toLowerCase();
+  const list = state.chat.contacts.filter(c => String(c.display || c.userId).toLowerCase().includes(q));
+  if (!list.length) { root.innerHTML = `<div class="empty">${esc(t('chat.noContacts'))}</div>`; return; }
+  root.innerHTML = list.map(c => `
+    <button class="chat-contact${state.chat.with === c.userId ? ' active' : ''}" data-chat-user="${esc(c.userId)}" type="button">
+      <span class="chat-avatar">${icon('user', 18)}</span>
+      <span class="chat-contact-info">
+        <b>${esc(c.display || c.userId)}</b>
+        <small>${esc(c.lastMessage || '')}</small>
+      </span>
+      ${Number(c.unread) > 0 ? `<span class="contact-unread">${num(c.unread)}</span>` : ''}
+    </button>`).join('');
+  $$('[data-chat-user]', root).forEach(btn => btn.addEventListener('click', () => {
+    const c = list.find(x => x.userId === btn.dataset.chatUser);
+    openChatWith(c.userId, c.display || c.userId);
+  }));
+}
+
+function openChatWith(userId, display) {
+  if (!userId) { toast(t('chat.noContacts'), 'error'); return; }
+  state.chat.with = userId;
+  state.chat.display = display || userId;
+  $('#chat-with-label').textContent = state.chat.display;
+  $('#chat-contacts-view').classList.add('hidden');
+  $('#chat-conversation-view').classList.remove('hidden');
+  openChatPanel();
+  loadChatMessages();
+}
+
+async function loadChatMessages(silent = false) {
+  if (!state.chat.with) return;
+  const root = $('#chat-messages');
+  root.innerHTML = `<div class="empty">${esc(t('common.loading'))}</div>`;
+  try {
+    const data = await api(`/api/messages?with=${encodeURIComponent(state.chat.with)}`);
+    state.chat.messages = data.messages || [];
+    renderChatMessages();
+    root.scrollTop = root.scrollHeight;
+  } catch (err) { if (!silent) { root.innerHTML = `<div class="empty">${esc(err.message)}</div>`; toast(err.message, 'error'); } }
+}
+
+function isOwnMessage(msg) {
+  const me = state.user || {};
+  return [me.id, me.userId, me.username, me.discordId].some(v => v != null && String(v) === String(msg.from));
+}
+
+function renderChatMessages() {
+  const root = $('#chat-messages');
+  if (!root) return;
+  if (!state.chat.messages.length) { root.innerHTML = `<div class="empty">${esc(t('chat.empty'))}</div>`; return; }
+  root.innerHTML = state.chat.messages.map(m => `
+    <div class="chat-bubble${isOwnMessage(m) ? ' own' : ''}">
+      <div>${esc(m.content)}</div>
+      <small>${m.createdAt ? new Date(m.createdAt).toLocaleTimeString(getLanguage() === 'en' ? 'en-US' : 'vi-VN', { hour: '2-digit', minute: '2-digit' }) : ''}</small>
+    </div>`).join('');
+  root.scrollTop = root.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const input = $('#chat-input');
+  const content = input.value.trim();
+  if (!content || !state.chat.with) { toast(t('chat.emptyMessage'), 'error'); return; }
+  const btn = $('#chat-send');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/messages', { method: 'POST', body: JSON.stringify({ to: state.chat.with, content }) });
+    // Badge chỉ giảm khi thực sự gửi tin nhắn, không giảm khi chỉ mở xem.
+    const contact = state.chat.contacts.find(c => c.userId === state.chat.with);
+    const cleared = Number(contact?.unread || 0);
+    if (contact) {
+      contact.unread = 0;
+      contact.lastMessage = content;
+      contact.updatedAt = new Date().toISOString();
+    }
+    setUnreadCount(Math.max(0, state.chat.unread - cleared));
+    input.value = '';
+    if (data.message) state.chat.messages.push(data.message);
+    else state.chat.messages.push({ id: `local-${Date.now()}`, from: state.user.id, to: state.chat.with, content, createdAt: new Date().toISOString() });
+    renderChatMessages();
+    renderChatContacts();
+  } catch (err) { toast(err.message || t('chat.sendFailed'), 'error'); }
+  finally { btn.disabled = false; input.focus(); }
+}
+
 // ==================== INIT ====================
 (async function init() {
+  renderIcons(document);
+  updateLanguageChrome();
+  updateSellerLinesCount();
   try {
     const data = await api('/api/me');
-    if (data.user) {
-      await enterApp(data.user);
+    const user = data.user || data;
+    if (user) {
+      await enterApp(user);
       const hash = location.hash.replace('#', '');
-      if (VIEW_TITLES[hash]) switchView(hash);
-    } else {
-      showAuth();
-    }
-  } catch (e) {
-    showAuth();
-  }
+      if (VIEW_TITLE_KEYS[hash]) switchView(hash);
+    } else showAuth();
+  } catch (e) { showAuth(); }
 })();
 
 window.addEventListener('hashchange', () => {
   const hash = location.hash.replace('#', '');
-  if (VIEW_TITLES[hash] && state.user) switchView(hash);
+  if (VIEW_TITLE_KEYS[hash] && state.user) switchView(hash);
 });

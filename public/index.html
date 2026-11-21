@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>ASYNCTAS — Dashboard</title>
+<title data-i18n="app.title">ASYNCTAS — Dashboard</title>
 <meta name="description" content="Dashboard quản lý coin, shop, nhiệm vụ vượt link và mua device." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -11,9 +11,13 @@
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
 <link rel="stylesheet" href="/styles.css" />
 <script>
-  // Áp theme ngay để không bị flash classic. Server sẽ đồng bộ lại sau khi /api/me trả về.
+  // Áp theme và ngôn ngữ ngay để không bị flash classic / sai ngôn ngữ.
   try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
   catch (e) { document.documentElement.dataset.theme = 'bubble'; }
+  try {
+    var lang = localStorage.getItem('asynctas_language') || 'vi';
+    document.documentElement.lang = lang.indexOf('en') === 0 ? 'en' : 'vi';
+  } catch (e) { document.documentElement.lang = 'vi'; }
 </script>
 </head>
 <body>
@@ -26,34 +30,34 @@
       <div class="brand-logo has-logo"><img src="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" alt="ASYNCTAS" /></div>
       <div>
         <h1>ASYNCTAS</h1>
-        <p>Coin • Shop • Nhiệm vụ • Device</p>
+        <p data-i18n="auth.subtitle">Coin • Shop • Nhiệm vụ • Device</p>
       </div>
     </div>
 
     <div class="auth-tabs">
-      <button class="auth-tab active" data-tab="login">Đăng nhập</button>
-      <button class="auth-tab" data-tab="register">Đăng ký</button>
-      <button class="auth-tab" data-tab="token">Token Discord</button>
+      <button class="auth-tab active" data-tab="login" data-i18n="auth.login">Đăng nhập</button>
+      <button class="auth-tab" data-tab="register" data-i18n="auth.register">Đăng ký</button>
+      <button class="auth-tab" data-tab="token" data-i18n="auth.tokenDiscord">Token Discord</button>
     </div>
 
     <form id="login-form" class="auth-form">
-      <label>Tên đăng nhập<input id="login-username" autocomplete="username" placeholder="username" required /></label>
-      <label>Mật khẩu<input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" required /></label>
-      <button class="btn btn-primary btn-block" type="submit">Đăng nhập</button>
+      <label><span data-i18n="auth.username">Tên đăng nhập</span><input id="login-username" autocomplete="username" data-i18n-placeholder="auth.usernamePlaceholder" placeholder="username" required /></label>
+      <label><span data-i18n="auth.password">Mật khẩu</span><input id="login-password" type="password" autocomplete="current-password" placeholder="********" required /></label>
+      <button class="btn btn-primary btn-block" type="submit" data-i18n="auth.login">Đăng nhập</button>
     </form>
 
     <form id="register-form" class="auth-form hidden">
-      <label>Tên đăng nhập<input id="reg-username" autocomplete="username" placeholder="3-24 ký tự, có ít nhất 1 chữ" required /></label>
-      <label>Mật khẩu<input id="reg-password" type="password" autocomplete="new-password" placeholder="Tối thiểu 6 ký tự" required /></label>
-      <button class="btn btn-primary btn-block" type="submit">Tạo tài khoản</button>
+      <label><span data-i18n="auth.username">Tên đăng nhập</span><input id="reg-username" autocomplete="username" data-i18n-placeholder="auth.registerUsernamePlaceholder" placeholder="3-24 ký tự, có ít nhất 1 chữ" required /></label>
+      <label><span data-i18n="auth.password">Mật khẩu</span><input id="reg-password" type="password" autocomplete="new-password" data-i18n-placeholder="auth.passwordPlaceholder" placeholder="Tối thiểu 6 ký tự" required /></label>
+      <button class="btn btn-primary btn-block" type="submit" data-i18n="auth.createAccount">Tạo tài khoản</button>
     </form>
 
     <form id="token-form" class="auth-form hidden">
-      <label>Token Discord<input id="token-login-token" placeholder="Dán token 64 ký tự từ lệnh /token" required /></label>
-      <button class="btn btn-primary btn-block" type="submit">Đăng nhập bằng token</button>
+      <label><span data-i18n="auth.tokenDiscord">Token Discord</span><input id="token-login-token" data-i18n-placeholder="auth.tokenPlaceholder" placeholder="Dán token 64 ký tự từ lệnh /token" required /></label>
+      <button class="btn btn-primary btn-block" type="submit" data-i18n="auth.loginWithToken">Đăng nhập bằng token</button>
     </form>
 
-    <p class="auth-hint">Tên đăng nhập phải có ít nhất 1 chữ cái. Dùng lệnh <code>/token</code> trong Discord để lấy token cố định, sau đó đăng nhập hoặc <code>/connect &lt;token&gt;</code> để đồng bộ coin.</p>
+    <p class="auth-hint" data-i18n="auth.hint">Tên đăng nhập phải có ít nhất 1 chữ cái. Dùng lệnh /token trong Discord để lấy token cố định, sau đó đăng nhập hoặc /connect <token> để đồng bộ coin.</p>
   </div>
 </div>
 
@@ -63,36 +67,60 @@
     <div class="sidebar-brand">
       <div class="brand-logo small has-logo"><img src="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" alt="ASYNCTAS" /></div>
       <span>ASYNCTAS</span>
+      <button id="sidebar-close" class="sidebar-close" type="button" data-i18n-aria-label="nav.closeMenu" title="Đóng menu"><span class="ico" data-icon="close" data-size="18"></span></button>
     </div>
     <nav id="nav" class="nav">
-      <button class="nav-item active" data-view="dashboard"><span>🏠</span> Tổng quan</button>
-      <button class="nav-item" data-view="shop"><span>🛒</span> Shop</button>
-      <button class="nav-item" data-view="buydevice"><span>📱</span> Buy Device</button>
-      <button class="nav-item" data-view="cloudstatus"><span>📡</span> Cloud Status</button>
-      <button class="nav-item" data-view="tasks"><span>🔗</span> Nhiệm vụ</button>
-      <button class="nav-item" data-view="giftcode"><span>🎁</span> Giftcode</button>
-      <button class="nav-item" data-view="leaderboard"><span>🏆</span> Xếp hạng</button>
-      <button class="nav-item" data-view="transfer"><span>💸</span> Chuyển tiền</button>
-      <button class="nav-item" data-view="profile"><span>👤</span> Hồ sơ</button>
-      <button class="nav-item admin-only hidden" data-view="admin"><span>🛡️</span> Quản trị</button>
+      <button class="nav-item active" data-view="dashboard"><span class="ico" data-icon="home"></span><span data-i18n="nav.dashboard">Tổng quan</span></button>
+      <button class="nav-item" data-view="shop"><span class="ico" data-icon="shop"></span><span data-i18n="nav.shop">Shop</span></button>
+      <button class="nav-item" data-view="user-shop"><span class="ico" data-icon="store"></span><span data-i18n="nav.userShop">User Shop</span></button>
+      <button class="nav-item" data-view="buydevice"><span class="ico" data-icon="device"></span><span data-i18n="nav.buydevice">Buy Device</span></button>
+      <button class="nav-item" data-view="cloudstatus"><span class="ico" data-icon="status"></span><span data-i18n="nav.cloudstatus">Cloud Status</span></button>
+      <button class="nav-item" data-view="tasks"><span class="ico" data-icon="link"></span><span data-i18n="nav.tasks">Nhiệm vụ</span></button>
+      <button class="nav-item" data-view="giftcode"><span class="ico" data-icon="gift"></span><span data-i18n="nav.giftcode">Giftcode</span></button>
+      <button class="nav-item" data-view="leaderboard"><span class="ico" data-icon="leaderboard"></span><span data-i18n="nav.leaderboard">Xếp hạng</span></button>
+      <button class="nav-item" data-view="transfer"><span class="ico" data-icon="transfer"></span><span data-i18n="nav.transfer">Chuyển tiền</span></button>
+      <button class="nav-item" data-view="orders"><span class="ico" data-icon="orders"></span><span data-i18n="nav.orders">Lịch sử đơn hàng</span></button>
+      <button class="nav-item seller-only hidden" data-view="seller"><span class="ico" data-icon="seller"></span><span data-i18n="nav.seller">Seller Dashboard</span></button>
+      <button class="nav-item" data-view="profile"><span class="ico" data-icon="profile"></span><span data-i18n="nav.profile">Hồ sơ</span></button>
+      <button class="nav-item admin-only hidden" data-view="admin"><span class="ico" data-icon="admin"></span><span data-i18n="nav.admin">Quản trị</span></button>
     </nav>
     <div class="sidebar-footer">
       <div id="sidebar-user" class="sidebar-user"></div>
-      <button id="logout-btn" class="btn btn-ghost btn-block">Đăng xuất</button>
+      <button id="logout-btn" class="btn btn-ghost btn-block"><span class="ico" data-icon="logout"></span><span data-i18n="topbar.logout">Đăng xuất</span></button>
     </div>
   </aside>
+  <div id="sidebar-overlay" class="sidebar-overlay hidden" aria-hidden="true"></div>
 
   <main class="main">
     <header class="topbar">
-      <button id="menu-toggle" class="menu-toggle" aria-label="Menu">☰</button>
-      <h2 id="view-title">Tổng quan</h2>
+      <button id="menu-toggle" class="icon-btn menu-toggle" type="button" data-i18n-aria-label="nav.openMenu" title="Menu"><span class="ico" data-icon="menu"></span></button>
+      <h2 id="view-title" data-i18n="nav.dashboard">Tổng quan</h2>
       <div class="topbar-right">
-        <div class="balance-chip" title="Số dư coin">
-          <span>💰</span><span id="top-balance">0</span><span class="unit">xu</span>
+        <div class="balance-chip" data-i18n-title="topbar.balance" title="Số dư coin">
+          <span class="ico" data-icon="coin" data-size="16"></span><span id="top-balance">0</span><span class="unit" data-i18n="topbar.coinShort">xu</span>
         </div>
-        <div class="user-chip">
-          <span class="avatar-wrap"><img id="user-avatar" class="avatar-img hidden" alt="" /><span id="user-initial">U</span></span>
-          <span id="user-name">user</span>
+        <div class="balance-chip acoin-chip" data-i18n-title="topbar.acoin" title="Số dư ACOIN">
+          <span class="ico" data-icon="acoin" data-size="16"></span><span id="top-acoin">0</span><span class="unit">ACOIN</span>
+        </div>
+        <button id="chat-toggle" class="icon-btn" type="button" data-i18n-aria-label="topbar.messages" data-i18n-title="topbar.messages" title="Tin nhắn">
+          <span class="ico" data-icon="chat" data-size="19"></span>
+          <span id="chat-unread-badge" class="unread-badge hidden" aria-live="polite">0</span>
+        </button>
+        <button id="lang-toggle" class="icon-btn lang-btn" type="button" data-i18n-aria-label="topbar.language" data-i18n-title="topbar.language" title="Đổi ngôn ngữ">
+          <span class="ico" data-icon="language" data-size="19"></span><span id="lang-label">VI</span>
+        </button>
+        <div class="avatar-menu-wrap">
+          <button id="avatar-menu-btn" class="user-chip" type="button" aria-haspopup="true" aria-expanded="false" data-i18n-aria-label="topbar.account" title="Menu tài khoản">
+            <span class="avatar-wrap"><img id="user-avatar" class="avatar-img hidden" alt="" /><span id="user-initial">U</span></span>
+            <span id="user-name">user</span>
+          </button>
+          <div id="avatar-dropdown" class="avatar-dropdown hidden" role="menu">
+            <button id="avatar-profile" class="dropdown-item" type="button" role="menuitem"><span class="ico" data-icon="profile" data-size="17"></span><span data-i18n="topbar.profile">Hồ sơ</span></button>
+            <button id="avatar-orders" class="dropdown-item" type="button" role="menuitem"><span class="ico" data-icon="orders" data-size="17"></span><span data-i18n="topbar.orders">Lịch sử đơn hàng</span></button>
+            <button id="avatar-seller" class="dropdown-item" type="button" role="menuitem"><span class="ico" data-icon="seller" data-size="17"></span><span data-i18n="topbar.sellerRequest">Gửi yêu cầu seller</span></button>
+            <div class="dropdown-sep"></div>
+            <button id="avatar-logout" class="dropdown-item danger" type="button" role="menuitem"><span class="ico" data-icon="logout" data-size="17"></span><span data-i18n="topbar.logout">Đăng xuất</span></button>
+          </div>
         </div>
       </div>
     </header>
@@ -102,29 +130,44 @@
       <section id="view-dashboard" class="view active">
         <div class="hero card">
           <div class="hero-text">
-            <p class="hero-hello">Xin chào, <b id="hero-name">bạn</b> 👋</p>
-            <h3>Số dư của bạn</h3>
-            <div class="hero-balance"><span id="hero-balance">0</span> <small>xu</small></div>
+            <p class="hero-hello"><span data-i18n="dashboard.hello">Xin chào,</span> <b id="hero-name">bạn</b></p>
+            <h3 data-i18n="dashboard.balanceTitle">Số dư của bạn</h3>
+            <div class="hero-balance"><span id="hero-balance">0</span> <small data-i18n="topbar.coinShort">xu</small></div>
+            <div id="hero-acoin" class="hero-acoin" data-i18n="dashboard.acoinBalance" data-vars='{"value":"0"}'>ACOIN: 0</div>
             <div class="hero-actions">
-              <button class="btn btn-primary" data-goto="shop">🛒 Mua ngay</button>
-              <button class="btn btn-soft" data-goto="tasks">🔗 Làm nhiệm vụ</button>
-              <button class="btn btn-soft" data-goto="transfer">💸 Chuyển xu</button>
+              <button class="btn btn-primary" data-goto="buydevice"><span class="ico" data-icon="device"></span><span data-i18n="dashboard.buyNow">Mua ngay</span></button>
+              <button class="btn btn-soft" data-goto="tasks"><span class="ico" data-icon="link"></span><span data-i18n="dashboard.doTasks">Làm nhiệm vụ</span></button>
+              <button class="btn btn-soft" data-goto="transfer"><span class="ico" data-icon="transfer"></span><span data-i18n="dashboard.transferCoins">Chuyển xu</span></button>
+            </div>
+            <div class="social-links">
+              <span class="muted" data-i18n="dashboard.socialTitle">Kết nối với chúng tôi</span>
+              <a id="youtube-link" class="social-btn social-youtube" href="https://youtube.com" target="_blank" rel="noopener" data-i18n-title="dashboard.openYoutube" data-i18n-aria-label="dashboard.openYoutube" title="Mở YouTube"><span class="ico" data-icon="youtube" data-size="19"></span><span data-i18n="dashboard.youtube">YouTube</span></a>
+              <a id="discord-link" class="social-btn social-discord" href="https://discord.com" target="_blank" rel="noopener" data-i18n-title="dashboard.openDiscord" data-i18n-aria-label="dashboard.openDiscord" title="Mở Discord"><span class="ico" data-icon="discord" data-size="19"></span><span data-i18n="dashboard.discord">Discord</span></a>
             </div>
           </div>
           <div class="hero-orb"></div>
         </div>
         <div class="grid stats-grid">
-          <div class="card stat"><span class="stat-ico">🔗</span><div><b id="stat-weekly">0</b><small>Link tuần này</small></div></div>
-          <div class="card stat"><span class="stat-ico">🏆</span><div><b id="stat-rank">—</b><small>Hạng vượt link</small></div></div>
-          <div class="card stat"><span class="stat-ico">📦</span><div><b id="stat-purchases">0</b><small>Đơn đã mua</small></div></div>
-          <div class="card stat"><span class="stat-ico">🔔</span><div><b id="stat-daily">0/2</b><small>Nhiệm vụ hôm nay</small></div></div>
+          <div class="card stat"><span class="ico stat-ico" data-icon="link"></span><div><b id="stat-weekly">0</b><small data-i18n="dashboard.weeklyLinks">Link tuần này</small></div></div>
+          <div class="card stat"><span class="ico stat-ico" data-icon="leaderboard"></span><div><b id="stat-rank">—</b><small data-i18n="dashboard.linkRank">Hạng vượt link</small></div></div>
+          <div class="card stat"><span class="ico stat-ico" data-icon="orders"></span><div><b id="stat-purchases">0</b><small data-i18n="dashboard.purchases">Đơn đã mua</small></div></div>
+          <div class="card stat"><span class="ico stat-ico" data-icon="bell"></span><div><b id="stat-daily">0/2</b><small data-i18n="dashboard.dailyTasks">Nhiệm vụ hôm nay</small></div></div>
+        </div>
+        <div class="card exchange-card">
+          <div class="card-head"><h3><span class="ico" data-icon="exchange"></span><span data-i18n="dashboard.exchangeTitle">Đổi coin / ACOIN</span></h3><span id="exchange-rate" class="pill" data-i18n="dashboard.exchangeRate" data-vars='{"rate":"1"}'>Tỷ lệ: 1 ACOIN = 1 coin</span></div>
+          <p class="muted" data-i18n="dashboard.exchangeDesc">Đổi coin sang ACOIN hoặc ngược lại theo tỷ lệ hiện tại.</p>
+          <div class="exchange-row">
+            <label><span data-i18n="dashboard.exchangeFrom">Đổi từ</span><select id="exchange-from"><option value="coin" data-i18n="dashboard.exchangeCoin">Coin sang ACOIN</option><option value="acoin" data-i18n="dashboard.exchangeAcoin">ACOIN sang coin</option></select></label>
+            <label><span data-i18n="dashboard.exchangeAmount">Số lượng</span><input id="exchange-amount" type="number" min="1" value="100" /></label>
+            <button id="exchange-btn" class="btn btn-primary"><span class="ico" data-icon="refresh"></span><span data-i18n="dashboard.exchangeButton">Thực hiện đổi</span></button>
+          </div>
         </div>
         <div class="card daily-card">
-          <div class="card-head"><h3>🎁 Điểm danh & quà mỗi ngày</h3><span id="daily-date" class="pill">—</span></div>
-          <p class="muted">Claim mỗi ngày để nhận ngẫu nhiên <b>1–20 xu</b>. Nếu đã vượt ít nhất <b>1 link</b>, bạn còn được lấy <b>1 tài khoản VMOS miễn phí</b> mỗi ngày — không trừ xu.</p>
+          <div class="card-head"><h3><span class="ico" data-icon="gift"></span><span data-i18n="dashboard.dailyTitle">Điểm danh & quà mỗi ngày</span></h3><span id="daily-date" class="pill">—</span></div>
+          <p class="muted" data-i18n="dashboard.dailyDesc">Claim mỗi ngày để nhận ngẫu nhiên 1–20 xu. Nếu đã vượt ít nhất 1 link, bạn còn được lấy 1 tài khoản VMOS miễn phí mỗi ngày — không trừ xu.</p>
           <div class="daily-actions">
-            <button id="daily-claim-btn" class="btn btn-primary">🎁 Claim 1–20 xu</button>
-            <button id="daily-vmos-btn" class="btn btn-soft">🆓 Lấy VMOS free</button>
+            <button id="daily-claim-btn" class="btn btn-primary"><span class="ico" data-icon="gift"></span><span data-i18n="dashboard.claim">Claim 1–20 xu</span></button>
+            <button id="daily-vmos-btn" class="btn btn-soft"><span class="ico" data-icon="device"></span><span data-i18n="dashboard.getVmos">Lấy VMOS free</span></button>
           </div>
           <div class="daily-meta">
             <span id="daily-claim-status" class="pill">—</span>
@@ -133,7 +176,7 @@
           <div id="daily-result" class="result-box hidden"></div>
         </div>
         <div class="card">
-          <div class="card-head"><h3>Đồ đã mua gần đây</h3><button class="btn btn-ghost" data-goto="shop">Xem shop</button></div>
+          <div class="card-head"><h3 data-i18n="dashboard.recentTitle">Đồ đã mua gần đây</h3><button class="btn btn-ghost" data-goto="shop" data-i18n="dashboard.viewShop">Xem shop</button></div>
           <div id="recent-purchases" class="recent-list"></div>
         </div>
       </section>
@@ -141,12 +184,128 @@
       <!-- SHOP -->
       <section id="view-shop" class="view">
         <div class="section-head">
-          <div><h3>Sản phẩm</h3><p class="muted">Mua bằng coin, tài khoản trả về ngay sau khi thanh toán.</p></div>
+          <div><h3 data-i18n="shop.title">Sản phẩm</h3><p class="muted" data-i18n="shop.desc">Mua bằng coin, tài khoản trả về ngay sau khi thanh toán.</p></div>
         </div>
         <div id="shop-grid" class="grid shop-grid"></div>
         <div class="card">
-          <div class="card-head"><h3>Đồ đã mua</h3></div>
+          <div class="card-head"><h3 data-i18n="shop.purchased">Đồ đã mua</h3></div>
           <div id="purchases-list" class="purchase-list"></div>
+        </div>
+      </section>
+
+      <!-- USER SHOP -->
+      <section id="view-user-shop" class="view">
+        <div id="user-shop-list">
+          <div class="section-head">
+            <div><h3 data-i18n="userShop.title">User Shop</h3><p class="muted" data-i18n="userShop.desc">Khám phá shop từ cộng đồng.</p></div>
+          </div>
+          <div class="card filter-bar">
+            <label class="grow"><span data-i18n="userShop.search">Tìm kiếm</span><input id="user-shop-q" data-i18n-placeholder="userShop.searchPlaceholder" placeholder="Tìm shop theo tên..." /></label>
+            <label><span data-i18n="userShop.filter">Sắp xếp</span><select id="user-shop-filter">
+              <option value="recommended" data-i18n="userShop.filter.recommended">Đề xuất</option>
+              <option value="newest" data-i18n="userShop.filter.newest">Mới nhất</option>
+              <option value="oldest" data-i18n="userShop.filter.oldest">Cũ nhất</option>
+              <option value="cheapest" data-i18n="userShop.filter.cheapest">Giá thấp nhất</option>
+              <option value="priciest" data-i18n="userShop.filter.priciest">Giá cao nhất</option>
+              <option value="topRated" data-i18n="userShop.filter.topRated">Đánh giá cao nhất</option>
+              <option value="bestSelling" data-i18n="userShop.filter.bestSelling">Bán chạy nhất</option>
+            </select></label>
+            <button id="user-shop-search-btn" class="btn btn-primary"><span class="ico" data-icon="search"></span><span data-i18n="userShop.search">Tìm kiếm</span></button>
+          </div>
+          <div id="user-shop-total" class="muted"></div>
+          <div id="user-shop-grid" class="grid shop-grid"></div>
+          <div id="user-shop-pagination" class="pagination"></div>
+        </div>
+        <div id="user-shop-detail" class="hidden">
+          <button id="user-shop-back" class="btn btn-ghost btn-sm"><span class="ico" data-icon="back"></span><span data-i18n="userShop.back">Quay lại danh sách shop</span></button>
+          <div id="user-shop-detail-head" class="card"></div>
+          <div class="card">
+            <div class="card-head"><h3 data-i18n="userShop.products">Sản phẩm</h3></div>
+            <div id="user-shop-products" class="grid shop-grid"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3 data-i18n="userShop.reviews">Đánh giá</h3></div>
+            <div id="user-shop-reviews" class="review-list"></div>
+            <div id="user-shop-review-form" class="review-form hidden"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ORDERS -->
+      <section id="view-orders" class="view">
+        <div class="section-head">
+          <div><h3 data-i18n="orders.title">Lịch sử đơn hàng</h3><p class="muted" data-i18n="orders.desc">Các đơn hàng trong 7 ngày gần đây.</p></div>
+          <button id="orders-refresh" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="status.refresh">Làm mới</span></button>
+        </div>
+        <div id="orders-list" class="order-list"></div>
+      </section>
+
+      <!-- MESSAGES (panel được mở từ topbar) -->
+      <section id="view-messages" class="view">
+        <div class="card empty-card">
+          <div class="empty-illustration"><span class="ico" data-icon="chat" data-size="34"></span></div>
+          <h3 data-i18n="chat.title">Tin nhắn</h3>
+          <p class="muted" data-i18n="chat.empty">Chọn một liên hệ để bắt đầu trò chuyện.</p>
+          <button id="messages-open-chat" class="btn btn-primary"><span class="ico" data-icon="chat"></span><span data-i18n="chat.title">Tin nhắn</span></button>
+        </div>
+      </section>
+
+      <!-- SELLER -->
+      <section id="view-seller" class="view">
+        <div id="seller-request-card" class="card hidden">
+          <div class="card-head"><h3><span class="ico" data-icon="seller"></span><span data-i18n="seller.requestTitle">Trở thành seller</span></h3><span id="seller-status-pill" class="pill">—</span></div>
+          <p class="muted" data-i18n="seller.requestDesc">Gửi yêu cầu để admin duyệt, sau đó bạn có thể tạo shop và bán sản phẩm.</p>
+          <button id="seller-request-btn" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="seller.requestButton">Gửi yêu cầu seller</span></button>
+        </div>
+        <div id="seller-pending-note" class="card result-box hidden" data-i18n="seller.pendingNote">Yêu cầu của bạn đang chờ admin duyệt. Vui lòng quay lại sau.</div>
+        <div id="seller-dashboard-content">
+          <div class="section-head"><div><h3 data-i18n="seller.dashboardTitle">Tổng quan bán hàng</h3></div><button id="seller-refresh" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="status.refresh">Làm mới</span></button></div>
+          <div id="seller-stats" class="grid stats-grid"></div>
+          <div class="grid two-col">
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="chart"></span><span data-i18n="seller.revenueTitle">Doanh thu</span></h3>
+                <div class="tabs mini-tabs" id="seller-revenue-tabs">
+                  <button class="tab active" data-revenue="week" data-i18n="seller.week">Tuần</button>
+                  <button class="tab" data-revenue="month" data-i18n="seller.month">Tháng</button>
+                  <button class="tab" data-revenue="year" data-i18n="seller.year">Năm</button>
+                </div>
+              </div>
+              <div id="seller-revenue-chart" class="chart-box"></div>
+              <div id="seller-orders-summary" class="pill"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3 id="seller-shop-form-title"><span class="ico" data-icon="store"></span><span data-i18n="seller.createShop">Tạo shop mới</span></h3></div>
+              <form id="seller-shop-form">
+                <input id="seller-shop-id" type="hidden" />
+                <label><span data-i18n="seller.shopName">Tên shop</span><input id="seller-shop-name" required /></label>
+                <label><span data-i18n="seller.shopDesc">Mô tả shop</span><textarea id="seller-shop-desc" rows="2"></textarea></label>
+                <label><span data-i18n="seller.logoUrl">URL logo</span><input id="seller-shop-logo" type="url" placeholder="https://..." /></label>
+                <label><span data-i18n="seller.backgroundUrl">URL ảnh nền</span><input id="seller-shop-bg" type="url" placeholder="https://..." /></label>
+                <button id="seller-shop-submit" class="btn btn-primary btn-block" type="submit"><span class="ico" data-icon="plus"></span><span data-i18n="seller.createShopBtn">Tạo shop</span></button>
+              </form>
+            </div>
+          </div>
+          <div class="grid two-col">
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="package"></span><span data-i18n="seller.addProduct">Nhập tài khoản / sản phẩm</span></h3></div>
+              <form id="seller-product-form">
+                <label><span data-i18n="seller.selectShop">Chọn shop</span><select id="seller-product-shop" required></select></label>
+                <label><span data-i18n="seller.productName">Tên sản phẩm</span><input id="seller-product-name" required /></label>
+                <label><span data-i18n="seller.productDesc">Mô tả sản phẩm</span><textarea id="seller-product-desc" rows="2"></textarea></label>
+                <label><span data-i18n="seller.priceText">Giá</span><input id="seller-product-price" placeholder="$100" required /><small class="muted" data-i18n="seller.priceHint">$100 = 100 ACOIN · 100 = 100 coin</small></label>
+                <label><span data-i18n="seller.accountsText">Danh sách tài khoản (mỗi dòng 1 tài khoản)</span><textarea id="seller-product-accounts" rows="5" data-i18n-placeholder="seller.accountsPlaceholder" placeholder="mail|pass"></textarea></label>
+                <div class="two-inline">
+                  <label><span data-i18n="seller.maxLines">Số dòng tối đa</span><input id="seller-product-maxlines" type="number" min="1" max="2000" value="2000" /></label>
+                  <span id="seller-lines-count" class="pill"></span>
+                </div>
+                <button id="seller-product-submit" class="btn btn-primary btn-block" type="submit"><span class="ico" data-icon="plus"></span><span data-i18n="seller.createProductBtn">Tạo sản phẩm</span></button>
+              </form>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="store"></span><span data-i18n="seller.myShops">Shop của bạn</span></h3></div>
+              <div id="seller-shops" class="mini-list"></div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -154,16 +313,16 @@
       <section id="view-buydevice" class="view">
         <div class="grid two-col">
           <div class="card">
-            <div class="card-head"><h3>📱 Mua Cloud</h3></div>
-            <p class="muted">Tạo máy cloud qua Hanami. Miễn phí.</p>
-            <label>Nhà cung cấp
+            <div class="card-head"><h3><span class="ico" data-icon="cloud"></span><span data-i18n="device.buyCloud">Mua Cloud</span></h3></div>
+            <p class="muted" data-i18n="device.buyCloudDesc">Tạo máy cloud qua Hanami. Miễn phí.</p>
+            <label><span data-i18n="device.provider">Nhà cung cấp</span>
               <select id="cloud-provider">
                 <option value="VM">VMOS Cloud</option>
                 <option value="UG">UGPhone</option>
                 <option value="VS">VSPhone</option>
               </select>
             </label>
-            <label id="cloud-server-wrap" class="hidden">Khu vực (UGPhone)
+            <label id="cloud-server-wrap" class="hidden"><span data-i18n="device.region">Khu vực (UGPhone)</span>
               <select id="cloud-server">
                 <option value="SG">Singapore</option>
                 <option value="HK">Hong Kong</option>
@@ -172,15 +331,15 @@
                 <option value="US">US</option>
               </select>
             </label>
-            <label>Dữ liệu (tài khoản|mật khẩu hoặc Local Storage)
-              <textarea id="cloud-input" rows="3" placeholder="mail|matkhau hoặc dán Local Storage"></textarea>
+            <label><span data-i18n="device.data">Dữ liệu (tài khoản|mật khẩu hoặc Local Storage)</span>
+              <textarea id="cloud-input" rows="3" data-i18n-placeholder="device.dataPlaceholder" placeholder="mail|matkhau hoặc dán Local Storage"></textarea>
             </label>
-            <button id="cloud-buy-btn" class="btn btn-primary btn-block">Mua Cloud</button>
+            <button id="cloud-buy-btn" class="btn btn-primary btn-block" data-i18n="device.buyCloud">Mua Cloud</button>
             <div id="cloud-result" class="result-box hidden"></div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>🌐 Reg tài khoản</h3></div>
-            <p class="muted">Tạo nhanh tài khoản cloud. Phí <b>10 xu</b>, chỉ trừ khi thành công.</p>
+            <div class="card-head"><h3><span class="ico" data-icon="profile"></span><span data-i18n="device.regTitle">Reg tài khoản</span></h3></div>
+            <p class="muted" data-i18n="device.regDesc">Tạo nhanh tài khoản cloud. Phí 10 xu, chỉ trừ khi thành công.</p>
             <div class="device-actions">
               <button class="btn btn-soft" data-reg="vmos">VMOS Cloud</button>
               <button class="btn btn-soft" data-reg="vsphone">VSPhone</button>
@@ -188,11 +347,11 @@
             <div id="reg-result" class="result-box hidden"></div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>🐱 Mua nhanh</h3></div>
-            <p class="muted">Tài khoản trả về ngay. Chỉ trừ coin khi mua thành công.</p>
+            <div class="card-head"><h3><span class="ico" data-icon="bolt"></span><span data-i18n="device.quickTitle">Mua nhanh</span></h3></div>
+            <p class="muted" data-i18n="device.quickDesc">Tài khoản trả về ngay. Chỉ trừ coin khi mua thành công.</p>
             <div class="device-actions">
-              <button class="btn btn-soft" data-meows="UG">📱 UGPhone — 49 xu</button>
-              <button class="btn btn-soft" data-meows="VSVIP">⭐ VSPhone VIP — 15 xu</button>
+              <button class="btn btn-soft" data-meows="UG">UGPhone — 49 xu</button>
+              <button class="btn btn-soft" data-meows="VSVIP">VSPhone VIP — 15 xu</button>
             </div>
             <div id="meows-result" class="result-box hidden"></div>
           </div>
@@ -202,11 +361,11 @@
       <!-- CLOUD STATUS -->
       <section id="view-cloudstatus" class="view">
         <div class="section-head">
-          <div><h3>📡 Cloudphone Status</h3><p class="muted">Trạng thái máy mua nhanh theo thời gian thực. Dữ liệu chỉ mang tính tương đối.</p></div>
-          <button id="cloud-status-refresh" class="btn btn-soft">🔄 Làm mới</button>
+          <div><h3><span class="ico" data-icon="status"></span><span data-i18n="status.title">Cloudphone Status</span></h3><p class="muted" data-i18n="status.desc">Trạng thái máy mua nhanh theo thời gian thực. Dữ liệu chỉ mang tính tương đối.</p></div>
+          <button id="cloud-status-refresh" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="status.refresh">Làm mới</span></button>
         </div>
         <div class="card">
-          <div class="card-head"><h3>⚡ Mua nhanh</h3><span id="cloud-status-time" class="muted">—</span></div>
+          <div class="card-head"><h3><span class="ico" data-icon="bolt"></span><span data-i18n="device.quickTitle">Mua nhanh</span></h3><span id="cloud-status-time" class="muted">—</span></div>
           <div class="grid two-col">
             <div class="status-row">
               <span>VMOS Cloud</span>
@@ -227,9 +386,9 @@
       <section id="view-tasks" class="view">
         <div class="grid two-col">
           <div class="card">
-            <div class="card-head"><h3>🔗 Vượt link nhận coin</h3></div>
+            <div class="card-head"><h3><span class="ico" data-icon="link"></span><span data-i18n="tasks.title">Vượt link nhận coin</span></h3></div>
             <p id="task-hint" class="muted">Link4M & LayMa: <b>50 xu</b> (2 lượt/ngày). bbmkts: <b>25 xu</b> (1 lượt/ngày).</p>
-            <label>Dịch vụ
+            <label><span data-i18n="tasks.provider">Dịch vụ</span>
               <select id="task-provider">
                 <option value="link4m">Link4M — 50 xu</option>
                 <option value="layma">LayMa — 50 xu</option>
@@ -237,14 +396,14 @@
               </select>
             </label>
             <div id="task-daily" class="task-daily"></div>
-            <button id="task-get-btn" class="btn btn-primary btn-block">Lấy link nhiệm vụ</button>
+            <button id="task-get-btn" class="btn btn-primary btn-block"><span class="ico" data-icon="link"></span><span data-i18n="tasks.getLink">Lấy link nhiệm vụ</span></button>
             <div id="task-result" class="result-box hidden"></div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>🎁 Thưởng tuần</h3></div>
-            <p class="muted">Top vượt link được cộng coin tự động vào <b>Chủ nhật</b> hằng tuần.</p>
+            <div class="card-head"><h3><span class="ico" data-icon="gift"></span><span data-i18n="tasks.rewardTitle">Thưởng tuần</span></h3></div>
+            <p class="muted" data-i18n="tasks.rewardDesc">Top vượt link được cộng coin tự động vào Chủ nhật hằng tuần.</p>
             <ul id="reward-list" class="reward-list"></ul>
-            <div class="period-box">Kỳ hiện tại: <b id="task-period">—</b></div>
+            <div class="period-box" data-i18n="tasks.period" data-vars='{"period":"—"}'>Kỳ hiện tại: <b id="task-period">—</b></div>
           </div>
         </div>
       </section>
@@ -253,18 +412,18 @@
       <section id="view-giftcode" class="view">
         <div class="grid two-col">
           <div class="card">
-            <div class="card-head"><h3>🎁 Nhập Giftcode</h3></div>
-            <p class="muted">Mỗi mã chỉ dùng được một lần. Nhập mã để nhận coin ngay vào tài khoản web.</p>
-            <label>Mã quà<input id="giftcode-input" placeholder="VD: ABC123!@" /></label>
-            <button id="giftcode-btn" class="btn btn-primary btn-block">Nhận quà</button>
+            <div class="card-head"><h3><span class="ico" data-icon="gift"></span><span data-i18n="giftcode.title">Nhập Giftcode</span></h3></div>
+            <p class="muted" data-i18n="giftcode.desc">Mỗi mã chỉ dùng được một lần. Nhập mã để nhận coin ngay vào tài khoản web.</p>
+            <label><span data-i18n="giftcode.code">Mã quà</span><input id="giftcode-input" data-i18n-placeholder="giftcode.codePlaceholder" placeholder="VD: ABC123!@" /></label>
+            <button id="giftcode-btn" class="btn btn-primary btn-block"><span class="ico" data-icon="check"></span><span data-i18n="giftcode.redeem">Nhận quà</span></button>
             <div id="giftcode-result" class="result-box hidden"></div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>📌 Lưu ý</h3></div>
+            <div class="card-head"><h3><span class="ico" data-icon="info"></span><span data-i18n="giftcode.noteTitle">Lưu ý</span></h3></div>
             <ul class="reward-list">
-              <li><span>Mã do admin phát</span><b>Dùng 1 lần</b></li>
-              <li><span>Coin cộng vào web</span><b>Liên kết Discord để đồng bộ</b></li>
-              <li><span>Lịch sử nhận</span><b>Hiện ngay sau khi nhập</b></li>
+              <li><span data-i18n="giftcode.note1">Mã do admin phát</span><b data-i18n="giftcode.note1Value">Dùng 1 lần</b></li>
+              <li><span data-i18n="giftcode.note2">Coin cộng vào web</span><b data-i18n="giftcode.note2Value">Liên kết Discord để đồng bộ</b></li>
+              <li><span data-i18n="giftcode.note3">Lịch sử nhận</span><b data-i18n="giftcode.note3Value">Hiện ngay sau khi nhập</b></li>
             </ul>
           </div>
         </div>
@@ -273,9 +432,9 @@
       <!-- LEADERBOARD -->
       <section id="view-leaderboard" class="view">
         <div class="tabs">
-          <button class="tab active" data-lb="coins">💰 Coin</button>
-          <button class="tab" data-lb="week">🔗 Vượt link 7 ngày (có thưởng)</button>
-          <button class="tab" data-lb="all">🏅 Vượt link tổng (không thưởng)</button>
+          <button class="tab active" data-lb="coins"><span class="ico" data-icon="coin"></span><span data-i18n="lb.coins">Coin</span></button>
+          <button class="tab" data-lb="week"><span class="ico" data-icon="link"></span><span data-i18n="lb.week">Vượt link 7 ngày (có thưởng)</span></button>
+          <button class="tab" data-lb="all"><span class="ico" data-icon="leaderboard"></span><span data-i18n="lb.all">Vượt link tổng (không thưởng)</span></button>
         </div>
         <div id="lb-note" class="card reward-banner hidden"></div>
         <div id="lb-rewards" class="card reward-banner hidden"></div>
@@ -288,19 +447,19 @@
       <section id="view-transfer" class="view">
         <div class="grid two-col">
           <div class="card">
-            <div class="card-head"><h3>💸 Chuyển coin</h3></div>
-            <p class="muted">Phí chuyển: <b>5%</b>. Tối thiểu 10 xu.</p>
-            <label>Người nhận (username web hoặc ID Discord)
-              <input id="transfer-to" placeholder="username hoặc 123456789012345678" />
+            <div class="card-head"><h3><span class="ico" data-icon="transfer"></span><span data-i18n="transfer.title">Chuyển coin</span></h3></div>
+            <p class="muted" data-i18n="transfer.desc">Phí chuyển: 5%. Tối thiểu 10 xu.</p>
+            <label><span data-i18n="transfer.to">Người nhận (username web hoặc ID Discord)</span>
+              <input id="transfer-to" data-i18n-placeholder="transfer.toPlaceholder" placeholder="username hoặc 123456789012345678" />
             </label>
-            <label>Số coin
+            <label><span data-i18n="transfer.amount">Số coin</span>
               <input id="transfer-amount" type="number" min="10" value="100" />
             </label>
             <div id="transfer-fee" class="fee-preview"></div>
-            <button id="transfer-btn" class="btn btn-primary btn-block">Chuyển</button>
+            <button id="transfer-btn" class="btn btn-primary btn-block"><span class="ico" data-icon="send"></span><span data-i18n="transfer.button">Chuyển</span></button>
           </div>
           <div class="card">
-            <div class="card-head"><h3>Lịch sử chuyển</h3></div>
+            <div class="card-head"><h3 data-i18n="transfer.history">Lịch sử chuyển</h3></div>
             <div id="transfer-history" class="mini-list"></div>
           </div>
         </div>
@@ -310,41 +469,49 @@
       <section id="view-profile" class="view">
         <div class="grid two-col">
           <div class="card">
-            <div class="card-head"><h3>👤 Tài khoản</h3></div>
-            <div class="kv"><span>Tên đăng nhập</span><b id="profile-username">—</b></div>
-            <div class="kv"><span>Discord</span><b id="profile-discord">Chưa liên kết</b></div>
-            <div class="kv"><span>Số dư</span><b id="profile-balance">0 xu</b></div>
-            <div class="kv"><span>Vai trò</span><b id="profile-role">Thành viên</b></div>
+            <div class="card-head"><h3><span class="ico" data-icon="profile"></span><span data-i18n="profile.account">Tài khoản</span></h3></div>
+            <div class="kv"><span data-i18n="profile.username">Tên đăng nhập</span><b id="profile-username">—</b></div>
+            <div class="kv"><span data-i18n="profile.discord">Discord</span><b id="profile-discord">Chưa liên kết</b></div>
+            <div class="kv"><span data-i18n="profile.balance">Số dư</span><b id="profile-balance">0 xu</b></div>
+            <div class="kv"><span data-i18n="profile.role">Vai trò</span><b id="profile-role">Thành viên</b></div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>🔗 Liên kết Discord</h3></div>
-            <p class="muted">Copy token và dùng lệnh <code>/connect &lt;token&gt;</code> trong Discord để đồng bộ coin.</p>
+            <div class="card-head"><h3><span class="ico" data-icon="link"></span><span data-i18n="profile.linkTitle">Liên kết Discord</span></h3></div>
+            <p class="muted" data-i18n="profile.linkDesc">Copy token và dùng lệnh /connect <token> trong Discord để đồng bộ coin.</p>
             <div id="link-box" class="link-box">
               <code id="link-token">—</code>
-              <button id="copy-token-btn" class="btn btn-soft">Copy</button>
+              <button id="copy-token-btn" class="btn btn-soft"><span class="ico" data-icon="copy"></span><span data-i18n="profile.copy">Copy</span></button>
             </div>
-            <button id="regen-token-btn" class="btn btn-ghost btn-block">Tạo token mới</button>
-            <div id="linked-note" class="linked-note hidden">✅ Đã liên kết Discord. Coin được đồng bộ tự động.</div>
+            <button id="regen-token-btn" class="btn btn-ghost btn-block"><span class="ico" data-icon="refresh"></span><span data-i18n="profile.regenerate">Tạo token mới</span></button>
+            <div id="linked-note" class="linked-note hidden" data-i18n="profile.linkedNote">Đã liên kết Discord. Coin được đồng bộ tự động.</div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>🎨 Giao diện</h3><span id="theme-current" class="pill">Bubble</span></div>
-            <p class="muted">Chọn kiểu hiển thị. <b>Bubble Interface</b> là mặc định, lấy cảm hứng từ giao diện bong bóng iOS 26+.</p>
+            <div class="card-head"><h3><span class="ico" data-icon="globe"></span><span data-i18n="profile.languageTitle">Ngôn ngữ</span></h3></div>
+            <p class="muted" data-i18n="profile.languageDesc">Chọn tiếng Việt hoặc tiếng Anh cho toàn bộ dashboard.</p>
+            <div class="theme-picker language-picker">
+              <button class="theme-option lang-option" data-language-choice="vi"><b>Tiếng Việt</b><small>Vietnamese</small></button>
+              <button class="theme-option lang-option" data-language-choice="en"><b>English</b><small>Tiếng Anh</small></button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3><span class="ico" data-icon="settings"></span><span data-i18n="profile.themeTitle">Giao diện</span></h3><span id="theme-current" class="pill">Bubble</span></div>
+            <p class="muted" data-i18n="profile.themeDesc">Chọn kiểu hiển thị. Bubble Interface là mặc định, lấy cảm hứng từ giao diện bong bóng iOS 26+.</p>
             <div class="theme-picker">
               <button class="theme-option" data-theme-choice="bubble">
                 <span class="theme-preview theme-preview-bubble"><i></i><i></i><i></i></span>
-                <b>Bubble Interface</b><small>Mặc định · trong suốt, bo tròn</small>
+                <b data-i18n="profile.bubble">Bubble Interface</b><small data-i18n="profile.bubbleDesc">Mặc định · trong suốt, bo tròn</small>
               </button>
               <button class="theme-option" data-theme-choice="classic">
                 <span class="theme-preview theme-preview-classic"><i></i><i></i><i></i></span>
-                <b>Classic</b><small>Giao diện cũ trước khi nâng cấp</small>
+                <b data-i18n="profile.classic">Classic</b><small data-i18n="profile.classicDesc">Giao diện cũ trước khi nâng cấp</small>
               </button>
             </div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>🔒 Đổi mật khẩu</h3></div>
-            <label>Mật khẩu hiện tại<input id="pw-current" type="password" /></label>
-            <label>Mật khẩu mới<input id="pw-new" type="password" /></label>
-            <button id="pw-btn" class="btn btn-primary btn-block">Cập nhật</button>
+            <div class="card-head"><h3><span class="ico" data-icon="lock"></span><span data-i18n="profile.passwordTitle">Đổi mật khẩu</span></h3></div>
+            <label><span data-i18n="auth.currentPassword">Mật khẩu hiện tại</span><input id="pw-current" type="password" /></label>
+            <label><span data-i18n="auth.passwordPlaceholder">Mật khẩu mới</span><input id="pw-new" type="password" /></label>
+            <button id="pw-btn" class="btn btn-primary btn-block" data-i18n="profile.update">Cập nhật</button>
           </div>
         </div>
       </section>
@@ -353,26 +520,27 @@
       <section id="view-admin" class="view">
         <div class="grid stats-grid" id="admin-stats"></div>
         <div class="tabs admin-tabs">
-          <button class="tab active" data-admin="user">👥 User</button>
-          <button class="tab" data-admin="shop">🛍️ Shop</button>
-          <button class="tab" data-admin="plugin">🧩 Plugin</button>
-          <button class="tab" data-admin="meows">🐱 Cookie</button>
-          <button class="tab" data-admin="appearance">🎨 Giao diện</button>
+          <button class="tab active" data-admin="user"><span class="ico" data-icon="users"></span><span data-i18n="admin.users">Người dùng</span></button>
+          <button class="tab" data-admin="shop"><span class="ico" data-icon="shop"></span><span data-i18n="admin.products">Sản phẩm</span></button>
+          <button class="tab" data-admin="plugin"><span class="ico" data-icon="plugin"></span><span data-i18n="admin.plugin">Plugin</span></button>
+          <button class="tab" data-admin="meows"><span class="ico" data-icon="cookie"></span><span data-i18n="admin.cookie">Cookie</span></button>
+          <button class="tab" data-admin="market"><span class="ico" data-icon="store"></span><span data-i18n="admin.market">Market</span></button>
+          <button class="tab" data-admin="appearance"><span class="ico" data-icon="image"></span><span data-i18n="admin.appearance">Giao diện</span></button>
         </div>
 
         <div id="admin-sub-user" class="admin-sub">
           <div class="grid two-col">
             <div class="card">
-              <div class="card-head"><h3>👥 Người dùng</h3></div>
+              <div class="card-head"><h3><span class="ico" data-icon="users"></span><span data-i18n="admin.users">Người dùng</span></h3></div>
               <div id="admin-users" class="mini-list"></div>
             </div>
             <div class="card">
-              <div class="card-head"><h3>🧾 Đơn hàng gần đây</h3></div>
+              <div class="card-head"><h3><span class="ico" data-icon="receipt"></span><span data-i18n="admin.recentOrders">Đơn hàng gần đây</span></h3></div>
               <div id="admin-purchases" class="mini-list"></div>
             </div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>🏆 Thưởng tuần</h3><button id="admin-payout-btn" class="btn btn-soft">Chạy trả thưởng ngay</button></div>
+            <div class="card-head"><h3><span class="ico" data-icon="gift"></span><span data-i18n="admin.weeklyRewards">Thưởng tuần</span></h3><button id="admin-payout-btn" class="btn btn-soft" data-i18n="admin.runPayout">Chạy trả thưởng ngay</button></div>
             <div id="admin-payouts" class="mini-list"></div>
           </div>
         </div>
@@ -380,22 +548,22 @@
         <div id="admin-sub-shop" class="admin-sub hidden">
           <div class="grid two-col">
             <div class="card">
-              <div class="card-head"><h3>➕ Tạo sản phẩm</h3></div>
-              <p class="muted">Hàng hoá lưu tự động lên GitHub Gist (cần GITHUB_TOKEN) và tự xoá tài khoản đã bán.</p>
-              <label>Tên sản phẩm<input id="admin-item-name" placeholder="VD: VMOS 1 tháng" /></label>
-              <label>Giá (xu)<input id="admin-item-price" type="number" min="1" value="100" /></label>
-              <label>Logo (link ảnh)<input id="admin-item-logo" placeholder="https://..." /></label>
-              <label>Danh mục
+              <div class="card-head"><h3><span class="ico" data-icon="plus"></span><span data-i18n="admin.createProduct">Tạo sản phẩm</span></h3></div>
+              <p class="muted" data-i18n="admin.createProductDesc">Hàng hoá lưu tự động lên GitHub Gist (cần GITHUB_TOKEN) và tự xoá tài khoản đã bán.</p>
+              <label><span data-i18n="admin.itemName">Tên sản phẩm</span><input id="admin-item-name" data-i18n-placeholder="admin.itemNamePlaceholder" placeholder="VD: VMOS 1 tháng" /></label>
+              <label><span data-i18n="admin.priceCoin">Giá (xu)</span><input id="admin-item-price" type="number" min="1" value="100" /></label>
+              <label><span data-i18n="admin.logo">Logo (link ảnh)</span><input id="admin-item-logo" placeholder="https://..." /></label>
+              <label><span data-i18n="admin.category">Danh mục</span>
                 <select id="admin-item-category"><option value="shop">Shop</option><option value="device">Device</option></select>
               </label>
-              <label>Mô tả<input id="admin-item-desc" placeholder="Mô tả ngắn" /></label>
-              <label>Danh sách tài khoản (mỗi dòng 1 tài khoản)
-                <textarea id="admin-item-accounts" rows="5" placeholder="mail|pass&#10;mail|pass"></textarea>
+              <label><span data-i18n="admin.description">Mô tả</span><input id="admin-item-desc" data-i18n-placeholder="admin.descPlaceholder" placeholder="Mô tả ngắn" /></label>
+              <label><span data-i18n="admin.accounts">Danh sách tài khoản (mỗi dòng 1 tài khoản)</span>
+                <textarea id="admin-item-accounts" rows="5" placeholder="mail|pass"></textarea>
               </label>
-              <button id="admin-create-btn" class="btn btn-primary btn-block">Tạo &amp; upload</button>
+              <button id="admin-create-btn" class="btn btn-primary btn-block" data-i18n="admin.createUpload">Tạo & upload</button>
             </div>
             <div class="card">
-              <div class="card-head"><h3>🛍️ Sản phẩm</h3><button id="admin-refresh" class="btn btn-ghost">Làm mới</button></div>
+              <div class="card-head"><h3><span class="ico" data-icon="shop"></span><span data-i18n="admin.products">Sản phẩm</span></h3><button id="admin-refresh" class="btn btn-ghost" data-i18n="admin.refresh">Làm mới</button></div>
               <div id="admin-items" class="admin-items"></div>
             </div>
           </div>
@@ -404,16 +572,16 @@
         <div id="admin-sub-plugin" class="admin-sub hidden">
           <div class="grid two-col">
             <div class="card">
-              <div class="card-head"><h3>🧩 Thêm plugin</h3></div>
-              <p class="muted">Dán link raw script (http/https). Script sẽ tự lưu vào GitHub Gist và load ngay, không cần deploy lại.</p>
-              <label>Tên plugin<input id="admin-plugin-name" placeholder="VD: hello" /></label>
-              <label>Link raw script<input id="admin-plugin-url" placeholder="https://raw.githubusercontent.com/.../plugin.js" /></label>
-              <button id="admin-plugin-create-btn" class="btn btn-primary btn-block">Tải &amp; kích hoạt</button>
+              <div class="card-head"><h3><span class="ico" data-icon="plugin"></span><span data-i18n="admin.addPlugin">Thêm plugin</span></h3></div>
+              <p class="muted" data-i18n="admin.pluginDesc">Dán link raw script (http/https). Script sẽ tự lưu vào GitHub Gist và load ngay, không cần deploy lại.</p>
+              <label><span data-i18n="admin.pluginName">Tên plugin</span><input id="admin-plugin-name" placeholder="VD: hello" /></label>
+              <label><span data-i18n="admin.pluginUrl">Link raw script</span><input id="admin-plugin-url" placeholder="https://raw.githubusercontent.com/.../plugin.js" /></label>
+              <button id="admin-plugin-create-btn" class="btn btn-primary btn-block" data-i18n="admin.pluginInstall">Tải & kích hoạt</button>
               <div id="admin-plugin-result" class="result-box hidden"></div>
-              <p class="muted" style="margin-top:14px">Plugin viết bằng <b>JavaScript / CommonJS</b>. API: <code>api.get/post(...)</code>, <code>api.command</code>, <code>api.events.on</code>, <code>api.plugins.expose/call</code>, <code>api.bot</code>, <code>api.web</code>, <code>api.coins</code>, <code>api.services</code>, <code>api.kv</code>…<br/>Web: <code>/plugin/&lt;id&gt;/&lt;path&gt;</code> · Discord: <code>/plugin ten:lenh</code><br/>📖 Xem docs: <a href="https://github.com/Quan3s/botdc/blob/main/docs/PLUGINS.md" target="_blank" rel="noopener">docs/PLUGINS.md</a></p>
+              <p class="muted" style="margin-top:14px">Plugin viết bằng <b>JavaScript / CommonJS</b>. API: <code>api.get/post(...)</code>, <code>api.command</code>, <code>api.events.on</code>, <code>api.plugins.expose/call</code>, <code>api.bot</code>, <code>api.web</code>, <code>api.coins</code>, <code>api.services</code>, <code>api.kv</code>…<br/>Web: <code>/plugin/&lt;id&gt;/&lt;path&gt;</code> · Discord: <code>/plugin ten:lenh</code><br/><span class="ico" data-icon="info" data-size="14"></span> <a href="https://github.com/Quan3s/botdc/blob/main/docs/PLUGINS.md" target="_blank" rel="noopener">docs/PLUGINS.md</a></p>
             </div>
             <div class="card">
-              <div class="card-head"><h3>📦 Plugin đã cài</h3><button id="admin-plugin-refresh" class="btn btn-ghost">Làm mới</button></div>
+              <div class="card-head"><h3><span class="ico" data-icon="plugin"></span><span data-i18n="admin.installedPlugins">Plugin đã cài</span></h3><button id="admin-plugin-refresh" class="btn btn-ghost" data-i18n="admin.refresh">Làm mới</button></div>
               <div id="admin-plugins" class="admin-items"></div>
             </div>
           </div>
@@ -422,44 +590,68 @@
         <div id="admin-sub-meows" class="admin-sub hidden">
           <div class="grid two-col">
             <div class="card">
-              <div class="card-head"><h3>🐱 Cookie dịch vụ nhanh</h3><span id="meows-status" class="pill">Chưa kiểm tra</span></div>
-              <p class="muted">Dán cookie lấy từ trang cung cấp dịch vụ. Hệ thống tự chuẩn hoá thành <code>.COOKIESECURITY=&lt;cookie&gt;</code> rồi lưu vào database, đổi không cần deploy lại.</p>
-              <label>Cookie<input id="admin-meows-cookie" type="password" placeholder=".COOKIESECURITY=..." autocomplete="off" /></label>
+              <div class="card-head"><h3><span class="ico" data-icon="cookie"></span><span data-i18n="admin.cookieTitle">Cookie dịch vụ nhanh</span></h3><span id="meows-status" class="pill" data-i18n="admin.cookieStatus">Chưa kiểm tra</span></div>
+              <p class="muted" data-i18n="admin.cookieDesc">Dán cookie lấy từ trang cung cấp dịch vụ. Hệ thống tự chuẩn hoá thành .COOKIESECURITY=&lt;cookie&gt; rồi lưu vào database, đổi không cần deploy lại.</p>
+              <label><span data-i18n="admin.cookie">Cookie</span><input id="admin-meows-cookie" type="password" placeholder=".COOKIESECURITY=..." autocomplete="off" /></label>
               <div class="device-actions">
-                <button id="admin-meows-save-btn" class="btn btn-primary">💾 Lưu cookie</button>
-                <button id="admin-meows-clear-btn" class="btn btn-danger">Xoá cookie</button>
+                <button id="admin-meows-save-btn" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="admin.saveCookie">Lưu cookie</span></button>
+                <button id="admin-meows-clear-btn" class="btn btn-danger"><span class="ico" data-icon="close"></span><span data-i18n="admin.clearCookie">Xoá cookie</span></button>
               </div>
               <div id="admin-meows-result" class="result-box hidden"></div>
             </div>
             <div class="card">
-              <div class="card-head"><h3>💰 Dịch vụ nhanh</h3></div>
+              <div class="card-head"><h3><span class="ico" data-icon="bolt"></span><span data-i18n="admin.quickServices">Dịch vụ nhanh</span></h3></div>
               <ul class="reward-list">
                 <li><span>UGPhone</span><b>49 xu</b></li>
                 <li><span>VSPhone VIP</span><b>15 xu</b></li>
               </ul>
-              <p class="muted" style="margin-top:14px">Dùng ở mục <b>Buy Device</b> hoặc lệnh mua nhanh trong Discord. Cookie hết hạn → cập nhật tại đây.</p>
+              <p class="muted" style="margin-top:14px"><span data-i18n="admin.proxyDesc">Dùng chung cho Cloud Status, Mua nhanh và mua UGPhone.</span></p>
             </div>
             <div class="card">
-              <div class="card-head"><h3>🌐 Proxy API (WARP / Worker)</h3><span id="status-proxy-source" class="pill">—</span></div>
-              <p class="muted">Dùng chung cho <b>Cloud Status</b>, <b>Mua nhanh</b> và <b>mua UGPhone</b>. Render không cài được WARP, nên dùng <b>Cloudflare Worker</b> (URL https://...) hoặc SOCKS5 <code>user:pass@host:port</code> từ máy chạy WARP. Env <code>MEOWS_API_PROXY</code> ưu tiên hơn ô này.</p>
-              <label>Proxy URL / SOCKS5<input id="admin-status-proxy" placeholder="https://worker.example.com/status" autocomplete="off" /></label>
+              <div class="card-head"><h3><span class="ico" data-icon="globe"></span><span data-i18n="admin.proxyTitle">Proxy API (WARP / Worker)</span></h3><span id="status-proxy-source" class="pill">—</span></div>
+              <p class="muted" data-i18n="admin.proxyDesc">Dùng chung cho Cloud Status, Mua nhanh và mua UGPhone. Env MEOWS_API_PROXY ưu tiên hơn ô này.</p>
+              <label><span data-i18n="admin.proxyUrl">Proxy URL / SOCKS5</span><input id="admin-status-proxy" placeholder="https://worker.example.com/status" autocomplete="off" /></label>
               <div class="device-actions">
-                <button id="admin-status-proxy-save-btn" class="btn btn-primary">💾 Lưu proxy</button>
-                <button id="admin-status-proxy-clear-btn" class="btn btn-danger">Xoá</button>
+                <button id="admin-status-proxy-save-btn" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="admin.saveProxy">Lưu proxy</span></button>
+                <button id="admin-status-proxy-clear-btn" class="btn btn-danger"><span class="ico" data-icon="close"></span><span data-i18n="admin.clear">Xoá</span></button>
               </div>
               <div id="admin-status-proxy-result" class="result-box hidden"></div>
             </div>
           </div>
         </div>
 
+        <div id="admin-sub-market" class="admin-sub hidden">
+          <div class="grid two-col">
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="seller"></span><span data-i18n="admin.sellerRequests">Yêu cầu seller</span></h3></div>
+              <div id="admin-sellers" class="mini-list"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="star"></span><span data-i18n="admin.pendingReviews">Review chờ duyệt</span></h3></div>
+              <div id="admin-reviews" class="mini-list"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="warning"></span><span data-i18n="admin.pendingComplaints">Khiếu nại chờ xử lý</span></h3></div>
+              <div id="admin-complaints" class="mini-list"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="exchange"></span><span data-i18n="admin.exchangeRateTitle">Tỷ lệ ACOIN</span></h3></div>
+              <p class="muted" data-i18n="dashboard.exchangeRate" data-vars='{"rate":"5"}'>Tỷ lệ: 1 ACOIN = 5 coin</p>
+              <label><span data-i18n="admin.coinPerAcoin">Coin mỗi 1 ACOIN</span><input id="admin-exchange-rate" type="number" min="1" value="5" /></label>
+              <button id="admin-exchange-rate-save" class="btn btn-primary btn-block"><span class="ico" data-icon="check"></span><span data-i18n="admin.saveRate">Lưu tỷ lệ</span></button>
+              <div id="admin-exchange-rate-result" class="result-box hidden"></div>
+            </div>
+          </div>
+        </div>
+
         <div id="admin-sub-appearance" class="admin-sub hidden">
           <div class="card">
-            <div class="card-head"><h3>🖼️ Ảnh nền dashboard</h3><span class="pill">Áp dụng cho mọi user</span></div>
-            <p class="muted">Dán URL ảnh trực tiếp (jpg/png/webp). Để trống rồi bấm <b>Dùng mặc định</b> để quay lại ảnh ASYNCTAS. Không cần deploy lại.</p>
-            <label>URL ảnh nền<input id="admin-background-url" type="text" placeholder="https://..." autocomplete="off" /></label>
+            <div class="card-head"><h3><span class="ico" data-icon="image"></span><span data-i18n="admin.backgroundTitle">Ảnh nền dashboard</span></h3><span class="pill" data-i18n="admin.backgroundBadge">Áp dụng cho mọi user</span></div>
+            <p class="muted" data-i18n="admin.backgroundDesc">Dán URL ảnh trực tiếp (jpg/png/webp). Để trống rồi bấm Dùng mặc định để quay lại ảnh ASYNCTAS. Không cần deploy lại.</p>
+            <label><span data-i18n="admin.backgroundUrl">URL ảnh nền</span><input id="admin-background-url" type="text" placeholder="https://..." autocomplete="off" /></label>
             <div class="device-actions">
-              <button id="admin-background-save-btn" class="btn btn-primary">💾 Lưu nền</button>
-              <button id="admin-background-default-btn" class="btn btn-soft">Dùng mặc định</button>
+              <button id="admin-background-save-btn" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="admin.saveBackground">Lưu nền</span></button>
+              <button id="admin-background-default-btn" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="admin.useDefault">Dùng mặc định</span></button>
             </div>
             <div id="admin-background-result" class="result-box hidden"></div>
             <div id="admin-background-preview" class="background-preview"></div>
@@ -470,9 +662,32 @@
   </main>
 </div>
 
+<!-- ============ CHAT PANEL ============ -->
+<aside id="chat-panel" class="chat-panel hidden" data-i18n-aria-label="chat.title">
+  <div class="chat-head">
+    <div><span class="ico" data-icon="chat"></span><b data-i18n="chat.title">Tin nhắn</b></div>
+    <button id="chat-close" class="icon-btn" type="button" data-i18n-aria-label="chat.close" title="Đóng"><span class="ico" data-icon="close"></span></button>
+  </div>
+  <div id="chat-contacts-view">
+    <div class="chat-search"><span class="ico" data-icon="search"></span><input id="chat-contact-search" data-i18n-placeholder="chat.searchPlaceholder" placeholder="Tìm liên hệ..." /></div>
+    <div id="chat-contacts" class="chat-contacts"></div>
+  </div>
+  <div id="chat-conversation-view" class="hidden">
+    <button id="chat-back" class="chat-back btn btn-ghost btn-sm"><span class="ico" data-icon="back"></span><span data-i18n="chat.back">Danh bạ</span></button>
+    <div id="chat-with-label" class="chat-with-label"></div>
+    <div id="chat-messages" class="chat-messages"></div>
+    <form id="chat-form" class="chat-form">
+      <input id="chat-input" data-i18n-placeholder="chat.inputPlaceholder" placeholder="Nhập tin nhắn..." autocomplete="off" />
+      <button id="chat-send" class="btn btn-primary" type="submit"><span class="ico" data-icon="send"></span><span data-i18n="chat.send">Gửi</span></button>
+    </form>
+  </div>
+</aside>
+
 <div id="toasts" class="toasts"></div>
 <div id="modal-root" class="modal-root hidden"></div>
 
+<script src="/icons.js"></script>
+<script src="/i18n.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
