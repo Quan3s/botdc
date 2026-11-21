@@ -8,7 +8,12 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 ### Bot Discord
 - `/reg` — panel chọn dịch vụ tạo tài khoản nhanh (VMOS, VSPhone).
 - `/buycloud` — mua máy cloud qua Hanami (UGPhone / VMOS / VSPhone).
-- `/getlink` — nhận link nhiệm vụ vượt link (2 lượt/ngày/dịch vụ, +50 xu).
+- `/getlink` — nhận link nhiệm vụ: **Link4M / LayMa +50 xu** (2 lượt/ngày), **bbmkts +25 xu** (1 lượt/ngày).
+- `/tasks` — xem tiến độ từng dịch vụ hôm nay (cùng dữ liệu `GET /api/tasks`).
+- `/vmosfree` — lấy 1 tài khoản VMOS free mỗi ngày (cần đã vượt ≥ 1 link).
+- `/cloudstatus` — xem trạng thái VMOS Cloud / VSPhone (cùng nguồn với web).
+- `/theme`, `/username`, `/history`, `/buy`, `/leaderboard` — đồng bộ các chức năng web (giao diện, tên tài khoản, lịch sử mua/chuyển, mua shop, BXH) lên Discord.
+- `/wallpaper`, `/proxy`, `/cookie` — (Admin) đổi ảnh nền, proxy trạng thái và cookie Meows ngay trong Discord.
 - `/shop` — xem danh sách sản phẩm, giá, logo và tồn kho.
 - `/connect <token>` — liên kết tài khoản web với Discord để **cộng dồn coin** (coin web + coin Discord).
 - `/token` — lấy **token cố định** của tài khoản (bằng `web_users.link_token`); dùng để đăng nhập web hoặc `/connect`.
@@ -25,7 +30,7 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 - **Giftcode**: nhập mã quà để nhận coin (mã tạo từ lệnh `/gen`).
 - **Buy Device**: mua cloud (Hanami), reg tài khoản và mua nhanh (UGPhone 49 xu / VSPhone VIP 15 xu).
 - **Cloud Status** (hiển thị cho mọi người, không cần đăng nhập): trạng thái **VMOS Cloud** và **VSPhone** của dịch vụ mua nhanh (lấy từ `GET https://meows.vn/api/cloud-status`). Tự làm mới mỗi 60s; API public `GET /api/status/cloud` (cache 60s, `?force=1` để lấy mới ngay). `status: offline` = hết máy. Nếu IP server bị Cloudflare chặn (`403 - Just a moment...`), hệ thống tự thử `www.meows.vn` rồi tới proxy đọc nội dung; ô thời gian sẽ hiện `proxy` khi đang dùng đường dự phòng. Cả 3 đường cùng lỗi mới hiện thông báo lỗi.
-- **Nhiệm vụ**: lấy link vượt link, theo dõi lượt trong ngày & trong tuần.
+- **Nhiệm vụ**: lấy link vượt link, theo dõi lượt trong ngày & trong tuần. 3 dịch vụ dùng chung cấu hình `link-providers.js`: Link4M/LayMa 50 xu (2 lượt/ngày), **bbmkts 25 xu (1 lượt/ngày)**. Token bbmkts lấy từ `BBMKTS_API_TOKEN` (alias `VUOTNHANH_API_TOKEN`), gọi `https://bbmkts.com/dapi?token=...&longurl=...&format=text`; hỗ trợ cả response TEXT lẫn JSON `{"status":"success","bbmktsUrl":"..."}`. Web và bot cùng đọc một cấu hình nên reward luôn đồng nhất.
 - **Điểm danh mỗi ngày**: nút claim nhận random **1–20 xu** (cùng bucket với `/daily` Discord). Nếu đã vượt **≥ 1 link** thì mỗi ngày còn lấy được **1 tài khoản VMOS free**, không trừ xu.
 - **Xếp hạng**: coin · vượt link **7 ngày** (có thưởng, reset sau mỗi kỳ) · vượt link **tổng** (không thưởng). Tên hiển thị là username, không phải ID số.
 - **Chuyển tiền**: chuyển coin cho người khác (phí 5%).
@@ -191,7 +196,7 @@ Muốn tự đăng ký WARP ngay trên Render (không cần secret) thì thêm `
 
 ## Biến môi trường
 Xem `.env.example`. Các biến quan trọng: `DISCORD_TOKEN`, `ADMIN_DISCORD_ID`,
-`SUPABASE_URL`, `SUPABASE_KEY`, `RENDER_DOMAIN`, `GITHUB_TOKEN`, `HANAMI_TOKEN`, `LINK4M_API_KEY`, `LAYMA_TOKEN`, `MEOWS_API_PROXY` / `MEOWS_STATUS_PROXY` (tuỳ chọn, Worker hoặc SOCKS5/WARP), `MEOWS_PROXY_KEY` (tuỳ chọn, secret của Worker).
+`SUPABASE_URL`, `SUPABASE_KEY`, `RENDER_DOMAIN`, `GITHUB_TOKEN`, `HANAMI_TOKEN`, `LINK4M_API_KEY`, `LAYMA_TOKEN`, `BBMKTS_API_TOKEN` (hoặc alias `VUOTNHANH_API_TOKEN`), `MEOWS_API_PROXY` / `MEOWS_STATUS_PROXY` (tuỳ chọn, Worker hoặc SOCKS5/WARP), `MEOWS_PROXY_KEY` (tuỳ chọn, secret của Worker).
 
 ## Bảo mật
 - Token GitHub/Hanami chỉ nằm ở server, không bao giờ gửi xuống trình duyệt.

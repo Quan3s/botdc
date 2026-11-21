@@ -7,6 +7,8 @@ const db = require('./database');
 const services = require('./services');
 const web = require('./web');
 const weekly = require('./weekly');
+const shop = require('./shop');
+const linkProviders = require('./link-providers');
 const pluginEngine = require('./plugin-engine');
 const { generateUniqueLinkToken, randomId, hashPassword } = require('./utils');
 const { HANAMI_URL, CLOUD_NAMES, REG_COST, MEOWS_COSTS, MEOWS_NAMES, vsphoneReady, buyHanami, regVmosAccount, regVsphoneAccount } = services;
@@ -71,6 +73,45 @@ async function saveDiscordProfile(discordUser) {
     }
 }
 
+/** Đảm bảo Discord user có tài khoản web liên kết (dùng cho các lệnh đồng bộ web). */
+async function ensureWebUserForDiscord(userId, discordUser) {
+    await saveDiscordProfile(discordUser);
+    let user = await db.getWebUserByDiscordId(userId);
+    if (user) {
+        if (!user.link_token) {
+            const token = await generateUniqueLinkToken(db);
+            user = (await db.updateWebUser(user.id, { link_token: token })) || { ...user, link_token: token };
+        }
+        return user;
+    }
+    let username;
+    do {
+        username = `disc_${String(userId).slice(-6)}${crypto.randomBytes(2).toString('hex')}`;
+    } while (await db.getWebUserByUsername(username));
+    user = await db.createWebUser({
+        id: randomId(),
+        username,
+        password_hash: hashPassword(crypto.randomBytes(24).toString('hex')),
+        link_token: await generateUniqueLinkToken(db),
+        discord_id: userId,
+    });
+    hook('bot:user:autolinked', { discordId: userId, webUserId: user.id, username });
+    return user;
+}
+
+function maskProxy(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '(chưa đặt)';
+    return raw.replace(/\/\/([^:@/]+):([^@/]+)@/, '//$1:***@');
+}
+
+function deviceStatusLine(label, device) {
+    const ok = device && device.status === 'online';
+    const icon = ok ? '🟢' : '🔴';
+    const msg = device && device.message ? String(device.message).slice(0, 120) : '';
+    return `${icon} **${label}**: ${ok ? 'Online' : 'Offline'}${msg ? ` — ${msg}` : ''}`;
+}
+
 // heartbeat watchdog: nếu bot im lặng quá 2 phút -> relogin
 const HEARTBEAT_TIMEOUT = 2 * 60 * 1000;
 let _heartbeatTimer = null;
@@ -126,7 +167,9 @@ app.get('/redeem', async (req, res) => {
         if (!sessionData) return renderError("Link này đã được sử dụng hoặc đã hết hạn.");
 
         const { user_id, provider } = sessionData;
-        const newBalance = await db.updateCoins(user_id, 50);
+        const providerConfig = linkProviders.get(provider);
+        const reward = providerConfig ? providerConfig.reward : linkProviders.rewardFor(provider);
+        const newBalance = await db.updateCoins(user_id, reward);
         let weeklyCount = 0;
         let period = null;
         try {
@@ -137,16 +180,17 @@ app.get('/redeem', async (req, res) => {
         }
 
         hook('bot:link:redeemed', {
-            sid, userKey: user_id, provider, reward: 50,
-            newBalance, weeklyCount, period,
+            sid, userKey: user_id, provider,
+            providerName: providerConfig ? providerConfig.name : provider,
+            reward, newBalance, weeklyCount, period,
         });
-        console.log(`[WEB] User ${user_id} vượt link ${provider}. +50 xu. Số dư: ${newBalance} | tuần này: ${weeklyCount}`);
+        console.log(`[WEB] User ${user_id} vượt link ${provider}. +${reward} xu. Số dư: ${newBalance} | tuần này: ${weeklyCount}`);
 
         res.send(`
             <body style="background:#080d0b; color:#fff; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; margin:0;">
                 <div style="background:#101a14; padding:30px; border-radius:16px; border:1px solid #39f58a; text-align:center; max-width:400px; width:100%;">
                     <h2 style="color:#39f58a;">✅ VƯỢT LINK THÀNH CÔNG!</h2>
-                    <p style="font-size:16px; margin-bottom:20px;">Bạn đã nhận được <b style="color:#ffc107;">+50 xu</b>.</p>
+                    <p style="font-size:16px; margin-bottom:20px;">Bạn đã nhận được <b style="color:#ffc107;">+${reward} xu</b>.</p>
                     <p style="color:#91a096; font-size:14px; margin-bottom:6px;">Số dư hiện tại: <b style="color:#39f58a;">${newBalance} xu</b></p>
                     <p style="color:#91a096; font-size:14px; margin-bottom:20px;">Vượt link tuần này: <b style="color:#ffc107;">${weeklyCount}</b></p>
                     <a href="https://discord.com/app" style="background:#39f58a; color:#000; text-decoration:none; padding:10px 20px; border-radius:8px; font-weight:bold; display:inline-block;">Quay lại Discord</a>
@@ -256,11 +300,42 @@ client.once('ready', async () => {
     resetHeartbeat(); // bắt đầu watchdog ngay khi bot sẵn sàng
     hook('bot:ready', { botId: client.user.id, username: client.user.username, at: new Date().toISOString() });
     const commands = [
-        new SlashCommandBuilder().setName('getlink').setDescription('Lấy link nhiệm vụ để nhận 50 xu (Tối đa 2 lần/ngày)')
+        new SlashCommandBuilder().setName('getlink').setDescription('Lấy link nhận xu (Link4M/LayMa 50 xu, bbmkts 25 xu)')
             .addStringOption(opt => opt.setName('provider').setDescription('Chọn dịch vụ rút gọn link').addChoices(
-                { name: 'Link4M', value: 'link4m' },
-                { name: 'LayMa', value: 'layma' }
+                { name: 'Link4M — 50 xu', value: 'link4m' },
+                { name: 'LayMa — 50 xu', value: 'layma' },
+                { name: 'bbmkts — 25 xu', value: 'bbmkts' }
             ).setRequired(false)),
+        new SlashCommandBuilder().setName('tasks').setDescription('Xem tiến độ nhiệm vụ vượt link hôm nay'),
+        new SlashCommandBuilder().setName('vmosfree').setDescription('Lấy 1 VMOS free mỗi ngày (cần vượt ít nhất 1 link)'),
+        new SlashCommandBuilder().setName('cloudstatus').setDescription('Xem trạng thái VMOS Cloud và VSPhone'),
+        new SlashCommandBuilder().setName('theme').setDescription('Đổi giao diện web (Bubble / Classic)')
+            .addStringOption(o => o.setName('kieu').setDescription('Chọn giao diện').setRequired(true)
+                .addChoices({ name: 'Bubble Interface', value: 'bubble' }, { name: 'Classic', value: 'classic' })),
+        new SlashCommandBuilder().setName('username').setDescription('Đổi tên tài khoản web đã liên kết Discord')
+            .addStringOption(o => o.setName('ten_moi').setDescription('Tên mới 3-24 ký tự, có chữ cái').setRequired(true)),
+        new SlashCommandBuilder().setName('history').setDescription('Xem lịch sử mua hàng / chuyển xu trên web')
+            .addStringOption(o => o.setName('loai').setDescription('Loại lịch sử').setRequired(true)
+                .addChoices({ name: 'Mua hàng', value: 'mua' }, { name: 'Chuyển xu', value: 'chuyen' })),
+        new SlashCommandBuilder().setName('buy').setDescription('Mua sản phẩm trong shop bằng xu')
+            .addStringOption(o => o.setName('item_id').setDescription('ID sản phẩm (xem /shop)').setRequired(true))
+            .addIntegerOption(o => o.setName('soluong').setDescription('Số lượng (1-10)').setRequired(false).setMinValue(1).setMaxValue(10)),
+        new SlashCommandBuilder().setName('leaderboard').setDescription('Xem bảng xếp hạng xu hoặc vượt link')
+            .addStringOption(o => o.setName('loai').setDescription('Loại bảng xếp hạng').setRequired(true)
+                .addChoices(
+                    { name: 'Xu', value: 'coins' },
+                    { name: 'Vượt link 7 ngày', value: 'week' },
+                    { name: 'Vượt link tổng', value: 'all' }
+                )),
+        new SlashCommandBuilder().setName('wallpaper').setDescription('(Admin) Đổi ảnh nền web')
+            .addStringOption(o => o.setName('url').setDescription('URL ảnh http(s), để trống để xem hiện tại').setRequired(false))
+            .addBooleanOption(o => o.setName('xoa').setDescription('Đặt lại ảnh nền mặc định').setRequired(false)),
+        new SlashCommandBuilder().setName('proxy').setDescription('(Admin) Xem / đổi proxy trạng thái Meows')
+            .addStringOption(o => o.setName('proxy').setDescription('URL proxy mới, để trống để xem hiện tại').setRequired(false))
+            .addBooleanOption(o => o.setName('xoa').setDescription('Xoá proxy đang dùng').setRequired(false)),
+        new SlashCommandBuilder().setName('cookie').setDescription('(Admin) Cập nhật cookie Meows dùng cho mua máy')
+            .addStringOption(o => o.setName('cookie').setDescription('Cookie mới (không hiện lại nội dung)').setRequired(false))
+            .addBooleanOption(o => o.setName('xoa').setDescription('Xoá cookie hiện tại').setRequired(false)),
         new SlashCommandBuilder().setName('reg').setDescription('Tạo tài khoản cloud nhanh (Panel chọn dịch vụ)'),
         new SlashCommandBuilder().setName('vi').setDescription('Xem số dư xu của bạn'),
         new SlashCommandBuilder().setName('code').setDescription('Nhập Gift Code để nhận xu')
@@ -590,24 +665,7 @@ client.on('interactionCreate', async interaction => {
     if (interaction.commandName === 'token') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         try {
-            await saveDiscordProfile(interaction.user);
-            let user = await db.getWebUserByDiscordId(userId);
-            if (!user) {
-                let username;
-                do {
-                    username = `disc_${String(userId).slice(-6)}${crypto.randomBytes(2).toString('hex')}`;
-                } while (await db.getWebUserByUsername(username));
-                user = await db.createWebUser({
-                    id: randomId(),
-                    username,
-                    password_hash: hashPassword(crypto.randomBytes(24).toString('hex')),
-                    link_token: await generateUniqueLinkToken(db),
-                    discord_id: userId,
-                });
-            } else if (!user.link_token) {
-                const token = await generateUniqueLinkToken(db);
-                user = (await db.updateWebUser(user.id, { link_token: token })) || { ...user, link_token: token };
-            }
+            const user = await ensureWebUserForDiscord(userId, interaction.user);
 
             const sync = await db.getCoins(userId);
             const needRename = !/[A-Za-z]/.test(String(user.username || ''));
@@ -667,50 +725,344 @@ client.on('interactionCreate', async interaction => {
 
     // LỆNH /getlink
     if (interaction.commandName === 'getlink') {
-        const provider = interaction.options.getString('provider') || 'link4m';
+        const provider = linkProviders.get(interaction.options.getString('provider') || 'link4m');
+        if (!provider) {
+            return interaction.reply({ content: '❌ Dịch vụ không hợp lệ.', flags: MessageFlags.Ephemeral });
+        }
         const today = getTodayString();
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
-            const currentCount = await db.checkDailyLimit(userId, provider, today);
-            if (currentCount >= 2) {
-                return await interaction.editReply({ content: `❌ Bạn đã đạt giới hạn **2 lần/ngày** cho dịch vụ này.` });
+            const currentCount = await db.checkDailyLimit(userId, provider.id, today);
+            if (currentCount >= provider.dailyMax) {
+                return await interaction.editReply({ content: `❌ Bạn đã đạt giới hạn **${provider.dailyMax} lần/ngày** cho dịch vụ này.` });
             }
 
             const sessionId = crypto.randomBytes(16).toString('hex');
-            await db.createSession(sessionId, userId, provider);
+            await db.createSession(sessionId, userId, provider.id);
+            const base = (process.env.RENDER_DOMAIN || `http://localhost:${PORT}`).replace(/\/$/, '');
+            const targetUrl = `${base}/redeem?sid=${sessionId}`;
 
-            const targetUrl = `${process.env.RENDER_DOMAIN}/redeem?sid=${sessionId}`;
-            let finalUrl = '';
-            let providerName = '';
-
-            if (provider === 'link4m') {
-                providerName = 'Link4M';
-                const apiUrl = `https://link4m.co/api-shorten/v2?api=${process.env.LINK4M_API_KEY}&url=${encodeURIComponent(targetUrl)}`;
-                const res = await fetch(apiUrl, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } });
-                const data = await res.json();
-                if (data.status === "success" && data.shortenedUrl) finalUrl = data.shortenedUrl;
-                else throw new Error("Lỗi từ Link4M");
-            } else if (provider === 'layma') {
-                providerName = 'LayMa';
-                const apiUrl = `https://api.layma.net/api/admin/shortlink/quicklink?tokenUser=${process.env.LAYMA_TOKEN}&format=json&url=${encodeURIComponent(targetUrl)}`;
-                const res = await fetch(apiUrl);
-                const data = await res.json();
-                if (data.success === true && data.html) finalUrl = data.html;
-                else throw new Error("Lỗi từ LayMa");
+            let finalUrl;
+            try {
+                finalUrl = await linkProviders.shorten(provider.id, targetUrl);
+            } catch (e) {
+                await db.getAndDeleteSession(sessionId).catch(() => {});
+                throw e;
             }
 
-            await db.increaseDailyLimit(userId, provider, today);
-            hook('bot:link:start', { userId, provider, sid: sessionId, targetUrl, finalUrl });
+            await db.increaseDailyLimit(userId, provider.id, today);
+            hook('bot:link:start', {
+                userId, provider: provider.id, providerName: provider.name,
+                reward: provider.reward, dailyMax: provider.dailyMax,
+                sid: sessionId, targetUrl, finalUrl,
+            });
 
             const embed = new EmbedBuilder()
-                .setColor(provider === 'link4m' ? 0xffc107 : 0x8b5cf6)
-                .setTitle(`🔗 LINK NHẬN XU (${providerName})`)
-                .setDescription(`Bấm vào link để vượt nhiệm vụ và nhận **50 xu**.\nBạn còn **${1 - currentCount}** lượt cho hôm nay.`)
+                .setColor(provider.color)
+                .setTitle(`🔗 LINK NHẬN XU (${provider.name})`)
+                .setDescription(`Bấm vào link để vượt nhiệm vụ và nhận **${provider.reward} xu**.\nBạn còn **${provider.dailyMax - currentCount - 1}** lượt cho hôm nay.`)
                 .addFields({ name: 'Link nhiệm vụ', value: finalUrl });
             await interaction.editReply({ embeds: [embed] });
         } catch (e) {
             await interaction.editReply({ content: `❌ ${e.message}` });
+        }
+    }
+
+    // LỆNH /tasks — tiến độ từng provider (đồng bộ GET /api/tasks)
+    if (interaction.commandName === 'tasks') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const today = getTodayString();
+            const providers = Object.values(linkProviders.PROVIDERS);
+            const counts = await Promise.all(providers.map(p => db.checkDailyLimit(userId, p.id, today)));
+            const lines = providers.map((p, i) => {
+                const used = Number(counts[i]) || 0;
+                return `${p.name}: **${used}/${p.dailyMax}** · +${p.reward} xu/lần · còn ${Math.max(0, p.dailyMax - used)} lượt`;
+            });
+            const embed = new EmbedBuilder()
+                .setColor(0x39f58a)
+                .setTitle('📊 Nhiệm vụ vượt link hôm nay')
+                .setDescription(`Ngày ${today}\n${lines.join('\n')}`)
+                .setFooter({ text: 'Dùng /getlink để lấy link nhiệm vụ.' });
+            return interaction.editReply({ embeds: [embed] });
+        } catch (e) {
+            return interaction.editReply({ content: `❌ Lỗi tải tiến độ: ${e.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /vmosfree — đồng bộ POST /api/device/vmos-free
+    if (interaction.commandName === 'vmosfree') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (busyUsers.has(userId)) {
+            return interaction.editReply({ content: '⏳ Bạn đang có thao tác khác, thử lại sau giây lát.' });
+        }
+        busyUsers.add(userId);
+        try {
+            const today = getTodayString();
+            const [claimed, linkCount] = await Promise.all([
+                db.checkDailyLimit(userId, 'vmos_free', today),
+                db.getAllTimeLinkCount(userId),
+            ]);
+            if (claimed > 0) {
+                return interaction.editReply({ content: '⏰ Hôm nay bạn đã lấy VMOS free rồi. Quay lại sau 0h giờ VN nhé!' });
+            }
+            if (linkCount < 1) {
+                return interaction.editReply({ content: '🔒 Bạn cần vượt ít nhất **1 link** để mở quà VMOS free.' });
+            }
+            const result = await services.regVmosAccount();
+            await db.increaseDailyLimit(userId, 'vmos_free', today);
+            hook('bot:device:vmos-free', { userId, linkCount, date: today });
+            return await sendAccountWithCopy(interaction, {
+                header: '🎁 VMOS free hôm nay',
+                copyText: result.copyText,
+                lines: [
+                    `📧 \`${result.account}\``,
+                    `🔑 \`${result.password}\``,
+                    `🔗 Đã vượt ${linkCount} link từ trước đến nay.`,
+                ],
+            });
+        } catch (e) {
+            console.error('[vmosfree] lỗi:', e);
+            return interaction.editReply({ content: `❌ ${e.message}`.slice(0, 1900) });
+        } finally {
+            busyUsers.delete(userId);
+        }
+    }
+
+    // LỆNH /cloudstatus — đồng bộ GET /api/status/cloud
+    if (interaction.commandName === 'cloudstatus') {
+        await interaction.deferReply();
+        try {
+            const data = await services.getCloudStatus({ force: false });
+            const embed = new EmbedBuilder()
+                .setColor(0x39f58a)
+                .setTitle('📡 Cloud Status')
+                .setDescription([
+                    deviceStatusLine('VMOS Cloud', data.vmos),
+                    deviceStatusLine('VSPhone', data.vsphone),
+                ].join('\n'))
+                .setFooter({ text: `Nguồn: ${data.source || 'cache'} · ${new Date(data.checkedAt).toLocaleTimeString('vi-VN')}` });
+            if (data.errors && data.errors.length) embed.addFields({ name: '⚠️ Lỗi', value: data.errors.join('\n').slice(0, 900) });
+            return interaction.editReply({ embeds: [embed] });
+        } catch (e) {
+            return interaction.editReply({ content: `❌ Lỗi kiểm tra Cloud Status: ${e.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /theme — đồng bộ POST /api/profile/theme
+    if (interaction.commandName === 'theme') {
+        const theme = String(interaction.options.getString('kieu') || '').toLowerCase();
+        if (!['bubble', 'classic'].includes(theme)) {
+            return interaction.reply({ content: '❌ Theme không hợp lệ.', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const webUser = await ensureWebUserForDiscord(userId, interaction.user);
+            await db.setKv(`theme:${webUser.id}`, theme);
+            hook('bot:profile:theme', { userId, webUserId: webUser.id, theme });
+            return interaction.editReply({ content: theme === 'bubble' ? '🫧 Đã dùng **Bubble Interface** trên web.' : '🪟 Đã dùng giao diện **Classic** trên web.' });
+        } catch (e) {
+            return interaction.editReply({ content: `❌ Lỗi đổi giao diện: ${e.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /username — đồng bộ POST /api/profile/username
+    if (interaction.commandName === 'username') {
+        const name = String(interaction.options.getString('ten_moi') || '').trim();
+        if (!/^[a-zA-Z0-9_]{3,24}$/.test(name) || !/[A-Za-z]/.test(name)) {
+            return interaction.reply({ content: '❌ Tên mới phải 3-24 ký tự, chỉ dùng chữ cái, số, gạch dưới và có ít nhất 1 chữ cái.', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const webUser = await ensureWebUserForDiscord(userId, interaction.user);
+            const exists = await db.getWebUserByUsername(name);
+            if (exists && String(exists.id) !== String(webUser.id)) {
+                return interaction.editReply({ content: '❌ Tên này đã được người khác dùng.' });
+            }
+            await db.updateWebUser(webUser.id, { username: name, username_lower: name.toLowerCase() });
+            hook('bot:profile:username', { userId, webUserId: webUser.id, username: name });
+            return interaction.editReply({ content: `✅ Đã đổi tên tài khoản web thành **${name}**.` });
+        } catch (e) {
+            return interaction.editReply({ content: `❌ Lỗi đổi tên: ${e.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /history — đồng bộ GET /api/purchases + GET /api/transfers
+    if (interaction.commandName === 'history') {
+        const type = interaction.options.getString('loai');
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const webUser = await ensureWebUserForDiscord(userId, interaction.user);
+            if (type === 'chuyen') {
+                const list = await db.getTransfersByUser(webUser.id, 10);
+                if (!list.length) return interaction.editReply({ content: '📭 Chưa có lịch sử chuyển xu nào.' });
+                const lines = list.map(t => `• ${Number(t.amount) || 0} xu → ${t.to_label || '?'} (phí ${Number(t.fee) || 0}) · ${String(t.created_at || '').slice(0, 10)}`);
+                return interaction.editReply({ content: `💸 **Lịch sử chuyển xu**\n${lines.join('\n')}`.slice(0, 1900) });
+            }
+            const list = await db.getPurchasesByUser(webUser.id, 10);
+            if (!list.length) return interaction.editReply({ content: '📭 Chưa có lịch sử mua hàng nào.' });
+            const lines = list.map(p => `• ${p.item_name || '?'} ×${Number(p.quantity) || 1} — ${Number(p.total_price) || 0} xu · ${String(p.created_at || '').slice(0, 10)}`);
+            return interaction.editReply({ content: `🛒 **Lịch sử mua hàng**\n${lines.join('\n')}`.slice(0, 1900) });
+        } catch (e) {
+            return interaction.editReply({ content: `❌ Lỗi tải lịch sử: ${e.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH /buy — đồng bộ POST /api/shop/buy
+    if (interaction.commandName === 'buy') {
+        const itemId = String(interaction.options.getString('item_id') || '');
+        const quantity = interaction.options.getInteger('soluong') || 1;
+        if (quantity < 1 || quantity > 10) {
+            return interaction.reply({ content: '❌ Số lượng từ 1-10.', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (busyUsers.has(userId)) {
+            return interaction.editReply({ content: '⏳ Bạn đang có thao tác khác, thử lại sau giây lát.' });
+        }
+        busyUsers.add(userId);
+        try {
+            const item = await db.getShopItem(itemId);
+            if (!item || item.active === false) return interaction.editReply({ content: '❌ Sản phẩm không tồn tại.' });
+            if (Number(item.stock) < quantity) return interaction.editReply({ content: `❌ Kho chỉ còn ${item.stock} sản phẩm.` });
+
+            const total = Number(item.price) * quantity;
+            const balance = await db.getCoins(userId);
+            if (balance < total) {
+                return interaction.editReply({ content: `❌ Bạn không đủ xu (cần **${total}**). Số dư: **${balance} xu**.` });
+            }
+
+            let taken;
+            try {
+                taken = await shop.takeStock(item, quantity);
+            } catch (e) {
+                return interaction.editReply({ content: `❌ ${e.message}`.slice(0, 1900) });
+            }
+            const newBalance = await db.updateCoins(userId, -total);
+            try {
+                await shop.persistStock(item, taken.stockFields);
+                const webUser = await ensureWebUserForDiscord(userId, interaction.user);
+                await db.createPurchase({
+                    id: randomId(),
+                    web_user_id: webUser.id,
+                    item_id: item.id,
+                    item_name: item.name,
+                    quantity,
+                    unit_price: Number(item.price),
+                    total_price: total,
+                    accounts: taken.accounts.join('\n'),
+                });
+            } catch (e) {
+                await db.updateCoins(userId, total).catch(() => {});
+                await shop.restoreStock(item, taken.accounts);
+                throw e;
+            }
+            hook('bot:shop:purchase', {
+                userId, itemId: item.id, itemName: item.name,
+                quantity, total, remaining: taken.remaining, newBalance,
+            });
+            return await sendAccountWithCopy(interaction, {
+                header: `Mua ${item.name} thành công!`,
+                copyText: taken.accounts.join('\n'),
+                lines: [
+                    `📦 Số lượng: **${quantity}** · Kho còn: **${taken.remaining}**`,
+                    `💰 Đã trừ: **${total} xu** · Số dư: **${newBalance} xu**`,
+                ],
+            });
+        } catch (e) {
+            console.error('[buy] lỗi:', e);
+            return interaction.editReply({ content: `❌ Lỗi khi mua: ${e.message}`.slice(0, 1900) });
+        } finally {
+            busyUsers.delete(userId);
+        }
+    }
+
+    // LỆNH /leaderboard — đồng bộ 4 API bảng xếp hạng của web
+    if (interaction.commandName === 'leaderboard') {
+        const type = interaction.options.getString('loai');
+        await interaction.deferReply();
+        try {
+            let rows = [];
+            let title = '🏆 Bảng xếp hạng';
+            if (type === 'week' || type === 'all') {
+                const period = type === 'week' ? await weekly.getLinkPeriod() : null;
+                rows = type === 'week'
+                    ? await db.getLinkLeaderboard(period, 10)
+                    : await db.getAllTimeLinkLeaderboard(10);
+                title = type === 'week' ? `🔗 Vượt link 7 ngày — ${period}` : '🏅 Vượt link tổng';
+            } else {
+                rows = await db.getTopCoins(10);
+                title = '💰 Bảng xếp hạng xu';
+            }
+            const lines = [];
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const key = String(row.user_id || row.user || '');
+                const valueKey = type === 'coins' ? 'balance' : 'count';
+                let name = key.startsWith('web_') ? key : `<@${key}>`;
+                if (key.startsWith('web_')) {
+                    const u = await db.getWebUserById(key.slice(4));
+                    if (u && u.username) name = u.username;
+                }
+                const value = Number(row[valueKey]) || Number(row.balance) || Number(row.count) || 0;
+                lines.push(`${i + 1}. **${name}** — ${value}${type === 'coins' ? ' xu' : ' link'}`);
+            }
+            return interaction.editReply({
+                embeds: [new EmbedBuilder().setColor(0x39f58a).setTitle(title).setDescription(lines.join('\n') || 'Chưa có dữ liệu.')],
+            });
+        } catch (e) {
+            return interaction.editReply({ content: `❌ Lỗi tải bảng xếp hạng: ${e.message}`.slice(0, 1900) });
+        }
+    }
+
+    // LỆNH ADMIN /wallpaper, /proxy, /cookie — đồng bộ phần cài đặt web
+    if (['wallpaper', 'proxy', 'cookie'].includes(interaction.commandName)) {
+        if (!(await isAdmin(userId))) {
+            return interaction.reply({ content: '❌ Không có quyền.', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            if (interaction.commandName === 'wallpaper') {
+                const reset = interaction.options.getBoolean('xoa') === true;
+                const url = reset ? '' : String(interaction.options.getString('url') || '').trim();
+                if (!reset && url && !/^https?:\/\//i.test(url)) {
+                    return interaction.editReply({ content: '❌ URL ảnh phải bắt đầu bằng http:// hoặc https://' });
+                }
+                if (interaction.options.getString('url') === null && !reset) {
+                    const current = await db.getKv('admin_background_url');
+                    return interaction.editReply({ content: `🖼️ Ảnh nền hiện tại: ${current || '(mặc định)'}` });
+                }
+                await db.setKv('admin_background_url', url);
+                hook('bot:admin:background', { url, by: userId });
+                return interaction.editReply({ content: url ? `✅ Đổi ảnh nền web thành \`${url}\`.` : '✅ Đặt lại ảnh nền mặc định.' });
+            }
+
+            if (interaction.commandName === 'proxy') {
+                const reset = interaction.options.getBoolean('xoa') === true;
+                const value = reset ? '' : interaction.options.getString('proxy');
+                if (value === null && !reset) {
+                    const current = await db.getKv('meows_status_proxy');
+                    return interaction.editReply({ content: `🌐 Proxy đang dùng: ${maskProxy(current)}` });
+                }
+                const proxy = services.normalizeStatusProxy(value || '');
+                await db.setKv('meows_status_proxy', proxy);
+                hook('bot:admin:proxy', { proxy: maskProxy(proxy), by: userId });
+                return interaction.editReply({ content: proxy ? `✅ Đổi proxy thành \`${maskProxy(proxy)}\`.` : '✅ Đã xoá proxy.' });
+            }
+
+            const reset = interaction.options.getBoolean('xoa') === true;
+            const raw = reset ? '' : interaction.options.getString('cookie');
+            if (raw === null && !reset) {
+                const configured = !!(await services.getMeowsCookie());
+                return interaction.editReply({ content: `🍪 Cookie Meows: ${configured ? 'đã cấu hình' : 'chưa cấu hình'}.` });
+            }
+            const cookie = reset ? '' : services.normalizeMeowsCookie(raw || '');
+            await db.setKv(services.MEOWS_COOKIE_KEY, cookie);
+            await db.setKv('meows_cookie_updated_at', new Date().toISOString());
+            hook('bot:admin:cookie', { by: userId, configured: !!cookie });
+            return interaction.editReply({ content: cookie ? '✅ Đã cập nhật cookie Meows.' : '✅ Đã xoá cookie Meows.' });
+        } catch (e) {
+            return interaction.editReply({ content: `❌ Lỗi cài đặt: ${e.message}`.slice(0, 1900) });
         }
     }
 
@@ -862,6 +1214,21 @@ client.on('interactionCreate', async interaction => {
             } catch (e) {
                 await db.updateCoins(userId, amount).catch(() => {}); // hoàn xu nếu cộng cho người nhận thất bại
                 throw e;
+            }
+            // Lưu lịch sử để /history và web /api/transfers cùng thấy (best-effort).
+            try {
+                const senderWeb = await ensureWebUserForDiscord(userId, interaction.user);
+                await db.createTransfer({
+                    id: randomId(),
+                    from_user_id: senderWeb.id,
+                    from_label: interaction.user.username || userId,
+                    to_label: target.username || target.id,
+                    to_balance_key: target.id,
+                    amount,
+                    fee,
+                });
+            } catch (e) {
+                console.error('[pay] không lưu được lịch sử chuyển xu:', e.message);
             }
             hook('bot:transfer', { from: userId, to: target.id, amount, fee, received, newBalance });
             await interaction.editReply({ content: `✅ Đã chuyển **${amount} xu** (phí ${fee} xu).\n💰 Số dư còn lại: **${newBalance} xu**` });

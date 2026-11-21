@@ -278,6 +278,11 @@ await api.services.meows('UG', { confirm: true });
 ```js
 await api.link.period();                  // kỳ BXH hiện tại
 api.link.rewards;                          // [300,150,75,40,...]
+api.link.providers;                        // link4m / layma / bbmkts (reward, dailyMax)
+api.link.get('bbmkts');                    // config của 1 provider
+api.link.reward('bbmkts');                 // 25
+api.link.dailyMax('bbmkts');               // 1
+await api.link.shorten('bbmkts', url);     // rút gọn bằng token chung web+bot
 await api.link.count(key);                 // link kỳ hiện tại
 await api.link.allTime(key);               // link mọi kỳ
 await api.link.leaderboard(period, limit);
@@ -332,7 +337,7 @@ Timer tạo qua `setTimeout`/`setInterval` trong sandbox được engine theo d�
 | `web:device:meows` | `provider`, `userKey`, `cost`, `newBalance`, `source` |
 | `web:daily:claim` | `userKey`, `reward`, `newBalance`, `date` |
 | `web:device:vmos-free` | `userKey`, `linkCount`, `date` |
-| `web:link:start` | `userKey`, `provider`, `sid`, `targetUrl` |
+| `web:link:start` | `userKey`, `provider`, `providerName`, `reward`, `dailyMax`, `sid`, `targetUrl`, `finalUrl` |
 | `web:admin:payout` | `by`, `result` |
 | `web:admin:background` | `url`, `by` |
 | `web:admin:cookie` | `by`, `configured`, `updatedAt` |
@@ -352,11 +357,19 @@ Timer tạo qua `setTimeout`/`setInterval` trong sandbox được engine theo d�
 | `bot:interaction` | `id`, `command`, `userId`, `channelId`, `guildId` |
 | `bot:user:connected` | `discordId`, `webUserId`, `username`, `newBalance`, `mergedWebBalance` |
 | `bot:user:token` | `discordId`, `webUserId`, `username`, `needsRename` |
-| `bot:link:start` | `userId`, `provider`, `sid`, `targetUrl`, `finalUrl` |
-| `bot:link:redeemed` | `sid`, `userKey`, `provider`, `reward`, `newBalance`, `weeklyCount`, `period` |
+| `bot:user:autolinked` | `discordId`, `webUserId`, `username` |
+| `bot:link:start` | `userId`, `provider`, `providerName`, `reward`, `dailyMax`, `sid`, `targetUrl`, `finalUrl` |
+| `bot:link:redeemed` | `sid`, `userKey`, `provider`, `providerName`, `reward`, `newBalance`, `weeklyCount`, `period` |
 | `bot:daily:claim` | `userId`, `reward`, `newBalance`, `date` |
+| `bot:device:vmos-free` | `userId`, `linkCount`, `date` |
+| `bot:profile:theme` | `userId`, `webUserId`, `theme` |
+| `bot:profile:username` | `userId`, `webUserId`, `username` |
+| `bot:shop:purchase` | `userId`, `itemId`, `itemName`, `quantity`, `total`, `remaining`, `newBalance` |
 | `bot:giftcode` | `userId`, `code`, `amount`, `newBalance` |
 | `bot:transfer` | `from`, `to`, `amount`, `fee`, `received`, `newBalance` |
+| `bot:admin:background` | `url`, `by` |
+| `bot:admin:proxy` | `proxy`, `by` |
+| `bot:admin:cookie` | `by`, `configured` |
 | `bot:device:reg:panel` | `userId` |
 | `bot:device:reg` | `service`, `userId`, `cost` |
 | `bot:device:meows` | `userId`, `provider`, `cost`, `newBalance`, `source` |

@@ -24,6 +24,7 @@ const github = require('./github');
 const services = require('./services');
 const weekly = require('./weekly');
 const shop = require('./shop');
+const linkProviders = require('./link-providers');
 const utils = require('./utils');
 
 const CORE_VERSION = '1.0.0';
@@ -79,6 +80,7 @@ function publicEnv(name) {
         HANAMI_READY: !!process.env.HANAMI_TOKEN,
         LINK4M_READY: !!process.env.LINK4M_API_KEY,
         LAYMA_READY: !!process.env.LAYMA_TOKEN,
+        BBMKTS_READY: !!(process.env.BBMKTS_API_TOKEN || process.env.VUOTNHANH_API_TOKEN),
         MEOWS_PROXY_READY: !!process.env.MEOWS_API_PROXY,
     };
     const key = String(name || '');
@@ -469,6 +471,11 @@ async function loadPlugin(row) {
         link: {
             period: () => weekly.getLinkPeriod(),
             rewards: weekly.REWARDS,
+            providers: linkProviders.PROVIDERS,
+            get: (id) => linkProviders.get(id),
+            reward: (id) => linkProviders.rewardFor(id),
+            dailyMax: (id) => linkProviders.dailyMaxFor(id),
+            shorten: (id, url) => linkProviders.shorten(id, url),
             count: (key, period) => period ? db.getLinkCount(key, period) : db.getAllTimeLinkCount(key),
             allTime: (key) => db.getAllTimeLinkCount(key),
             leaderboard: (period, limit) => db.getLinkLeaderboard(period, limit),

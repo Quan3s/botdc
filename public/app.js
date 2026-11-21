@@ -356,9 +356,11 @@ async function refreshDashboard() {
       api('/api/tasks'),
       api('/api/purchases'),
     ]);
-    const daily = (tasks.daily.link4m || 0) + (tasks.daily.layma || 0);
+    const providerList = tasks.providers || [];
+    const daily = providerList.reduce((sum, p) => sum + Number(p.used || tasks.daily[p.id] || 0), 0);
+    const dailyTotal = providerList.reduce((sum, p) => sum + Number(p.dailyMax || 0), 0);
     $('#stat-weekly').textContent = num(tasks.weeklyCount);
-    $('#stat-daily').textContent = `${daily}/${tasks.dailyMax * 2}`;
+    $('#stat-daily').textContent = `${daily}/${dailyTotal || tasks.dailyMax * 2}`;
     $('#stat-purchases').textContent = num(purchases.purchases.length);
     updateDailyCard(tasks);
     const lb = await api('/api/leaderboard/links');
@@ -634,9 +636,24 @@ $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
 async function loadTasks() {
   try {
     const data = await api('/api/tasks');
+    const providers = data.providers || [];
+    const select = $('#task-provider');
+    const selected = select.value;
+    if (providers.length) {
+      select.innerHTML = providers.map(p => {
+        const used = Number(p.used || data.daily[p.id] || 0);
+        const label = `${p.name} — ${p.reward} xu (${used}/${p.dailyMax})`;
+        return `<option value="${esc(p.id)}"${p.id === selected ? ' selected' : ''}>${esc(label)}</option>`;
+      }).join('');
+      const hint = providers.map(p => `${p.name}: <b>${p.reward} xu</b> (${p.dailyMax} lượt/ngày)`).join('. ');
+      const hintEl = $('#task-hint');
+      if (hintEl) hintEl.innerHTML = hint + '.';
+    }
     $('#task-daily').innerHTML = `
-      <span class="pill">Link4M: ${data.daily.link4m || 0}/${data.dailyMax}</span>
-      <span class="pill">LayMa: ${data.daily.layma || 0}/${data.dailyMax}</span>
+      ${providers.map(p => {
+        const used = Number(p.used || data.daily[p.id] || 0);
+        return `<span class="pill">${esc(p.name)}: ${used}/${p.dailyMax} · +${p.reward} xu</span>`;
+      }).join('')}
       <span class="pill">Tuần này: ${num(data.weeklyCount)} link</span>`;
     $('#task-period').textContent = data.period;
     const rewards = data.rewards || [];
@@ -652,7 +669,7 @@ $('#task-get-btn').addEventListener('click', async (e) => {
   try {
     const data = await api('/api/tasks/link', { method: 'POST', body: JSON.stringify({ provider: $('#task-provider').value }) });
     box.className = 'result-box';
-    box.innerHTML = `✅ Đã tạo link nhiệm vụ (còn ${data.remaining} lượt hôm nay):<br>
+    box.innerHTML = `✅ Đã tạo link nhiệm vụ${data.reward ? ` (+${data.reward} xu)` : ''} (còn ${data.remaining} lượt hôm nay):<br>
       <a href="${esc(data.url)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">${esc(data.url)}</a>`;
     box.classList.remove('hidden');
     loadTasks();

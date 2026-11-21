@@ -15,13 +15,12 @@ const shop = require('./shop');
 const github = require('./github');
 const weekly = require('./weekly');
 const pluginEngine = require('./plugin-engine');
+const linkProviders = require('./link-providers');
 const { getTodayString, generateUniqueLinkToken, sha256, randomId, hashPassword, verifyPassword } = require('./utils');
 
 const router = express.Router();
 const COOKIE_NAME = 'asynctas_session';
 const SESSION_DAYS = 30;
-const LINK_REWARD = 50;
-const LINK_DAILY_MAX = 2;
 const PAY_MIN = 10;
 const PAY_FEE_RATE = 0.05;
 const REG_COST = services.REG_COST;
@@ -768,25 +767,37 @@ router.get('/api/tasks', requireAuth, ah(async (req, res) => {
     const key = balanceKey(req.webUser);
     const today = getTodayString();
     const period = await weekly.getLinkPeriod();
-    const [link4m, layma, star, weeklyCount, dailyClaimed, freeVmosClaimed, linkCountAllTime] = await Promise.all([
-        db.checkDailyLimit(key, 'link4m', today),
-        db.checkDailyLimit(key, 'layma', today),
+    const providerIds = Object.keys(linkProviders.PROVIDERS);
+    const [star, weeklyCount, dailyClaimed, freeVmosClaimed, linkCountAllTime, ...counts] = await Promise.all([
         db.checkDailyLimit(key, 'star', today),
         db.getLinkCount(key, period),
         db.checkDailyLimit(key, 'daily', today),
         db.checkDailyLimit(key, 'vmos_free', today),
         db.getAllTimeLinkCount(key),
+        ...providerIds.map(id => db.checkDailyLimit(key, id, today)),
     ]);
+    const daily = Object.fromEntries(providerIds.map((id, i) => [id, Number(counts[i]) || 0]));
+    const providers = Object.values(linkProviders.PROVIDERS).map(p => {
+        const used = daily[p.id] || 0;
+        return {
+            ...p,
+            used,
+            remaining: Math.max(0, p.dailyMax - used),
+            ready: linkProviders.ready(p.id),
+        };
+    });
     res.json({
-        reward: LINK_REWARD,
-        dailyMax: LINK_DAILY_MAX,
-        daily: { link4m, layma },
+        reward: linkProviders.rewardFor('link4m'), // giữ field cũ cho client cũ
+        dailyMax: linkProviders.dailyMaxFor('link4m'),
+        providers,
+        daily,
         weeklyCount,
         period,
         star,
         rewards: weekly.REWARDS,
-        link4mReady: !!process.env.LINK4M_API_KEY,
-        laymaReady: !!process.env.LAYMA_TOKEN,
+        link4mReady: linkProviders.ready('link4m'),
+        laymaReady: linkProviders.ready('layma'),
+        bbmktsReady: linkProviders.ready('bbmkts'),
         date: today,
         dailyClaimed: dailyClaimed > 0,
         freeVmosClaimed: freeVmosClaimed > 0,
@@ -795,37 +806,42 @@ router.get('/api/tasks', requireAuth, ah(async (req, res) => {
 }));
 
 router.post('/api/tasks/link', requireAuth, ah(async (req, res) => {
-    const provider = String(req.body.provider || 'link4m').toLowerCase();
-    if (!['link4m', 'layma'].includes(provider)) return res.status(400).json({ error: 'Dịch vụ không hợp lệ.' });
+    const provider = linkProviders.get(req.body.provider || 'link4m');
+    if (!provider) return res.status(400).json({ error: 'Dịch vụ không hợp lệ.' });
 
     const key = balanceKey(req.webUser);
     const today = getTodayString();
-    const count = await db.checkDailyLimit(key, provider, today);
-    if (count >= LINK_DAILY_MAX) return res.status(400).json({ error: 'Bạn đã đạt giới hạn 2 lần/ngày cho dịch vụ này.' });
+    const count = await db.checkDailyLimit(key, provider.id, today);
+    if (count >= provider.dailyMax) {
+        return res.status(400).json({ error: `Bạn đã đạt giới hạn ${provider.dailyMax} lần/ngày cho dịch vụ này.` });
+    }
 
     const sid = crypto.randomBytes(16).toString('hex');
-    await db.createSession(sid, key, provider);
+    await db.createSession(sid, key, provider.id);
     const base = (process.env.RENDER_DOMAIN || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     const targetUrl = `${base}/redeem?sid=${sid}`;
 
-    let finalUrl = targetUrl;
-    if (provider === 'link4m' && process.env.LINK4M_API_KEY) {
-        const apiUrl = `https://link4m.co/api-shorten/v2?api=${process.env.LINK4M_API_KEY}&url=${encodeURIComponent(targetUrl)}`;
-        const r = await fetch(apiUrl, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
-        const data = await r.json();
-        if (data.status === 'success' && data.shortenedUrl) finalUrl = data.shortenedUrl;
-        else throw new Error('Lỗi từ Link4M.');
-    } else if (provider === 'layma' && process.env.LAYMA_TOKEN) {
-        const apiUrl = `https://api.layma.net/api/admin/shortlink/quicklink?tokenUser=${process.env.LAYMA_TOKEN}&format=json&url=${encodeURIComponent(targetUrl)}`;
-        const r = await fetch(apiUrl);
-        const data = await r.json();
-        if (data.success === true && data.html) finalUrl = data.html;
-        else throw new Error('Lỗi từ LayMa.');
+    let finalUrl;
+    try {
+        finalUrl = await linkProviders.shorten(provider.id, targetUrl);
+    } catch (e) {
+        await db.getAndDeleteSession(sid).catch(() => {});
+        return res.status(400).json({ error: e.message });
     }
 
-    await db.increaseDailyLimit(key, provider, today);
-    hook('web:link:start', { userKey: key, provider, sid, targetUrl });
-    res.json({ ok: true, url: finalUrl, provider, remaining: LINK_DAILY_MAX - count - 1 });
+    await db.increaseDailyLimit(key, provider.id, today);
+    hook('web:link:start', {
+        userKey: key, provider: provider.id, providerName: provider.name,
+        reward: provider.reward, dailyMax: provider.dailyMax,
+        sid, targetUrl, finalUrl,
+    });
+    res.json({
+        ok: true,
+        url: finalUrl,
+        provider: provider.id,
+        reward: provider.reward,
+        remaining: provider.dailyMax - count - 1,
+    });
 }));
 
 // ==================== BẢNG XẾP HẠNG ====================
