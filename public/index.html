@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
-<link rel="stylesheet" href="/styles.css?v=20261122c" />
+<link rel="stylesheet" href="/styles.css?v=20261122d" />
 <script>
   // Áp theme và ngôn ngữ ngay để không bị flash classic / sai ngôn ngữ.
   try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
@@ -262,22 +262,69 @@
         </div>
         <div id="seller-pending-note" class="card result-box hidden" data-i18n="seller.pendingNote">Yêu cầu của bạn đang chờ admin duyệt. Vui lòng quay lại sau.</div>
         <div id="seller-dashboard-content">
-          <div class="section-head"><div><h3 data-i18n="seller.dashboardTitle">Tổng quan bán hàng</h3></div><button id="seller-refresh" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="status.refresh">Làm mới</span></button></div>
-          <div id="seller-stats" class="grid stats-grid"></div>
-          <div class="grid two-col">
+          <div class="seller-hero">
+            <div class="section-head seller-head">
+              <div>
+                <h3 data-i18n="seller.dashboardTitle">Tổng quan bán hàng</h3>
+                <p class="muted" data-i18n="seller.dashboardSubtitle">Quản lý gian hàng, sản phẩm và đơn hàng của bạn.</p>
+              </div>
+              <button id="seller-refresh" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="status.refresh">Làm mới</span></button>
+            </div>
+            <div class="seller-actions">
+              <button id="seller-create-shop-btn" class="btn btn-primary" data-scroll-to="#seller-shop-form"><span class="ico" data-icon="store"></span><span data-i18n="seller.createShop">Tạo gian hàng</span></button>
+              <button id="seller-add-product-btn" class="btn btn-soft" data-scroll-to="#seller-product-form"><span class="ico" data-icon="plus"></span><span data-i18n="seller.addProduct">Thêm sản phẩm</span></button>
+              <button class="btn btn-ghost" data-goto="orders"><span class="ico" data-icon="orders"></span><span data-i18n="nav.orders">Lịch sử đơn hàng</span></button>
+            </div>
+          </div>
+
+          <div id="seller-stats" class="seller-kpis"></div>
+
+          <div class="grid two-col seller-analytics">
             <div class="card">
               <div class="card-head"><h3><span class="ico" data-icon="chart"></span><span data-i18n="seller.revenueTitle">Doanh thu</span></h3>
                 <div class="tabs mini-tabs" id="seller-revenue-tabs">
-                  <button class="tab active" data-revenue="week" data-i18n="seller.week">Tuần</button>
-                  <button class="tab" data-revenue="month" data-i18n="seller.month">Tháng</button>
-                  <button class="tab" data-revenue="year" data-i18n="seller.year">Năm</button>
+                  <button class="tab active" data-revenue="week" data-i18n="seller.days7">7 ngày</button>
+                  <button class="tab" data-revenue="month" data-i18n="seller.days30">30 ngày</button>
+                  <button class="tab" data-revenue="quarter" data-i18n="seller.days90">90 ngày</button>
                 </div>
               </div>
+              <p class="muted" data-i18n="seller.revenueSubtitle">Biểu đồ tổng coin đã hoàn thành</p>
               <div id="seller-revenue-chart" class="chart-box"></div>
+              <div class="chart-legend">
+                <span><i class="legend-dot gross"></i><span data-i18n="seller.gross">Tổng gốc</span></span>
+                <span><i class="legend-dot net"></i><span data-i18n="seller.afterFeeShort">Sau phí 10%</span></span>
+              </div>
               <div id="seller-orders-summary" class="pill"></div>
             </div>
             <div class="card">
-              <div class="card-head"><h3 id="seller-shop-form-title"><span class="ico" data-icon="store"></span><span data-i18n="seller.createShop">Tạo shop mới</span></h3></div>
+              <div class="card-head"><h3><span class="ico" data-icon="receipt"></span><span data-i18n="seller.statusTitle">Trạng thái đơn hàng</span></h3></div>
+              <p class="muted" data-i18n="seller.statusSubtitle">Phân bố đơn hàng theo trạng thái</p>
+              <div id="seller-status-chart" class="status-chart"></div>
+            </div>
+          </div>
+
+          <div class="card seller-orders-card">
+            <div class="card-head"><h3><span class="ico" data-icon="orders"></span><span data-i18n="seller.recentOrders">Đơn hàng gần đây</span></h3>
+              <button class="btn btn-ghost btn-sm" data-goto="orders"><span data-i18n="seller.viewAll">Xem tất cả</span></button>
+            </div>
+            <div id="seller-recent-orders" class="seller-table-wrap"></div>
+          </div>
+
+          <div class="grid two-col">
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="info"></span><span data-i18n="seller.rulesTitle">Nội quy người bán</span></h3>
+                <span class="muted" data-i18n="seller.rulesSubtitle">Quy định &amp; gợi ý quan trọng</span>
+              </div>
+              <div class="seller-rules" id="seller-rules">
+                <div class="seller-rule"><span class="ico" data-icon="checkCircle"></span><div><b data-i18n="seller.rule1Title">Thông tin sản phẩm</b><small data-i18n="seller.rule1Desc">Cung cấp đầy đủ, chính xác. Không chèn link vào sản phẩm.</small></div></div>
+                <div class="seller-rule"><span class="ico" data-icon="checkCircle"></span><div><b data-i18n="seller.rule2Title">Giao hàng nhanh</b><small data-i18n="seller.rule2Desc">Giao tài khoản đúng cam kết, đảm bảo chất lượng.</small></div></div>
+                <div class="seller-rule"><span class="ico" data-icon="checkCircle"></span><div><b data-i18n="seller.rule3Title">Phí hệ thống 10%</b><small data-i18n="seller.rule3Desc">Phí 10% tự động trừ, bạn nhận 90% giá trị đơn.</small></div></div>
+                <div class="seller-rule"><span class="ico" data-icon="checkCircle"></span><div><b data-i18n="seller.rule4Title">Chờ 72 giờ</b><small data-i18n="seller.rule4Desc">Coin về tài khoản sau 72 giờ nếu không có khiếu nại.</small></div></div>
+                <div class="seller-rule"><span class="ico" data-icon="checkCircle"></span><div><b data-i18n="seller.rule5Title">Phản hồi nhanh</b><small data-i18n="seller.rule5Desc">Trả lời tin nhắn và xử lý khiếu nại kịp thời để giữ uy tín.</small></div></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3 id="seller-shop-form-title"><span class="ico" data-icon="store"></span><span data-i18n="seller.createShop">Tạo gian hàng</span></h3></div>
               <form id="seller-shop-form">
                 <input id="seller-shop-id" type="hidden" />
                 <label><span data-i18n="seller.shopName">Tên shop</span><input id="seller-shop-name" required /></label>
@@ -288,6 +335,7 @@
               </form>
             </div>
           </div>
+
           <div class="grid two-col">
             <div class="card">
               <div class="card-head"><h3><span class="ico" data-icon="package"></span><span data-i18n="seller.addProduct">Nhập tài khoản / sản phẩm</span></h3></div>
@@ -701,8 +749,8 @@
 <div id="toasts" class="toasts"></div>
 <div id="modal-root" class="modal-root hidden"></div>
 
-<script src="/icons.js?v=20261122c"></script>
-<script src="/i18n.js?v=20261122c"></script>
-<script src="/app.js?v=20261122c"></script>
+<script src="/icons.js?v=20261122d"></script>
+<script src="/i18n.js?v=20261122d"></script>
+<script src="/app.js?v=20261122d"></script>
 </body>
 </html>

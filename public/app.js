@@ -562,6 +562,10 @@ function switchView(view) {
 
 $$('.nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
 $$('[data-goto]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.goto)));
+$$('[data-scroll-to]').forEach(btn => btn.addEventListener('click', () => {
+  const target = $(btn.dataset.scrollTo);
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}));
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
@@ -1187,40 +1191,113 @@ async function loadSeller() {
   }
 }
 
-const SELLER_STAT_KEYS = [
-  ['accountsImported', 'package'], ['shops', 'store'], ['pendingCoin', 'pending'], ['processedCoin', 'coin'],
-  ['complainants', 'complaint'], ['complaintPercent', 'warning'], ['completedOrders', 'check'],
-  ['completedPercent', 'chart'], ['returns', 'refund'], ['returnPercent', 'arrowDown'],
-];
+const SELLER_STATUS_KEYS = {
+  pending: 'seller.statusPending', completed: 'seller.statusCompleted',
+  complained: 'seller.statusComplained', returned: 'seller.statusReturned',
+};
+
+function sellerKpi(iconName, label, value, foot, tone) {
+  return `<div class="card seller-kpi ${tone || ''}">
+    <div class="seller-kpi-head"><span class="ico">${icon(iconName, 18)}</span><span>${esc(label)}</span></div>
+    <div class="seller-kpi-value">${value}</div>
+    ${foot ? `<div class="seller-kpi-foot">${foot}</div>` : ''}
+  </div>`;
+}
 
 function renderSellerDashboard(data) {
   const stats = data.stats || {};
-  $('#seller-stats').innerHTML = SELLER_STAT_KEYS.map(([key, ico]) => `
-    <div class="card stat"><span class="ico stat-ico">${icon(ico, 20)}</span><div><b>${esc(stats[key] == null ? '0' : stats[key])}</b><small>${esc(t(`seller.stat.${key}`))}</small></div></div>`).join('');
   const orders = data.orders || {};
+  const coin = `<small>${esc(t('topbar.coinShort'))}</small>`;
+  const root = $('#seller-stats');
+  if (root) root.innerHTML = [
+    sellerKpi('wallet', t('seller.received'), `${num(stats.processedCoin)} ${coin}`,
+      `${esc(t('seller.afterFee'))} · ${esc(t('seller.gross'))}: ${num(stats.grossReceived)} ${coin}`, 'kpi-green'),
+    sellerKpi('pending', t('seller.pendingPayout'), `${num(stats.pendingCoin)} ${coin}`,
+      `${esc(t('seller.payoutHold'))} · ${esc(t('seller.gross'))}: ${num(stats.grossPending)} ${coin}`, 'kpi-gold'),
+    sellerKpi('receipt', t('seller.totalOrders'), num(stats.totalOrders),
+      `${num(stats.pendingOrders)} ${esc(t('seller.pendingOrders'))}`),
+    sellerKpi('package', t('seller.activeProducts'), num(stats.activeProducts),
+      `${num(stats.inactiveProducts)} ${esc(t('seller.inactiveProducts'))}`),
+    sellerKpi('store', t('seller.totalShops'), num(stats.shops), esc(t('seller.allActive'))),
+    sellerKpi('users', t('seller.stat.accountsImported'), num(stats.accountsImported)),
+  ].join('');
   setText('#seller-orders-summary', t('seller.ordersSummary', { total: num(orders.total), pending: num(orders.pending) }));
   renderRevenueChart(data.revenue || {}, state.seller.revenue);
+  renderSellerStatusChart(orders.statusCounts || {});
+  renderSellerRecentOrders(orders.recent || []);
   renderSellerShops(data.shops || []);
 }
 
 function renderRevenueChart(revenue, period) {
   const root = $('#seller-revenue-chart');
+  if (!root) return;
   const rows = Array.isArray(revenue[period]) ? revenue[period] : [];
   if (!rows.length) { root.innerHTML = `<div class="empty">${esc(t('userShop.empty'))}</div>`; return; }
-  const values = rows.map(r => Number(r.value) || 0);
-  const max = Math.max(...values, 1);
+  const grossValues = rows.map(r => Number(r.value) || 0);
+  const netValues = rows.map(r => Number(r.net) || 0);
+  const max = Math.max(...grossValues, ...netValues, 1);
   const step = rows.length > 1 ? 520 / (rows.length - 1) : 0;
-  const points = rows.map((r, i) => `${40 + i * step},${148 - (values[i] / max) * 118}`).join(' ');
+  const x = i => 40 + i * step;
+  const y = v => 148 - (v / max) * 118;
+  const line = values => values.map((v, i) => `${x(i)},${y(v)}`).join(' ');
   const labelStep = Math.max(1, Math.ceil(rows.length / 8));
   const labels = rows.map((r, i) => (i % labelStep === 0 || i === rows.length - 1)
-    ? `<text x="${40 + i * step}" y="174" text-anchor="middle">${esc(r.label)}</text>` : '').join('');
-  const dots = rows.map((r, i) => `<circle cx="${40 + i * step}" cy="${148 - (values[i] / max) * 118}" r="3"><title>${esc(r.label)}: ${num(values[i])}</title></circle>`).join('');
+    ? `<text x="${x(i)}" y="174" text-anchor="middle">${esc(r.label)}</text>` : '').join('');
+  const dots = grossValues.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3"><title>${esc(rows[i].label)}: ${num(v)}</title></circle>`).join('');
   root.innerHTML = `
     <svg viewBox="0 0 600 185" class="revenue-svg" role="img" aria-label="${esc(t('seller.revenueTitle'))}">
       <line x1="40" y1="148" x2="560" y2="148" class="chart-axis" />
-      <polyline points="${points}" class="chart-line" fill="none" />
+      <polyline points="${line(grossValues)}" class="chart-line chart-gross" fill="none" />
+      <polyline points="${line(netValues)}" class="chart-line chart-net" fill="none" />
       ${dots}${labels}
     </svg>`;
+}
+
+function renderSellerStatusChart(counts) {
+  const root = $('#seller-status-chart');
+  if (!root) return;
+  const keys = ['pending', 'completed', 'complained', 'returned'];
+  const values = keys.map(k => Number(counts[k]) || 0);
+  const total = values.reduce((a, b) => a + b, 0);
+  if (!total) { root.innerHTML = `<div class="empty">${esc(t('seller.noOrders'))}</div>`; return; }
+  const circumference = 2 * Math.PI * 70;
+  let offset = 0;
+  const segments = keys.map((k, i) => {
+    const length = (values[i] / total) * circumference;
+    const seg = `<circle class="status-seg seg-${i}" cx="90" cy="90" r="70" fill="none" stroke-width="18"
+      stroke-dasharray="${length} ${circumference - length}" stroke-dashoffset="${-offset}"
+      transform="rotate(-90 90 90)"><title>${esc(t(SELLER_STATUS_KEYS[k]))}: ${values[i]}</title></circle>`;
+    offset += length;
+    return seg;
+  }).join('');
+  const legend = keys.map((k, i) => `<div class="status-legend-row"><i class="legend-dot seg-${i}"></i>
+    <span>${esc(t(SELLER_STATUS_KEYS[k]))}</span><b>${num(values[i])}</b></div>`).join('');
+  root.innerHTML = `<div class="donut-wrap">
+    <svg viewBox="0 0 180 180" class="donut-svg" role="img" aria-label="${esc(t('seller.statusTitle'))}">
+      <circle cx="90" cy="90" r="70" fill="none" class="donut-track" stroke-width="18" />
+      ${segments}
+      <text x="90" y="88" text-anchor="middle" class="donut-total">${num(total)}</text>
+      <text x="90" y="106" text-anchor="middle" class="donut-caption">${esc(t('orders.total'))}</text>
+    </svg>
+    <div class="status-legend">${legend}</div>
+  </div>`;
+}
+
+function renderSellerRecentOrders(list) {
+  const root = $('#seller-recent-orders');
+  if (!root) return;
+  if (!list.length) { root.innerHTML = `<div class="empty">${esc(t('seller.noOrders'))}</div>`; return; }
+  const rows = list.map(o => `<tr>
+    <td>#${esc(String(o.id || '').slice(0, 6))}</td>
+    <td>${esc(o.itemName)}</td>
+    <td>${esc(o.buyer)}</td>
+    <td><b>${num(o.total)}</b> ${esc(t('topbar.coinShort'))}</td>
+    <td><span class="pill ${esc(o.status)}">${esc(t(SELLER_STATUS_KEYS[o.status] || o.status))}</span></td>
+  </tr>`).join('');
+  root.innerHTML = `<table class="seller-table"><thead><tr>
+    <th>ID</th><th>${esc(t('seller.productName'))}</th><th>${esc(t('seller.buyer'))}</th>
+    <th>${esc(t('orders.total'))}</th><th>${esc(t('orders.status'))}</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderSellerShops(shops) {

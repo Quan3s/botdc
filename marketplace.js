@@ -421,7 +421,14 @@ function shopSummary(shopRow, products = []) {
 }
 
 function revenueSeries(orders, type) {
-    const make = (label, filter) => ({ label, value: orders.filter(filter).reduce((s, o) => s + (Number(o.total) || 0), 0) });
+    const make = (label, filter) => {
+        const rows = orders.filter(filter);
+        return {
+            label,
+            value: rows.reduce((s, o) => s + (Number(o.total) || 0), 0),
+            net: rows.reduce((s, o) => s + (Number(o.seller_amount) || 0), 0),
+        };
+    };
     if (type === 'week') {
         return Array.from({ length: 7 }, (_, i) => {
             const d = new Date(Date.now() - (6 - i) * 86400000);
@@ -433,6 +440,16 @@ function revenueSeries(orders, type) {
         return Array.from({ length: 4 }, (_, i) => {
             const start = Date.now() - (3 - i) * 7 * 86400000;
             const label = `T${i + 1}`;
+            return make(label, o => {
+                const t = time(o.createdAt || o.created_at);
+                return t > start - 7 * 86400000 && t <= start;
+            });
+        });
+    }
+    if (type === 'quarter') {
+        return Array.from({ length: 13 }, (_, i) => {
+            const start = Date.now() - (12 - i) * 7 * 86400000;
+            const label = new Date(start - 3 * 86400000).toISOString().slice(5, 10);
             return make(label, o => {
                 const t = time(o.createdAt || o.created_at);
                 return t > start - 7 * 86400000 && t <= start;
@@ -462,13 +479,30 @@ router.get('/api/seller/dashboard', requireAuth, requireSeller, ah(async (req, r
     const shopIds = new Set(shops.map(s => String(s.id)));
     const relevantReviews = reviews.filter(r => shopIds.has(String(r.shop_id)));
 
+    const releasedOrders = orders.filter(o => o.payout_state === 'released');
+    const heldOrders = orders.filter(o => o.payout_state === 'pending' && o.status !== 'returned');
+    const gross = list => list.reduce((s, o) => s + (Number(o.total) || 0), 0);
+    const net = list => list.reduce((s, o) => s + (Number(o.seller_amount) || 0), 0);
+    const statusCounts = {
+        pending: orders.filter(o => o.status === 'pending').length,
+        completed: completed.length,
+        complained: orders.filter(o => o.status === 'complained').length,
+        returned: returned.length,
+    };
+    const activeProducts = products.filter(p => p.active !== false);
+
     const stats = {
         accountsImported: products.reduce((s, p) => s + (Number(p.line_count === undefined ? p.stock : p.line_count) || 0), 0),
         shops: shops.length,
-        pendingCoin: orders.filter(o => o.payout_state === 'pending' && o.status !== 'returned')
-            .reduce((s, o) => s + (Number(o.seller_amount) || 0), 0),
-        processedCoin: orders.filter(o => o.payout_state === 'released')
-            .reduce((s, o) => s + (Number(o.seller_amount) || 0), 0),
+        activeShops: shops.length,
+        pendingCoin: net(heldOrders),
+        processedCoin: net(releasedOrders),
+        grossReceived: gross(releasedOrders),
+        grossPending: gross(heldOrders),
+        totalOrders: orders.length,
+        pendingOrders: pendingOrders.length,
+        activeProducts: activeProducts.length,
+        inactiveProducts: products.length - activeProducts.length,
         complainants: complaints.length,
         complaintPercent: pct(complaints.length),
         completedOrders: completed.length,
@@ -477,14 +511,28 @@ router.get('/api/seller/dashboard', requireAuth, requireSeller, ah(async (req, r
         returnPercent: pct(returned.length),
     };
 
+    const buyerIds = [...new Set(orders.slice(0, 8).map(o => String(o.buyer_id || '')).filter(Boolean))];
+    const buyers = await Promise.all(buyerIds.map(id => safe(() => db.getWebUserById(id), null)));
+    const buyerNames = Object.fromEntries(buyerIds.map((id, i) => [id, (buyers[i] && (buyers[i].username || buyers[i].discord_id)) || id.slice(0, 8)]));
+    const recentOrders = orders.slice(0, 8).map(o => ({
+        id: o.id,
+        itemName: o.item_name || '',
+        buyer: buyerNames[String(o.buyer_id || '')] || String(o.buyer_id || '').slice(0, 8),
+        total: Number(o.total) || 0,
+        currency: o.currency || 'coin',
+        status: o.status,
+        createdAt: o.createdAt || o.created_at,
+    }));
+
     res.json({
         stats,
         revenue: {
             week: revenueSeries(orders, 'week'),
             month: revenueSeries(orders, 'month'),
+            quarter: revenueSeries(orders, 'quarter'),
             year: revenueSeries(orders, 'year'),
         },
-        orders: { total: orders.length, pending: pendingOrders.length },
+        orders: { total: orders.length, pending: pendingOrders.length, statusCounts, recent: recentOrders },
         shops: shops.map((s, i) => shopSummary(s, productsByShop[i])),
         reviews: relevantReviews.length,
     });
