@@ -57,8 +57,8 @@ function toast(message, type = 'ok') {
   el.className = `toast${type === 'error' ? ' error' : ''}`;
   el.innerHTML = icon(type === 'error' ? 'warning' : 'checkCircle', 15) + '<span></span>';
   const label = el.querySelector('span');
-  if (label) label.textContent = message;
-  else el.textContent = message;
+  if (label) setText(label, message);
+  else setText(el, message);
   const host = $('#toasts') || document.body;
   if (host) host.appendChild(el);
   setTimeout(() => {
@@ -133,7 +133,7 @@ function labelButton(btn, key, vars) {
     label = document.createElement('span');
     btn.appendChild(label);
   }
-  label.textContent = t(key, vars);
+  setText(label, t(key, vars));
   label.setAttribute('data-i18n', key);
 }
 
@@ -150,8 +150,8 @@ async function copyText(text, btn) {
   }
   if (btn) {
     const old = btn.textContent;
-    btn.textContent = t('auth.copied');
-    setTimeout(() => { btn.textContent = old; }, 1500);
+    setText(btn, t('auth.copied'));
+    setTimeout(() => setText(btn, old), 1500);
   }
   toast(t('auth.copyDone'));
 }
@@ -163,7 +163,7 @@ function openModal({ title, body, actions }) {
   const modal = document.createElement('div');
   modal.className = 'modal';
   const h = document.createElement('h3');
-  h.textContent = title;
+  setText(h, title);
   modal.appendChild(h);
   const bodyEl = document.createElement('div');
   if (typeof body === 'string') bodyEl.innerHTML = body;
@@ -174,7 +174,7 @@ function openModal({ title, body, actions }) {
   (actions || []).forEach(action => {
     const btn = document.createElement('button');
     btn.className = `btn ${action.className || 'btn-soft'}`;
-    btn.textContent = action.label;
+    setText(btn, action.label);
     btn.onclick = () => action.onClick ? action.onClick(btn) : closeModal();
     actionsEl.appendChild(btn);
   });
@@ -358,7 +358,7 @@ function applyTheme(theme) {
   try { localStorage.setItem('asynctas_theme', value); } catch (e) { /* ignore */ }
   $$('[data-theme-choice]').forEach(b => b.classList.toggle('active', b.dataset.themeChoice === value));
   const label = $('#theme-current');
-  if (label) label.textContent = value === 'bubble' ? 'Bubble' : 'Classic';
+  if (label) setText(label, value === 'bubble' ? 'Bubble' : 'Classic');
 }
 
 function applyBackground(url) {
@@ -368,7 +368,7 @@ function applyBackground(url) {
 }
 
 function updateLanguageChrome() {
-  $('#lang-label').textContent = getLanguage() === 'en' ? 'EN' : 'VI';
+  setText('#lang-label', getLanguage() === 'en' ? 'EN' : 'VI');
   document.documentElement.lang = getLanguage();
   $$('[data-language-choice]').forEach(b => b.classList.toggle('active', b.dataset.languageChoice === getLanguage()));
 }
@@ -399,7 +399,7 @@ function setUnreadCount(count) {
   if (state.user) state.user.unreadMessages = value;
   const badge = $('#chat-unread-badge');
   if (!badge) return;
-  badge.textContent = value > 99 ? '99+' : num(value);
+  setText(badge, value > 99 ? '99+' : num(value));
   badge.classList.toggle('hidden', value === 0);
 }
 
@@ -409,20 +409,20 @@ function applyUser() {
   applyTheme(u.theme);
   applyBackground(u.background);
   updateLanguageChrome();
-  $('#top-balance').textContent = num(u.balance);
-  $('#top-acoin').textContent = num(u.acoin);
-  $('#hero-balance').textContent = num(u.balance);
-  $('#hero-name').textContent = u.username;
-  $('#user-name').textContent = u.username;
-  $('#user-initial').textContent = (u.username[0] || 'U').toUpperCase();
+  setText('#top-balance', num(u.balance));
+  setText('#top-acoin', num(u.acoin));
+  setText('#hero-balance', num(u.balance));
+  setText('#hero-name', u.username);
+  setText('#user-name', u.username);
+  setText('#user-initial', (u.username[0] || 'U').toUpperCase());
 
   const heroAcoin = $('#hero-acoin');
   heroAcoin.removeAttribute('data-i18n');
   heroAcoin.innerHTML = icon('acoin', 15) + '<span></span>';
-  heroAcoin.querySelector('span').textContent = t('dashboard.acoinBalance', { value: num(u.acoin) });
+  setText(heroAcoin.querySelector('span'), t('dashboard.acoinBalance', { value: num(u.acoin) }));
   const rate = $('#exchange-rate');
   rate.removeAttribute('data-i18n');
-  rate.textContent = t('dashboard.exchangeRate', { rate: num(u.exchangeRate || 5) });
+  setText(rate, t('dashboard.exchangeRate', { rate: num(u.exchangeRate || 5) }));
 
   $('#youtube-link').href = u.youtubeUrl || 'https://youtube.com';
   $('#discord-link').href = u.discordUrl || 'https://discord.com';
@@ -439,11 +439,11 @@ function applyUser() {
   avatar.onerror = () => { avatar.classList.add('hidden'); $('#user-initial').classList.remove('hidden'); };
   const short = esc((u.username[0] || 'U').toUpperCase());
   $('#sidebar-user').innerHTML = `<span class="sidebar-avatar">${u.avatar ? `<img src="${esc(u.avatar)}" alt="" />` : short}</span><span>${esc(u.username)}</span>`;
-  $('#profile-username').textContent = u.username;
-  $('#profile-balance').textContent = t('profile.coinUnit', { amount: num(u.balance) });
-  $('#profile-discord').textContent = u.linked ? t('profile.linked', { id: u.discordId }) : t('profile.notLinked');
-  $('#profile-role').textContent = u.isAdmin ? `${t('profile.admin')} / ${t('nav.admin')}` : t('profile.member');
-  $('#link-token').textContent = u.linkToken || '—';
+  setText('#profile-username', u.username);
+  setText('#profile-balance', t('profile.coinUnit', { amount: num(u.balance) }));
+  setText('#profile-discord', u.linked ? t('profile.linked', { id: u.discordId }) : t('profile.notLinked'));
+  setText('#profile-role', u.isAdmin ? `${t('profile.admin')} / ${t('nav.admin')}` : t('profile.member'));
+  setText('#link-token', u.linkToken || '—');
   $$('.admin-only').forEach(el => el.classList.toggle('hidden', !u.isAdmin));
   $$('.seller-only').forEach(el => el.classList.toggle('hidden', !isSeller()));
   $('#link-box').classList.toggle('hidden', !!u.linked);
@@ -540,7 +540,7 @@ function switchView(view) {
   state.view = view;
   $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
   $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
-  $('#view-title').textContent = t(VIEW_TITLE_KEYS[view]);
+  setText('#view-title', t(VIEW_TITLE_KEYS[view]));
   closeSidebar();
   closeAvatarMenu();
   if (location.hash !== `#${view}`) history.replaceState(null, '', `#${view}`);
@@ -632,12 +632,12 @@ $('#daily-claim-btn').addEventListener('click', async () => {
   try {
     const data = await api('/api/daily/claim', { method: 'POST' });
     box.className = 'result-box';
-    box.textContent = t('dashboard.dailyReward', { amount: num(data.reward), balance: num(data.newBalance) });
+    setText(box, t('dashboard.dailyReward', { amount: num(data.reward), balance: num(data.newBalance) }));
     box.classList.remove('hidden');
     await refreshDashboard();
   } catch (err) {
     box.className = 'result-box error';
-    box.textContent = err.message;
+    setText(box, err.message);
     box.classList.remove('hidden');
     btn.disabled = false;
   }
@@ -659,7 +659,7 @@ $('#daily-vmos-btn').addEventListener('click', async () => {
     await refreshDashboard();
   } catch (err) {
     box.className = 'result-box error';
-    box.textContent = err.message;
+    setText(box, err.message);
     box.classList.remove('hidden');
     btn.disabled = false;
   }
@@ -755,7 +755,7 @@ function buyItem(itemId) {
   const totalEl = wrap.querySelector('#buy-total');
   const updateTotal = () => {
     const q = Math.max(1, Math.min(item.stock, parseInt(wrap.querySelector('#buy-qty').value, 10) || 1));
-    totalEl.textContent = t('shop.total', { total: priceLabel(price * q, currency, item.priceText) });
+    setText(totalEl, t('shop.total', { total: priceLabel(price * q, currency, item.priceText) }));
   };
   updateTotal();
   wrap.querySelector('#buy-qty').addEventListener('input', updateTotal);
@@ -823,12 +823,12 @@ async function loadUserShop() {
     const data = await api(`/api/user-shop?${params}`);
     state.userShop.page = data.page || 1;
     renderUserShopCards(data.shops || []);
-    $('#user-shop-total').textContent = t('userShop.total', { count: num(data.total || 0) });
+    setText('#user-shop-total', t('userShop.total', { count: num(data.total || 0) }));
     renderPagination(data.page || 1, data.totalPages || 1);
     $('#user-shop-filter').value = data.filter || state.userShop.filter;
   } catch (err) {
     grid.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
-    $('#user-shop-total').textContent = '';
+    setText('#user-shop-total', '');
     $('#user-shop-pagination').innerHTML = '';
   }
 }
@@ -1159,7 +1159,7 @@ async function loadSeller() {
   requestCard.classList.toggle('hidden', active);
   pending.classList.toggle('hidden', active || status !== 'pending');
   content.classList.toggle('hidden', !active);
-  $('#seller-status-pill').textContent = t(`seller.status.${status}`) || status;
+  setText('#seller-status-pill', t(`seller.status.${status}`) || status);
   if (!active) return;
   try {
     const data = await api('/api/seller/dashboard');
@@ -1185,7 +1185,7 @@ function renderSellerDashboard(data) {
   $('#seller-stats').innerHTML = SELLER_STAT_KEYS.map(([key, ico]) => `
     <div class="card stat"><span class="ico stat-ico">${icon(ico, 20)}</span><div><b>${esc(stats[key] == null ? '0' : stats[key])}</b><small>${esc(t(`seller.stat.${key}`))}</small></div></div>`).join('');
   const orders = data.orders || {};
-  $('#seller-orders-summary').textContent = t('seller.ordersSummary', { total: num(orders.total), pending: num(orders.pending) });
+  setText('#seller-orders-summary', t('seller.ordersSummary', { total: num(orders.total), pending: num(orders.pending) }));
   renderRevenueChart(data.revenue || {}, state.seller.revenue);
   renderSellerShops(data.shops || []);
 }
@@ -1290,7 +1290,7 @@ $('#seller-product-maxlines').addEventListener('input', updateSellerLinesCount);
 function updateSellerLinesCount() {
   const lines = $('#seller-product-accounts').value.split('\n').filter(x => x.trim()).length;
   const max = Math.min(2000, Math.max(1, Number($('#seller-product-maxlines').value) || 2000));
-  $('#seller-lines-count').textContent = t('seller.linesCount', { count: num(lines), max: num(max) });
+  setText('#seller-lines-count', t('seller.linesCount', { count: num(lines), max: num(max) }));
 }
 
 $('#seller-product-form').addEventListener('submit', async e => {
@@ -1340,8 +1340,8 @@ $('#cloud-buy-btn').addEventListener('click', async e => {
       body: JSON.stringify({ provider: $('#cloud-provider').value, server: $('#cloud-server').value, inputData: $('#cloud-input').value }),
     });
     box.className = 'result-box';
-    box.textContent = t('device.success', { provider: data.provider, message: data.message });
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; }
+    setText(box, t('device.success', { provider: data.provider, message: data.message }));
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); }
   finally { box.classList.remove('hidden'); btn.disabled = false; }
 });
 
@@ -1358,7 +1358,7 @@ $$('[data-reg]').forEach(btn => btn.addEventListener('click', async () => {
     box.classList.remove('hidden');
     $('#reg-copy').addEventListener('click', ev => copyText(data.copyText, ev.currentTarget));
     await refreshUser();
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
   finally { btn.disabled = false; }
 }));
 
@@ -1381,7 +1381,7 @@ $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
     box.classList.remove('hidden');
     $('#meows-copy').addEventListener('click', ev => copyText(data.copyText, ev.currentTarget));
     await refreshUser();
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
   finally { btn.disabled = false; }
 }));
 
@@ -1442,7 +1442,7 @@ if (taskGetBtn) taskGetBtn.addEventListener('click', async e => {
     }
     loadTasks();
   } catch (err) {
-    if (box) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+    if (box) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
     else toast(err.message, 'error');
   }
   finally { btn.disabled = false; }
@@ -1466,18 +1466,18 @@ function setDeviceStatus(sel, msgSel, device) {
   const parts = [];
   if (device && device.message) parts.push(device.message);
   if (device && device.lastBuyAt) parts.push(t('status.lastBuy', { time: new Date(device.lastBuyAt).toLocaleString(getLanguage() === 'en' ? 'en-US' : 'vi-VN') }));
-  $(msgSel).textContent = parts.join(' · ');
+  setText(msgSel, parts.join(' · '));
 }
 
 async function loadCloudStatus(force = false) {
   try {
     const data = await api(`/api/status/cloud${force ? '?force=1' : ''}`);
     const sourceLabel = { direct: '', www: 'www', proxy: 'proxy' }[data.source] || '';
-    $('#cloud-status-time').textContent = t('status.updated', { time: new Date(data.checkedAt).toLocaleTimeString(getLanguage() === 'en' ? 'en-US' : 'vi-VN') }) + (sourceLabel ? ` · ${sourceLabel}` : '');
+    setText('#cloud-status-time', t('status.updated', { time: new Date(data.checkedAt).toLocaleTimeString(getLanguage() === 'en' ? 'en-US' : 'vi-VN') }) + (sourceLabel ? ` · ${sourceLabel}` : ''));
     setDeviceStatus('#status-meows-vmos', '#status-meows-vmos-msg', data.vmos);
     setDeviceStatus('#status-meows-vsphone', '#status-meows-vsphone-msg', data.vsphone);
     const errorBox = $('#cloud-status-errors');
-    if (data.errors && data.errors.length) { errorBox.textContent = data.errors.join(' · '); errorBox.classList.remove('hidden'); }
+    if (data.errors && data.errors.length) { setText(errorBox, data.errors.join(' · ')); errorBox.classList.remove('hidden'); }
     else errorBox.classList.add('hidden');
   } catch (err) { toast(err.message, 'error'); }
 }
@@ -1498,10 +1498,10 @@ $('#giftcode-btn').addEventListener('click', async e => {
   try {
     const data = await api('/api/giftcode', { method: 'POST', body: JSON.stringify({ code }) });
     box.className = 'result-box';
-    box.textContent = t('giftcode.success', { code, amount: num(data.amount), balance: num(data.newBalance) });
+    setText(box, t('giftcode.success', { code, amount: num(data.amount), balance: num(data.newBalance) }));
     $('#giftcode-input').value = '';
     await refreshUser();
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; }
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); }
   finally { box.classList.remove('hidden'); btn.disabled = false; }
 });
 
@@ -1523,7 +1523,7 @@ async function loadLeaderboard() {
     if (state.lbTab === 'coins') { const data = await api('/api/leaderboard/coins'); renderLb(root, data.leaderboard, t('lb.coins')); return; }
     if (state.lbTab === 'week') {
       const data = await api('/api/leaderboard/links/week');
-      note.textContent = t('tasks.weekPeriod', { period: data.period || '—' });
+      setText(note, t('tasks.weekPeriod', { period: data.period || '—' }));
       note.classList.remove('hidden');
       banner.innerHTML = (data.rewards || []).slice(0, 10).map((r, i) => `<span class="reward-chip">Top ${i + 1}: +${num(r)} coin</span>`).join('');
       if ((data.rewards || []).length) banner.classList.remove('hidden');
@@ -1531,7 +1531,7 @@ async function loadLeaderboard() {
       return;
     }
     const data = await api('/api/leaderboard/links/all');
-    note.textContent = t('tasks.allNote');
+    setText(note, t('tasks.allNote'));
     note.classList.remove('hidden');
     renderLb(root, data.leaderboard, t('nav.tasks'));
   } catch (err) { root.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
@@ -1550,9 +1550,9 @@ function renderLb(root, rows, unit) {
 function updateFeePreview() {
   const amount = parseInt($('#transfer-amount').value, 10) || 0;
   const fee = Math.ceil(amount * 0.05);
-  $('#transfer-fee').textContent = amount >= 10
+  setText('#transfer-fee', amount >= 10
     ? t('transfer.preview', { amount: num(amount - fee), fee: num(fee) })
-    : t('transfer.min');
+    : t('transfer.min'));
 }
 $('#transfer-amount').addEventListener('input', updateFeePreview);
 
@@ -1594,7 +1594,7 @@ $('#regen-token-btn').addEventListener('click', async e => {
   try {
     const data = await api('/api/profile/token', { method: 'POST' });
     if (state.user) state.user.linkToken = data.linkToken;
-    $('#link-token').textContent = data.linkToken;
+    setText('#link-token', data.linkToken);
     toast(t('profile.regenerated'));
   } catch (err) { toast(err.message, 'error'); }
   finally { e.currentTarget.disabled = false; }
@@ -1696,9 +1696,9 @@ $('#admin-exchange-rate-save').addEventListener('click', async e => {
     if (state.user) state.user.exchangeRate = data.coinPerAcoin;
     applyUser();
     box.className = 'result-box';
-    box.textContent = t('admin.rateSaved', { rate: num(data.coinPerAcoin) });
+    setText(box, t('admin.rateSaved', { rate: num(data.coinPerAcoin) }));
     box.classList.remove('hidden');
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
   finally { e.currentTarget.disabled = false; }
 });
 
@@ -1776,9 +1776,9 @@ $('#admin-social-save-btn').addEventListener('click', async () => {
     applySocialLinks(data.youtubeUrl, data.discordUrl);
     await loadAdminSocial();
     box.className = 'result-box';
-    box.textContent = t('admin.socialSaved');
+    setText(box, t('admin.socialSaved'));
     box.classList.remove('hidden');
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
 });
 
 $('#admin-social-default-btn').addEventListener('click', async () => {
@@ -1798,9 +1798,9 @@ $('#admin-background-save-btn').addEventListener('click', async () => {
     applyBackground(data.url);
     await loadAdminBackground();
     box.className = 'result-box';
-    box.textContent = t('admin.backgroundSaved');
+    setText(box, t('admin.backgroundSaved'));
     box.classList.remove('hidden');
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
 });
 
 $('#admin-background-default-btn').addEventListener('click', async () => {
@@ -1816,7 +1816,7 @@ async function loadMeowsCookie() {
   const data = await api('/api/admin/meows/cookie');
   $('#admin-meows-cookie').value = data.cookie || '';
   const status = $('#meows-status');
-  status.textContent = data.configured ? t('admin.savedCookie') : t('admin.noCookie');
+  setText(status, data.configured ? t('admin.savedCookie') : t('admin.noCookie'));
   status.title = data.updatedAt ? `${t('status.updated')} ${data.updatedAt}` : '';
   await loadStatusProxy();
 }
@@ -1826,7 +1826,7 @@ async function loadStatusProxy() {
   $('#admin-status-proxy').value = data.proxy || '';
   const pill = $('#status-proxy-source');
   const active = data.envProxy || data.proxy;
-  pill.textContent = active ? active : t('admin.noProxy');
+  setText(pill, active ? active : t('admin.noProxy'));
 }
 
 $('#admin-meows-save-btn').addEventListener('click', async e => {
@@ -1836,10 +1836,10 @@ $('#admin-meows-save-btn').addEventListener('click', async e => {
   try {
     await api('/api/admin/meows/cookie', { method: 'POST', body: JSON.stringify({ cookie: $('#admin-meows-cookie').value }) });
     box.className = 'result-box';
-    box.textContent = t('admin.cookieSaved');
+    setText(box, t('admin.cookieSaved'));
     box.classList.remove('hidden');
     await loadMeowsCookie();
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
   finally { btn.disabled = false; }
 });
 
@@ -1859,10 +1859,10 @@ $('#admin-status-proxy-save-btn').addEventListener('click', async e => {
   try {
     await api('/api/admin/status-proxy', { method: 'POST', body: JSON.stringify({ proxy: $('#admin-status-proxy').value }) });
     box.className = 'result-box';
-    box.textContent = t('admin.proxySaved');
+    setText(box, t('admin.proxySaved'));
     box.classList.remove('hidden');
     await loadStatusProxy();
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
   finally { btn.disabled = false; }
 });
 
@@ -1984,11 +1984,11 @@ $('#admin-plugin-create-btn').addEventListener('click', async e => {
       method: 'POST', body: JSON.stringify({ name: $('#admin-plugin-name').value.trim(), url: $('#admin-plugin-url').value.trim() }),
     });
     box.className = 'result-box';
-    box.textContent = t('admin.pluginInstalled', { name: data.plugin.name });
+    setText(box, t('admin.pluginInstalled', { name: data.plugin.name }));
     $('#admin-plugin-name').value = '';
     $('#admin-plugin-url').value = '';
     loadAdminPlugins();
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; }
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); }
   finally { box.classList.remove('hidden'); btn.disabled = false; }
 });
 
@@ -2213,7 +2213,7 @@ function openChatWith(userId, display) {
   if (!userId) { toast(t('chat.noContacts'), 'error'); return; }
   state.chat.with = userId;
   state.chat.display = display || userId;
-  $('#chat-with-label').textContent = state.chat.display;
+  setText('#chat-with-label', state.chat.display);
   $('#chat-contacts-view').classList.add('hidden');
   $('#chat-conversation-view').classList.remove('hidden');
   openChatPanel();
