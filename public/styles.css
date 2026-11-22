@@ -661,14 +661,13 @@ textarea { resize: vertical; }
   backdrop-filter: blur(18px) saturate(150%);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
 }
+/* Modal dùng đúng mặt kính của card “Xuất dữ liệu”, nhưng blur đậm hơn (70%). */
 [data-theme="bubble"] .modal,
 [data-theme="bubble"] .modal.seller-modal {
-  background:
-    radial-gradient(340px 190px at 100% -12%, rgba(255,255,255,.28), transparent 62%),
-    linear-gradient(145deg, rgba(255,255,255,.17), rgba(255,255,255,.065) 55%, rgba(255,255,255,.1));
-  border: 1px solid rgba(255,255,255,.3);
-  border-radius: 30px;
-  box-shadow: 0 30px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.4), inset 0 -1px 0 rgba(255,255,255,.08);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 22px 60px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.18);
   backdrop-filter: blur(70px) saturate(180%);
   -webkit-backdrop-filter: blur(70px) saturate(180%);
 }
