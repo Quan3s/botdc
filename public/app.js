@@ -1279,8 +1279,8 @@ function renderSellerDashboard(data) {
       esc(t('seller.allActive')), 'purple', 'up'),
     sellerKpi('quickactions', 'users', t('seller.stat.accountsImported'), num(stats.accountsImported), '', '', 'cyan', '', `
       <div class="quick-actions-grid">
-        <button id="seller-create-shop-btn" class="quick-action-btn" data-seller-panel="shops" data-scroll-to="#seller-shop-form"><span data-i18n="seller.createShop">Tạo gian hàng</span></button>
-        <button id="seller-add-product-btn" class="quick-action-btn" data-seller-panel="products" data-scroll-to="#seller-product-form"><span data-i18n="seller.addProduct">Thêm sản phẩm</span></button>
+        <button class="quick-action-btn" data-seller-modal="shop"><span data-i18n="seller.createShop">Tạo gian hàng</span></button>
+        <button class="quick-action-btn" data-seller-modal="product"><span data-i18n="seller.addProduct">Thêm sản phẩm</span></button>
       </div>`),
   ].join('');
   const user = state.user || {};
@@ -1606,6 +1606,132 @@ function showImportAccountsModal(productId) {
   field.focus();
 }
 
+/** Modal tạo/sửa gian hàng — thay thế form inline để giống temp (chỉ còn nút trong panel). */
+function showCreateShopModal(shop) {
+  const editing = !!(shop && shop.id);
+  const wrap = document.createElement('div');
+  wrap.className = 'seller-create-form';
+  wrap.innerHTML = `
+    <label class="form-group"><span>${esc(t('seller.shopName'))}</span><input id="cp-shop-name" class="form-control" value="${esc(shop?.name || '')}" /></label>
+    <label class="form-group"><span>${esc(t('seller.shopDesc'))}</span><textarea id="cp-shop-desc" class="form-control" rows="2">${esc(shop?.description || '')}</textarea></label>
+    <div class="form-row">
+      <label class="form-group"><span>${esc(t('seller.logoUrl'))}</span><input id="cp-shop-logo" class="form-control" type="url" value="${esc(shop?.logoUrl || '')}" placeholder="https://..." /></label>
+      <label class="form-group"><span>${esc(t('seller.backgroundUrl'))}</span><input id="cp-shop-bg" class="form-control" type="url" value="${esc(shop?.backgroundUrl || '')}" placeholder="https://..." /></label>
+    </div>`;
+  openModal({
+    title: t(editing ? 'seller.editShop' : 'seller.createShopNew'),
+    className: 'seller-modal',
+    body: wrap,
+    actions: [
+      { label: t('seller.cancel'), className: 'btn-ghost', onClick: closeModal },
+      { label: t(editing ? 'seller.saveShopBtn' : 'seller.createShopBtn'), className: 'btn-primary', onClick: async btn => {
+        const name = wrap.querySelector('#cp-shop-name').value.trim();
+        if (name.length < 2) { toast(t('seller.shopName'), 'error'); return; }
+        btn.disabled = true;
+        try {
+          await api(editing ? `/api/seller/shop/${encodeURIComponent(shop.id)}` : '/api/seller/shop', {
+            method: 'POST',
+            body: JSON.stringify({
+              name,
+              description: wrap.querySelector('#cp-shop-desc').value.trim(),
+              logoUrl: wrap.querySelector('#cp-shop-logo').value.trim(),
+              backgroundUrl: wrap.querySelector('#cp-shop-bg').value.trim(),
+            }),
+          });
+          toast(t(editing ? 'seller.shopUpdated' : 'seller.shopCreated'));
+          closeModal();
+          await loadSeller();
+          await loadSellerProductsTable();
+        } catch (err) { toast(err.message, 'error'); }
+        finally { btn.disabled = false; }
+      } },
+    ],
+  });
+}
+
+/** Modal “Thêm sản phẩm” đúng(temp): bấm nút là mở form, không cuộn xuống cuối trang. */
+function showCreateProductModal() {
+  const shops = ((state.seller.data || {}).shops) || [];
+  const wrap = document.createElement('div');
+  wrap.className = 'seller-create-form';
+  if (!shops.length) {
+    wrap.innerHTML = `<div class="empty">${esc(t('seller.noShopsForProduct'))}</div>`;
+    openModal({
+      title: t('seller.addProductModalTitle'), className: 'seller-modal', body: wrap,
+      actions: [
+        { label: t('seller.cancel'), className: 'btn-ghost', onClick: closeModal },
+        { label: t('seller.createShopNew'), className: 'btn-primary', onClick: () => { closeModal(); showCreateShopModal(); } },
+      ],
+    });
+    return;
+  }
+  wrap.innerHTML = `
+    <label class="form-group"><span>${esc(t('seller.selectShop'))}</span>
+      <select id="cp-product-shop" class="form-control">${shops.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label>
+    <div class="form-row">
+      <label class="form-group"><span>${esc(t('seller.productName'))}</span><input id="cp-product-name" class="form-control" /></label>
+      <label class="form-group"><span>${esc(t('seller.priceText'))}</span><input id="cp-product-price" class="form-control" placeholder="$100" />
+        <small class="muted">${esc(t('seller.priceHint'))}</small></label>
+    </div>
+    <label class="form-group"><span>${esc(t('seller.productDesc'))}</span><textarea id="cp-product-desc" class="form-control" rows="2"></textarea></label>
+    <label class="form-group"><span>${esc(t('seller.accountsText'))}</span><textarea id="cp-product-accounts" class="form-control" rows="5" data-i18n-placeholder="seller.accountsPlaceholder" placeholder="mail|pass"></textarea></label>
+    <div class="two-inline">
+      <label class="form-group"><span>${esc(t('seller.maxLines'))}</span><input id="cp-product-maxlines" class="form-control" type="number" min="1" max="2000" value="2000" /></label>
+      <span id="cp-product-count" class="pill"></span>
+    </div>`;
+  const accounts = wrap.querySelector('#cp-product-accounts');
+  const maxInput = wrap.querySelector('#cp-product-maxlines');
+  const updateCount = () => {
+    const count = String(accounts.value || '').split('\n').filter(x => x.trim()).length;
+    const max = Math.min(2000, Math.max(1, Number(maxInput.value) || 2000));
+    setText(wrap.querySelector('#cp-product-count'), t('seller.linesCount', { count: num(count), max: num(max) }));
+  };
+  accounts.addEventListener('input', updateCount);
+  maxInput.addEventListener('input', updateCount);
+  updateCount();
+  openModal({
+    title: t('seller.addProductModalTitle'), className: 'seller-modal', body: wrap,
+    actions: [
+      { label: t('seller.cancel'), className: 'btn-ghost', onClick: closeModal },
+      { label: t('seller.createProductBtn'), className: 'btn-primary', onClick: async btn => {
+        const name = wrap.querySelector('#cp-product-name').value.trim();
+        const priceText = wrap.querySelector('#cp-product-price').value.trim();
+        const accountsText = accounts.value;
+        const lines = String(accountsText).split('\n').filter(x => x.trim()).length;
+        const maxLines = Math.min(2000, Math.max(1, Number(maxInput.value) || 2000));
+        if (name.length < 2) { toast(t('seller.productName'), 'error'); return; }
+        if (!priceText) { toast(t('seller.priceText'), 'error'); return; }
+        if (!lines) { toast(t('seller.noAccounts'), 'error'); return; }
+        if (lines > maxLines) { toast(t('seller.tooManyLines', { max: num(maxLines) }), 'error'); return; }
+        btn.disabled = true;
+        try {
+          await api(`/api/seller/shop/${encodeURIComponent(wrap.querySelector('#cp-product-shop').value)}/product`, {
+            method: 'POST',
+            body: JSON.stringify({
+              name, priceText, accountsText, maxLines,
+              description: wrap.querySelector('#cp-product-desc').value.trim(),
+            }),
+          });
+          toast(t('seller.productCreated'));
+          closeModal();
+          await loadSeller();
+          await loadSellerProductsTable();
+        } catch (err) { toast(err.message, 'error'); }
+        finally { btn.disabled = false; }
+      } },
+    ],
+  });
+}
+
+/** Nút “Thêm sản phẩm / Tạo gian hàng” ở panel lẫn quick-action đều mở modal. */
+document.addEventListener('click', e => {
+  const trigger = e.target.closest('[data-seller-modal]');
+  if (!trigger) return;
+  e.preventDefault();
+  if (trigger.dataset.sellerModal === 'shop') showCreateShopModal();
+  if (trigger.dataset.sellerModal === 'product') showCreateProductModal();
+});
+
 function renderSellerShops(shops) {
   const root = $('#seller-shops');
   const select = $('#seller-product-shop');
@@ -1652,16 +1778,7 @@ function renderSellerShops(shops) {
   }));
   $$('[data-shop-edit]', root).forEach(btn => btn.addEventListener('click', () => {
     const shop = shops.find(s => s.id === btn.dataset.shopEdit);
-    if (!shop) return;
-    $('#seller-shop-id').value = shop.id;
-    $('#seller-shop-name').value = shop.name || '';
-    $('#seller-shop-desc').value = shop.description || '';
-    $('#seller-shop-logo').value = shop.logoUrl || '';
-    $('#seller-shop-bg').value = shop.backgroundUrl || '';
-    labelButton($('#seller-shop-submit'), 'seller.saveShopBtn');
-    labelButton($('#seller-shop-form-title'), 'seller.editShop');
-    showSellerPanel('shops');
-    $('#seller-shop-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (shop) showCreateShopModal(shop);
   }));
 }
 

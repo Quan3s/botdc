@@ -1136,7 +1136,21 @@ body.seller-mode .sidebar { background: linear-gradient(180deg, rgba(16,26,20,.9
 .summary-value { font-size: 18px; font-weight: 800; }
 .summary-item.highlight .summary-value { color: var(--accent); }
 .summary-item.pending .summary-value { color: var(--gold); }
-.seller-modal .modal, .modal.seller-modal { max-width: 520px; }
+/* Nút hành động trong panel: đúng kiểu temp .btn-primary (không dùng lớp .btn). */
+.header-actions-group .btn-primary {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 10px 18px; border: 1px solid transparent; border-radius: 10px;
+  background: rgba(57,245,138,.9); color: var(--bg);
+  font-family: var(--font); font-size: 13px; font-weight: 800; cursor: pointer;
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+.header-actions-group .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(57,245,138,.28); }
+.modal.seller-modal { width: min(560px, 100%); max-width: 560px; }
+.modal.seller-modal h3 { font-size: 17px; font-weight: 800; }
+.seller-create-form .form-group { margin-bottom: 12px; }
+.seller-create-form .two-inline { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.seller-create-form .two-inline .pill { margin-bottom: 12px; white-space: nowrap; }
+.seller-create-form textarea { resize: vertical; line-height: 1.5; }
 .edit-product-form .form-group { margin-bottom: 10px; }
 
 @media (max-width: 900px) {
