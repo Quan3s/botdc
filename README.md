@@ -78,7 +78,7 @@ npm start
 - Đặt `DISABLE_BOT=1` nếu chỉ muốn chạy web khi dev.
 
 ### Supabase
-Chạy `supabase_setup.sql` trong **SQL Editor** để tạo đầy đủ bảng (kể cả các bảng cũ của bot).
+Chạy `supabase_setup.sql` **hoặc** `supabase_new_tables.sql` trong **SQL Editor**: cả hai đều tạo đầy đủ 21 bảng (kể cả bảng cũ của bot), dùng `if not exists` nên chạy lại nhiều lần không lỗi và không xoá dữ liệu cũ. Nếu DB đã có bảng từ bản trước, file sẽ tự bổ sung cột còn thiếu rồi bật RLS.
 
 ### GitHub Gist (kho shop)
 Tạo token GitHub có quyền `gist` và điền `GITHUB_TOKEN`. Khi admin tạo sản phẩm:
