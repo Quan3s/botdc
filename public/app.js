@@ -445,7 +445,7 @@ function applyUser() {
   setText('#profile-role', u.isAdmin ? `${t('profile.admin')} / ${t('nav.admin')}` : t('profile.member'));
   setText('#link-token', u.linkToken || '—');
   $$('.admin-only').forEach(el => el.classList.toggle('hidden', !u.isAdmin));
-  $$('.seller-only').forEach(el => el.classList.toggle('hidden', !isSeller()));
+  updateSellerChrome();
   $('#link-box').classList.toggle('hidden', !!u.linked);
   $('#regen-token-btn').classList.toggle('hidden', !!u.linked);
   $('#linked-note').classList.toggle('hidden', !u.linked);
@@ -453,6 +453,14 @@ function applyUser() {
 }
 
 function isSeller() { return !!(state.user && (state.user.isSeller || state.user.sellerStatus === 'active')); }
+
+/** Sidebar + menu avatar phải đổi chung một trạng thái seller. */
+function updateSellerChrome() {
+  const seller = isSeller();
+  $$('.seller-only').forEach(el => el.classList.toggle('hidden', !seller));
+  const avatarSeller = $('#avatar-seller');
+  if (avatarSeller) labelButton(avatarSeller, seller ? 'nav.seller' : 'topbar.sellerRequest');
+}
 
 async function refreshUser() {
   const data = await api('/api/me');
@@ -533,7 +541,11 @@ document.addEventListener('click', e => {
 
 $('#avatar-profile').addEventListener('click', () => { closeAvatarMenu(); switchView('profile'); });
 $('#avatar-orders').addEventListener('click', () => { closeAvatarMenu(); switchView('orders'); });
-$('#avatar-seller').addEventListener('click', () => { closeAvatarMenu(); requestSeller(); });
+$('#avatar-seller').addEventListener('click', () => {
+  closeAvatarMenu();
+  if (isSeller()) switchView('seller');
+  else requestSeller();
+});
 
 function switchView(view) {
   if (!VIEW_TITLE_KEYS[view]) view = 'dashboard';
@@ -1136,6 +1148,7 @@ async function requestSeller() {
   try {
     const data = await api('/api/seller/request', { method: 'POST' });
     if (state.user) state.user.sellerStatus = data.status || 'pending';
+    updateSellerChrome();
     toast(t('seller.requestSent'));
     if (state.view === 'seller') loadSeller();
   } catch (err) { toast(err.message, 'error'); }
