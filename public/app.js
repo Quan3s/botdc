@@ -45,12 +45,22 @@ function esc(value) {
 
 function num(value) { return Number(value || 0).toLocaleString('en-US'); }
 
+/** Gán text an toàn: không throw nếu element đã bị i18n/CSS thay thế. */
+function setText(sel, value, root = document) {
+  const el = typeof sel === 'string' ? $(sel, root) : sel;
+  if (el) el.textContent = value == null ? '' : String(value);
+  return el;
+}
+
 function toast(message, type = 'ok') {
   const el = document.createElement('div');
   el.className = `toast${type === 'error' ? ' error' : ''}`;
   el.innerHTML = icon(type === 'error' ? 'warning' : 'checkCircle', 15) + '<span></span>';
-  el.querySelector('span').textContent = message;
-  $('#toasts').appendChild(el);
+  const label = el.querySelector('span');
+  if (label) label.textContent = message;
+  else el.textContent = message;
+  const host = $('#toasts') || document.body;
+  if (host) host.appendChild(el);
   setTimeout(() => {
     el.style.opacity = '0';
     el.style.transform = 'translateX(30px)';
@@ -574,14 +584,14 @@ async function refreshDashboard() {
     const providers = tasks.providers || [];
     const daily = providers.reduce((sum, p) => sum + Number(p.used || tasks.daily[p.id] || 0), 0);
     const dailyTotal = providers.reduce((sum, p) => sum + Number(p.dailyMax || 0), 0);
-    $('#stat-weekly').textContent = num(tasks.weeklyCount);
-    $('#stat-daily').textContent = `${daily}/${dailyTotal || tasks.dailyMax * 2}`;
-    $('#stat-purchases').textContent = num(purchases.purchases.length);
+    setText('#stat-weekly', num(tasks.weeklyCount));
+    setText('#stat-daily', `${daily}/${dailyTotal || tasks.dailyMax * 2}`);
+    setText('#stat-purchases', num(purchases.purchases.length));
     updateDailyCard(tasks);
     const lb = await api('/api/leaderboard/links');
     const me = state.user;
     const idx = lb.leaderboard.findIndex(r => r.userId === (me.discordId || `web_${me.id}`));
-    $('#stat-rank').textContent = idx >= 0 ? `#${idx + 1}` : '—';
+    setText('#stat-rank', idx >= 0 ? `#${idx + 1}` : '—');
     renderRecentPurchases(purchases.purchases.slice(0, 3));
   } catch (err) {
     if (isAuthError(err)) return showAuth();
@@ -604,15 +614,15 @@ function updateDailyCard(tasks) {
   const claimed = !!tasks.dailyClaimed;
   const freeClaimed = !!tasks.freeVmosClaimed;
   const unlocked = Number(tasks.linkCountAllTime || 0) > 0;
-  $('#daily-date').textContent = tasks.date || '—';
+  setText('#daily-date', tasks.date || '—');
   const claimBtn = $('#daily-claim-btn');
   claimBtn.disabled = claimed;
   labelButton(claimBtn, claimed ? 'dashboard.claimedToday' : 'dashboard.claim');
-  $('#daily-claim-status').textContent = t(claimed ? 'dashboard.coinGiftClaimed' : 'dashboard.coinGiftPending');
+  setText('#daily-claim-status', t(claimed ? 'dashboard.coinGiftClaimed' : 'dashboard.coinGiftPending'));
   const vmosBtn = $('#daily-vmos-btn');
   vmosBtn.disabled = freeClaimed || !unlocked;
   labelButton(vmosBtn, freeClaimed ? 'dashboard.takenToday' : 'dashboard.getVmos');
-  $('#daily-vmos-status').textContent = t(freeClaimed ? 'dashboard.vmosTaken' : unlocked ? 'dashboard.vmosAvailable' : 'dashboard.vmosLocked');
+  setText('#daily-vmos-status', t(freeClaimed ? 'dashboard.vmosTaken' : unlocked ? 'dashboard.vmosAvailable' : 'dashboard.vmosLocked'));
 }
 
 $('#daily-claim-btn').addEventListener('click', async () => {
@@ -1379,40 +1389,62 @@ async function loadTasks() {
   try {
     const data = await api('/api/tasks');
     const providers = data.providers || [];
+    const daily = data.daily || {};
     const select = $('#task-provider');
-    const selected = select.value;
-    if (providers.length) {
-      select.innerHTML = providers.map(p => {
-        const used = Number(p.used || data.daily[p.id] || 0);
-        const label = `${p.name} — ${p.reward} xu (${used}/${p.dailyMax})`;
-        return `<option value="${esc(p.id)}"${p.id === selected ? ' selected' : ''}>${esc(label)}</option>`;
-      }).join('');
-      $('#task-hint').textContent = providers.map(p => `${p.name}: ${p.reward} xu (${p.dailyMax}/day)`).join('. ') + '.';
+    if (select) {
+      const selected = select.value;
+      if (providers.length) {
+        select.innerHTML = providers.map(p => {
+          const used = Number(p.used || daily[p.id] || 0);
+          const label = `${p.name} — ${p.reward} xu (${used}/${p.dailyMax})`;
+          return `<option value="${esc(p.id)}"${p.id === selected ? ' selected' : ''}>${esc(label)}</option>`;
+        }).join('');
+      }
     }
-    $('#task-daily').innerHTML = providers.map(p => {
-      const used = Number(p.used || data.daily[p.id] || 0);
-      return `<span class="pill">${esc(p.name)}: ${used}/${p.dailyMax} · +${p.reward} xu</span>`;
-    }).join('') + `<span class="pill">${esc(t('tasks.weekly', { count: num(data.weeklyCount) }))}</span>`;
-    const periodEl = $('#task-period');
-    periodEl.setAttribute('data-vars', JSON.stringify({ period: data.period || '—' }));
-    applyTranslations(periodEl);
-    const labels = Array.from({ length: 10 }, (_, i) => `Top ${i + 1}`);
-    $('#reward-list').innerHTML = (data.rewards || []).map((r, i) => `<li><span>${labels[i] || `#${i + 1}`}</span><b>+${num(r)} coin</b></li>`).join('');
+    if (providers.length) {
+      setText('#task-hint', providers.map(p => `${p.name}: ${p.reward} xu (${p.dailyMax}/day)`).join('. ') + '.');
+    }
+    const dailyBox = $('#task-daily');
+    if (dailyBox) {
+      dailyBox.innerHTML = providers.map(p => {
+        const used = Number(p.used || daily[p.id] || 0);
+        return `<span class="pill">${esc(p.name)}: ${used}/${p.dailyMax} · +${p.reward} xu</span>`;
+      }).join('') + `<span class="pill">${esc(t('tasks.weekly', { count: num(data.weeklyCount) }))}</span>`;
+    }
+    const periodEl = $('#task-period') || $('.period-box[data-i18n="tasks.period"]');
+    if (periodEl) {
+      periodEl.id = 'task-period';
+      periodEl.setAttribute('data-vars', JSON.stringify({ period: data.period || '—' }));
+      if (typeof applyTranslations === 'function') applyTranslations(periodEl);
+      else setText(periodEl, t('tasks.period', { period: data.period || '—' }));
+    }
+    const rewardList = $('#reward-list');
+    if (rewardList) {
+      const labels = Array.from({ length: 10 }, (_, i) => `Top ${i + 1}`);
+      rewardList.innerHTML = (data.rewards || []).map((r, i) => `<li><span>${labels[i] || `#${i + 1}`}</span><b>+${num(r)} coin</b></li>`).join('');
+    }
   } catch (err) { toast(err.message, 'error'); }
 }
 
-$('#task-get-btn').addEventListener('click', async e => {
+const taskGetBtn = $('#task-get-btn');
+if (taskGetBtn) taskGetBtn.addEventListener('click', async e => {
   const btn = e.currentTarget;
   btn.disabled = true;
   const box = $('#task-result');
   try {
-    const data = await api('/api/tasks/link', { method: 'POST', body: JSON.stringify({ provider: $('#task-provider').value }) });
-    box.className = 'result-box';
-    box.innerHTML = `${icon('check', 15)} ${esc(t('tasks.created', { reward: num(data.reward), remaining: num(data.remaining) }))}<br>
-      <a href="${esc(data.url)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">${esc(data.url)}</a>`;
-    box.classList.remove('hidden');
+    const select = $('#task-provider');
+    const data = await api('/api/tasks/link', { method: 'POST', body: JSON.stringify({ provider: select ? select.value : 'link4m' }) });
+    if (box) {
+      box.className = 'result-box';
+      box.innerHTML = `${icon('check', 15)} ${esc(t('tasks.created', { reward: num(data.reward), remaining: num(data.remaining) }))}<br>
+        <a href="${esc(data.url)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">${esc(data.url)}</a>`;
+      box.classList.remove('hidden');
+    }
     loadTasks();
-  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+  } catch (err) {
+    if (box) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+    else toast(err.message, 'error');
+  }
   finally { btn.disabled = false; }
 });
 
