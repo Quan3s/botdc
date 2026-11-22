@@ -512,6 +512,11 @@ router.get('/api/seller/dashboard', requireAuth, requireSeller, ah(async (req, r
         returnPercent: pct(returned.length),
     };
 
+    const soldByItem = {};
+    orders.forEach(o => {
+        const key = String(o.product_id || '');
+        if (key) soldByItem[key] = (soldByItem[key] || 0) + (Number(o.quantity) || 1);
+    });
     const buyerIds = [...new Set(orders.slice(0, 8).map(o => String(o.buyer_id || '')).filter(Boolean))];
     const buyers = await Promise.all(buyerIds.map(id => safe(() => db.getWebUserById(id), null)));
     const buyerNames = Object.fromEntries(buyerIds.map((id, i) => [id, (buyers[i] && (buyers[i].username || buyers[i].discord_id)) || id.slice(0, 8)]));
@@ -520,8 +525,12 @@ router.get('/api/seller/dashboard', requireAuth, requireSeller, ah(async (req, r
         itemName: o.item_name || '',
         buyer: buyerNames[String(o.buyer_id || '')] || String(o.buyer_id || '').slice(0, 8),
         total: Number(o.total) || 0,
+        sellerAmount: Number(o.seller_amount) || 0,
+        quantity: Number(o.quantity) || 1,
         currency: o.currency || 'coin',
         status: o.status,
+        payoutState: o.payout_state || '',
+        holdDays: o.hold_until ? Math.max(0, Math.ceil((new Date(o.hold_until).getTime() - Date.now()) / 86400000)) : 0,
         createdAt: o.createdAt || o.created_at,
     }));
 
@@ -534,6 +543,7 @@ router.get('/api/seller/dashboard', requireAuth, requireSeller, ah(async (req, r
             year: revenueSeries(orders, 'year'),
         },
         orders: { total: orders.length, pending: pendingOrders.length, statusCounts, recent: recentOrders },
+        soldByItem,
         shops: shops.map((s, i) => shopSummary(s, productsByShop[i])),
         reviews: relevantReviews.length,
     });
@@ -620,6 +630,60 @@ router.post('/api/seller/product/:id/accounts', requireAuth, requireSeller, ah(a
     if (updatedStock.gist_id) { patch.gist_id = updatedStock.gist_id; patch.gist_filename = updatedStock.gist_filename; }
     const row = await db.updateShopItem(item.id, patch);
     res.json({ ok: true, added: added.length, product: publicProduct({ ...item, ...patch, ...(row || {}) }) });
+}));
+
+async function ownedSellerProduct(req) {
+    const item = await db.getShopItem(req.params.id);
+    if (!item) return { status: 404, error: 'Không tìm thấy sản phẩm.' };
+    const owner = await db.getShop(item.shop_id);
+    if (!owner || String(owner.owner_id) !== String(req.webUser.id)) return { status: 403, error: 'Bạn không phải chủ sản phẩm này.' };
+    return { item };
+}
+
+/** Sửa thông tin sản phẩm: các nút edit/toggle trong bảng sản phẩm của temp. */
+router.post('/api/seller/product/:id', requireAuth, requireSeller, ah(async (req, res) => {
+    const owned = await ownedSellerProduct(req);
+    if (!owned.item) return res.status(owned.status).json({ error: owned.error });
+    const patch = {};
+    if (req.body.name !== undefined) {
+        const name = String(req.body.name).trim();
+        if (name.length < 2) return res.status(400).json({ error: 'Tên sản phẩm tối thiểu 2 ký tự.' });
+        patch.name = name;
+    }
+    if (req.body.description !== undefined) patch.description = String(req.body.description).trim();
+    if (req.body.priceText !== undefined) {
+        const { currency, price } = parsePrice(req.body.priceText);
+        if (price <= 0) return res.status(400).json({ error: 'Giá sản phẩm phải lớn hơn 0.' });
+        patch.price = price; patch.price_value = price; patch.currency = currency;
+    }
+    if (req.body.active !== undefined) patch.active = !!req.body.active;
+    const row = await db.updateShopItem(req.params.id, patch);
+    res.json({ ok: true, product: publicProduct({ ...owned.item, ...patch, ...(row || {}) }) });
+}));
+
+router.post('/api/seller/product/:id/toggle', requireAuth, requireSeller, ah(async (req, res) => {
+    const owned = await ownedSellerProduct(req);
+    if (!owned.item) return res.status(owned.status).json({ error: owned.error });
+    const active = owned.item.active === false;
+    const row = await db.updateShopItem(req.params.id, { active });
+    res.json({ ok: true, product: publicProduct({ ...owned.item, active, ...(row || {}) }) });
+}));
+
+/** Ẩn sản phẩm thay vì xoá cứng để không mất lịch sử đơn hàng. */
+router.post('/api/seller/product/:id/delete', requireAuth, requireSeller, ah(async (req, res) => {
+    const owned = await ownedSellerProduct(req);
+    if (!owned.item) return res.status(owned.status).json({ error: owned.error });
+    const row = await db.updateShopItem(req.params.id, { active: false });
+    res.json({ ok: true, product: publicProduct({ ...owned.item, active: false, ...(row || {}) }) });
+}));
+
+/** Xoá gian hàng (chỉ chủ shop). Lịch sử đơn hàng vẫn giữ shop_name/item_name. */
+router.post('/api/seller/shop/:id/delete', requireAuth, requireSeller, ah(async (req, res) => {
+    const row = await db.getShop(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Không tìm thấy shop.' });
+    if (String(row.owner_id) !== String(req.webUser.id)) return res.status(403).json({ error: 'Bạn không phải chủ shop này.' });
+    await db.deleteShop(row.id);
+    res.json({ ok: true });
 }));
 
 router.get('/api/seller/shop/:id/products', requireAuth, requireSeller, ah(async (req, res) => {

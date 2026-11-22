@@ -43,6 +43,7 @@
     warning: '<path d="M12 3.5 21.5 20H2.5L12 3.5Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
     complaint: '<path d="M12 3.5 21.5 20H2.5L12 3.5Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
     pending: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+    trash: '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>',
     refund: '<path d="M4 8h15"/><path d="m15 4 4 4-4 4"/><path d="M20 16H5"/><path d="m9 12-4 4 4 4"/>',
     refresh: '<path d="M20 11a8 8 0 0 0-14-4.5L4 9"/><path d="M4 4v5h5"/><path d="M4 13a8 8 0 0 0 14 4.5L20 15"/><path d="M20 20v-5h-5"/>',
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
@@ -88,7 +89,7 @@
     'close', 'youtube', 'discord', 'star', 'coin', 'acoin', 'search', 'filter', 'check',
     'plus', 'reply', 'appeal', 'warning', 'refresh', 'copy', 'eye', 'cart', 'wallet',
     'calendar', 'arrowUp', 'arrowDown', 'chevron', 'send', 'bell', 'lock', 'user',
-    'store', 'chart', 'pending', 'refund', 'complaint', 'replyAll',
+    'store', 'chart', 'pending', 'refund', 'complaint', 'replyAll', 'trash',
   ];
 
   function icon(name, size = 20) {

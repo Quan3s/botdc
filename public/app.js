@@ -156,12 +156,12 @@ async function copyText(text, btn) {
   toast(t('auth.copyDone'));
 }
 
-function openModal({ title, body, actions }) {
+function openModal({ title, body, actions, className }) {
   const root = $('#modal-root');
   root.classList.remove('hidden');
   root.innerHTML = '';
   const modal = document.createElement('div');
-  modal.className = 'modal';
+  modal.className = `modal${className ? ' ' + className : ''}`;
   const h = document.createElement('h3');
   setText(h, title);
   modal.appendChild(h);
@@ -470,9 +470,12 @@ function syncSidebar(view) {
   const seller = view === 'seller';
   const nav = $('#nav');
   const sellerNav = $('#seller-nav');
+  document.body.classList.toggle('seller-mode', seller);
   if (nav) nav.classList.toggle('hidden', seller);
   if (sellerNav) sellerNav.classList.toggle('hidden', !seller);
-  setText('#sidebar-brand-label', t(seller ? 'seller.brand' : 'nav.brand'));
+  setText('#sidebar-brand-label', t(seller ? 'seller.brandName' : 'nav.brand'));
+  const sub = $('#sidebar-brand-sub');
+  if (sub) { setText(sub, seller ? t('seller.brandSub') : ''); sub.classList.toggle('hidden', !seller); }
   $$('#nav .nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
   if (seller) showSellerPanel('overview');
 }
@@ -597,13 +600,20 @@ $$('[data-scroll-to]').forEach(btn => btn.addEventListener('click', () => {
 }));
 
 /** Sidebar seller và các nút quick action đều chuyển tab-panel, không scroll dài. */
-$$('button[data-seller-panel]').forEach(btn => btn.addEventListener('click', () => {
-  showSellerPanel(btn.dataset.sellerPanel);
-  if (btn.dataset.scrollTo) {
-    const target = $(btn.dataset.scrollTo);
-    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-}));
+function bindSellerPanelButtons() {
+  $$('button[data-seller-panel]').forEach(btn => {
+    if (btn.dataset.sellerPanelBound) return;
+    btn.dataset.sellerPanelBound = '1';
+    btn.addEventListener('click', () => {
+      showSellerPanel(btn.dataset.sellerPanel);
+      if (btn.dataset.scrollTo) {
+        const target = $(btn.dataset.scrollTo);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  });
+}
+bindSellerPanelButtons();
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
@@ -1230,18 +1240,24 @@ async function loadSeller() {
 }
 
 const SELLER_STATUS_KEYS = {
-  pending: 'seller.statusPending', completed: 'seller.statusCompleted',
+  pending: 'seller.statusPending', processing: 'seller.statusProcessing',
+  completed: 'seller.statusCompleted', cancelled: 'seller.statusCancelled',
   complained: 'seller.statusComplained', returned: 'seller.statusReturned',
 };
 
-function sellerKpi(iconName, label, value, foot, tone, trend) {
-  return `<div class="card seller-kpi kpi-card ${tone || ''}">
+/** Card KPI đúng cấu trúc temp: icon/trend ở header, value+label ở body, footer riêng. */
+function sellerKpi(type, iconName, label, value, sub, foot, tone, trend, extra = '') {
+  return `<div class="card seller-kpi kpi-card kpi-${type}">
     <div class="kpi-header">
-      <span class="kpi-icon-box ${tone || ''}"><span class="ico">${icon(iconName, 18)}</span></span>
-      ${trend ? `<span class="kpi-trend ${trend}">${icon(trend === 'up' ? 'arrowUp' : 'pending', 15)}</span>` : ''}
+      <div class="kpi-icon-box ${tone || ''}"><span class="ico">${icon(iconName, 20)}</span></div>
+      ${trend ? `<div class="kpi-trend ${trend}"><span class="ico">${icon(trend === 'up' ? 'arrowUp' : 'pending', 14)}</span></div>` : ''}
     </div>
-    <div class="kpi-body"><div class="kpi-value">${value}</div><div class="kpi-label">${esc(label)}</div></div>
+    <div class="kpi-body">
+      <div class="kpi-value">${value}</div>
+      <div class="kpi-label">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
+    </div>
     ${foot ? `<div class="kpi-footer"><span class="kpi-gross">${foot}</span></div>` : ''}
+    ${extra}
   </div>`;
 }
 
@@ -1251,17 +1267,31 @@ function renderSellerDashboard(data) {
   const coin = `<span class="kpi-unit">${esc(t('topbar.coinShort'))}</span>`;
   const root = $('#seller-stats');
   if (root) root.innerHTML = [
-    sellerKpi('wallet', t('seller.received'), `${num(stats.processedCoin)} ${coin}`,
-      `${esc(t('seller.afterFee'))} · ${esc(t('seller.gross'))}: <strong>${num(stats.grossReceived)} ${coin}</strong>`, 'green', 'up'),
-    sellerKpi('pending', t('seller.pendingPayout'), `${num(stats.pendingCoin)} ${coin}`,
-      `${esc(t('seller.payoutHold'))} · ${esc(t('seller.gross'))}: <strong>${num(stats.grossPending)} ${coin}</strong>`, 'orange', 'neutral'),
-    sellerKpi('receipt', t('seller.totalOrders'), num(stats.totalOrders),
-      `<strong>${num(stats.pendingOrders)}</strong> ${esc(t('seller.pendingOrders'))}`, 'blue'),
-    sellerKpi('package', t('seller.activeProducts'), num(stats.activeProducts),
-      `<strong>${num(stats.inactiveProducts)}</strong> ${esc(t('seller.inactiveProducts'))}`, 'purple'),
-    sellerKpi('store', t('seller.totalShops'), num(stats.shops), esc(t('seller.allActive')), 'cyan'),
-    sellerKpi('users', t('seller.stat.accountsImported'), num(stats.accountsImported), '', 'cyan'),
+    sellerKpi('revenue', 'wallet', t('seller.received'), `${num(stats.processedCoin)} <span class="kpi-unit">${esc(t('topbar.coinShort'))}</span>`,
+      esc(t('seller.afterFee')), `${esc(t('seller.gross'))}: <strong>${num(stats.grossReceived)} ${coin}</strong>`, 'green', 'up'),
+    sellerKpi('pending', 'pending', t('seller.pendingPayout'), `${num(stats.pendingCoin)} <span class="kpi-unit">${esc(t('topbar.coinShort'))}</span>`,
+      esc(t('seller.payoutHold')), `${esc(t('seller.gross'))}: <strong>${num(stats.grossPending)} ${coin}</strong>`, 'orange', 'neutral'),
+    sellerKpi('orders', 'receipt', t('seller.totalOrders'), num(stats.totalOrders), '',
+      `<strong>${num(stats.pendingOrders)}</strong> ${esc(t('seller.pendingOrders'))}`, 'blue', 'up'),
+    sellerKpi('products', 'package', t('seller.activeProducts'), num(stats.activeProducts), '',
+      `<strong>${num(stats.inactiveProducts)}</strong> ${esc(t('seller.inactiveProducts'))}`, 'amber', 'up'),
+    sellerKpi('stores', 'store', t('seller.totalShops'), num(stats.shops), '',
+      esc(t('seller.allActive')), 'purple', 'up'),
+    sellerKpi('quickactions', 'users', t('seller.stat.accountsImported'), num(stats.accountsImported), '', '', 'cyan', '', `
+      <div class="quick-actions-grid">
+        <button id="seller-create-shop-btn" class="quick-action-btn" data-seller-panel="shops" data-scroll-to="#seller-shop-form"><span data-i18n="seller.createShop">Tạo gian hàng</span></button>
+        <button id="seller-add-product-btn" class="quick-action-btn" data-seller-panel="products" data-scroll-to="#seller-product-form"><span data-i18n="seller.addProduct">Thêm sản phẩm</span></button>
+      </div>`),
   ].join('');
+  const user = state.user || {};
+  const displayName = user.displayName || user.username || user.name || '?';
+  setText('#seller-user-name', displayName);
+  const avatar = $('#seller-user-avatar');
+  if (avatar) {
+    const src = user.avatar || user.avatarUrl || user.photoURL;
+    if (src) avatar.innerHTML = `<img src="${esc(src)}" alt="" />`;
+    else setText(avatar, String(displayName).trim().charAt(0).toUpperCase() || '?');
+  }
   setText('#seller-orders-summary', t('seller.ordersSummary', { total: num(orders.total), pending: num(orders.pending) }));
   renderRevenueChart(data.revenue || {}, state.seller.revenue);
   renderSellerStatusChart(orders.statusCounts || {});
@@ -1271,6 +1301,8 @@ function renderSellerDashboard(data) {
   renderSellerProductsTable();
   renderSellerShops(data.shops || []);
   renderSellerShopFilter(data.shops || []);
+  renderSellerDataSummary(data);
+  bindSellerPanelButtons();
 }
 
 /** Giữ lại đủ 6 chỉ số thống kê cũ của Seller Dashboard. */
@@ -1338,17 +1370,17 @@ function renderSellerStatusChart(counts) {
   </div>`;
 }
 
+/** Bảng đơn gần đây trên tab tổng quan (đúng cột temp: ID / sản phẩm / giá / trạng thái). */
 function sellerOrdersTableHtml(list) {
   if (!list.length) return `<div class="empty">${esc(t('seller.noOrders'))}</div>`;
   const rows = list.map(o => `<tr>
-    <td>#${esc(String(o.id || '').slice(0, 6))}</td>
-    <td>${esc(o.itemName)}</td>
-    <td>${esc(o.buyer)}</td>
-    <td><b>${num(o.total)}</b> ${esc(t('topbar.coinShort'))}</td>
-    <td><span class="status-pill ${esc(o.status)}">${esc(t(SELLER_STATUS_KEYS[o.status] || o.status))}</span></td>
+    <td class="order-id-cell">#${esc(String(o.id || '').slice(0, 6))}</td>
+    <td class="product-name-cell">${esc(o.itemName)}</td>
+    <td class="price-cell"><b>${num(o.sellerAmount || o.total)}</b> ${esc(t('topbar.coinShort'))}</td>
+    <td><span class="status-pill ${esc(SELLER_STATUS_CLASS[o.status] || o.status)}">${esc(t(SELLER_STATUS_KEYS[o.status] || o.status))}</span></td>
   </tr>`).join('');
-  return `<table class="data-table seller-table"><thead><tr>
-    <th>ID</th><th>${esc(t('seller.productName'))}</th><th>${esc(t('seller.buyer'))}</th>
+  return `<table class="data-table seller-table recent-orders-table"><thead><tr>
+    <th>${esc(t('seller.orderId'))}</th><th>${esc(t('seller.productName'))}</th>
     <th>${esc(t('orders.total'))}</th><th>${esc(t('orders.status'))}</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
@@ -1358,11 +1390,55 @@ function renderSellerRecentOrders(list) {
   if (root) root.innerHTML = sellerOrdersTableHtml(list);
 }
 
-/** Tab "Đơn hàng" của seller dùng chung nguồn dữ liệu với bảng gần đây. */
+const SELLER_STATUS_CLASS = { pending: 'pending', processing: 'processing', completed: 'success', cancelled: 'cancelled', complained: 'warning', returned: 'warning' };
+
+function sellerOrderCard(o) {
+  const hold = Number(o.holdDays);
+  const holdText = hold > 0 ? t('seller.holdDays', { days: num(hold) }) : '';
+  const params = new URLSearchParams({ orderId: String(o.id || ''), seller: '1' });
+  return `<div class="order-card">
+    <div class="order-card-header">
+      <div class="order-id-group"><span class="order-id">#${esc(String(o.id || '').slice(0, 8))}</span>
+        <span class="status-pill ${esc(SELLER_STATUS_CLASS[o.status] || o.status)}">${esc(t(SELLER_STATUS_KEYS[o.status] || o.status))}</span></div>
+      <div class="order-date">${esc(sellerOrderDate(o.createdAt))}</div>
+    </div>
+    <div class="order-card-body">
+      <div class="order-info-row">
+        <div class="order-info-item"><span class="info-label">${esc(t('seller.productName'))}</span><span class="info-value">${esc(o.itemName)}</span></div>
+        <div class="order-info-item"><span class="info-label">${esc(t('seller.buyer'))}</span><span class="info-value">${esc(o.buyer || '')}</span></div>
+        <div class="order-info-item"><span class="info-label">${esc(t('seller.qty'))}</span><span class="info-value">${num(o.quantity || 1)}</span></div>
+        <div class="order-info-item"><span class="info-label">${esc(t('seller.sellerReceived'))}</span><span class="info-value price-highlight">${num(o.sellerAmount || o.total)} ${esc(t('topbar.coinShort'))}</span></div>
+        <div class="order-info-item"><span class="info-label">${esc(t('seller.gross'))}</span><span class="info-value">${num(o.total)} ${esc(t('topbar.coinShort'))}</span></div>
+      </div>
+      ${holdText ? `<div class="hold-time-bar"><span class="ico">${icon('pending', 14)}</span>${esc(holdText)}</div>` : ''}
+      <button class="btn btn-ghost btn-sm btn-message" data-message-order="${esc(o.id || '')}" data-message-params="${esc(params.toString())}">
+        <span class="ico">${icon('chat', 14)}</span><span>${esc(t('seller.messageBuyer'))}</span>
+      </button>
+    </div>
+  </div>`;
+}
+
+function sellerOrderDate(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+/** Tab "Đơn hàng" — card đơn hàng theo temp, lọc theo mã/trạng thái. */
 function renderSellerOrdersPanel() {
   const root = $('#seller-orders-panel-table');
   if (!root) return;
-  root.innerHTML = sellerOrdersTableHtml(((state.seller.data || {}).orders || {}).recent || []);
+  const query = String($('#seller-order-search')?.value || '').trim().toLowerCase();
+  const status = $('#seller-order-status')?.value || '';
+  const list = (((state.seller.data || {}).orders || {}).recent || []).filter(o =>
+    (!query || String(o.id || '').toLowerCase().includes(query) || String(o.itemName || '').toLowerCase().includes(query)) &&
+    (!status || o.status === status));
+  root.innerHTML = list.length ? list.map(sellerOrderCard).join('') : `<div class="empty">${esc(t('seller.noOrders'))}</div>`;
+  $$('[data-message-order]', root).forEach(btn => btn.addEventListener('click', () => {
+    const chat = $('[data-goto="messages"], [data-view="messages"]');
+    if (chat) chat.click();
+  }));
 }
 
 /** Nạp danh sách sản phẩm của mọi shop seller cho bảng quản lý. */
@@ -1376,7 +1452,8 @@ async function loadSellerProductsTable() {
       const data = await api(`/api/seller/shop/${encodeURIComponent(s.id)}/products`);
       return (data.products || []).map(p => ({ ...p, shopId: s.id, shopName: s.name }));
     }));
-    state.seller.products = groups.flat();
+    const soldByItem = (state.seller.data || {}).soldByItem || {};
+    state.seller.products = groups.flat().map(p => ({ ...p, sold: Number(soldByItem[p.id]) || 0 }));
     renderSellerProductsTable();
   } catch (err) { root.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
 }
@@ -1390,19 +1467,27 @@ function renderSellerProductsTable() {
   const shopId = $('#seller-product-shop-filter')?.value || '';
   const rowsData = products.filter(p =>
     (!query || String(p.name || '').toLowerCase().includes(query)) &&
-    (!status || (status === 'active' ? p.active !== false : p.active === false)) &&
+    (!status || (status === 'active' ? p.active !== false : status === 'inactive' ? p.active === false : Number(p.sold) > 0)) &&
     (!shopId || p.shopId === shopId));
+  const desc = $('#seller-products-desc');
+  if (desc) setText(desc, t('seller.productsCount', { total: num(products.length), active: num(products.filter(p => p.active !== false).length) }));
   if (!rowsData.length) { root.innerHTML = `<div class="empty">${esc(t('seller.productEmpty'))}</div>`; return; }
   const rows = rowsData.map(p => `<tr>
     <td class="td-checkbox"><input type="checkbox" aria-label="${esc(p.name)}" /></td>
-    <td><div class="product-info-cell"><b>${esc(p.name)}</b><small>${esc(p.description || '')}</small></div></td>
+    <td class="product-info-cell">
+      <div class="${p.imageUrl ? 'product-img-thumb' : 'product-img-placeholder'}">${p.imageUrl ? `<img src="${esc(p.imageUrl)}" alt="" onerror="this.style.display='none'" />` : `<span>${esc(String(p.name || '?').trim().charAt(0).toUpperCase())}</span>`}</div>
+      <div class="product-name-info"><strong>${esc(p.name)}</strong><small>${esc(p.description || '')}</small></div>
+    </td>
     <td><span class="store-tag">${esc(p.shopName || '')}</span></td>
     <td class="price-cell">${esc(priceLabel(p.price, p.currency, p.priceText))}</td>
-    <td class="stock-ok">${num(p.stock)}</td>
-    <td>—</td>
-    <td><span class="status-pill ${p.active === false ? 'inactive' : 'active'}">${esc(t(p.active === false ? 'seller.statusInactive' : 'seller.statusActive'))}</span></td>
+    <td><span class="${Number(p.stock) > 0 ? 'stock-ok' : 'stock-out'}">${num(p.stock)}</span></td>
+    <td>${num(p.sold)}</td>
+    <td><span class="status-pill ${Number(p.stock) <= 0 ? 'status-sold' : p.active === false ? 'status-inactive' : 'status-active'}">${esc(t(Number(p.stock) <= 0 ? 'seller.statusSold' : p.active === false ? 'seller.statusInactive' : 'seller.statusActive'))}</span></td>
     <td class="actions-cell">
+      <button class="btn-icon-action edit" data-edit-product="${esc(p.id)}" title="${esc(t('seller.editProduct'))}"><span class="ico">${icon('settings', 16)}</span></button>
       <button class="btn-icon-action accounts" data-import-accounts="${esc(p.id)}" title="${esc(t('seller.importAccounts'))}"><span class="ico">${icon('plus', 16)}</span></button>
+      <button class="btn-icon-action toggle" data-toggle-product="${esc(p.id)}" title="${esc(t('seller.toggleProduct'))}"><span class="ico">${icon(p.active === false ? 'check' : 'close', 16)}</span></button>
+      <button class="btn-icon-action danger" data-delete-product="${esc(p.id)}" title="${esc(t('seller.deleteProduct'))}"><span class="ico">${icon('trash', 16)}</span></button>
     </td>
   </tr>`).join('');
   root.innerHTML = `<table class="data-table products-table"><thead><tr>
@@ -1413,6 +1498,58 @@ function renderSellerProductsTable() {
     <th>${esc(t('seller.actions'))}</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   $$('[data-import-accounts]', root).forEach(btn => btn.addEventListener('click', () => showImportAccountsModal(btn.dataset.importAccounts)));
+  $$('[data-edit-product]', root).forEach(btn => btn.addEventListener('click', () => showEditProductModal(btn.dataset.editProduct)));
+  $$('[data-toggle-product]', root).forEach(btn => btn.addEventListener('click', () => updateSellerProduct(btn.dataset.toggleProduct, '/toggle')));
+  $$('[data-delete-product]', root).forEach(btn => btn.addEventListener('click', () => {
+    const p = products.find(x => x.id === btn.dataset.deleteProduct);
+    if (!p || !window.confirm(t('seller.confirmDeleteProduct', { name: p.name }))) return;
+    updateSellerProduct(p.id, '/delete', t('seller.productDeleted'));
+  }));
+}
+
+async function updateSellerProduct(productId, suffix, successKey) {
+  try {
+    await api(`/api/seller/product/${encodeURIComponent(productId)}${suffix}`, { method: 'POST', body: '{}' });
+    toast(t(successKey || 'seller.productUpdated'));
+    await loadSellerProductsTable();
+    await loadSeller();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function showEditProductModal(productId) {
+  const p = (state.seller.products || []).find(x => x.id === productId);
+  if (!p) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'edit-product-form';
+  wrap.innerHTML = `
+    <label class="form-group"><span>${esc(t('seller.productName'))}</span><input id="edit-product-name" class="form-control" value="${esc(p.name)}" /></label>
+    <label class="form-group"><span>${esc(t('seller.productDesc'))}</span><textarea id="edit-product-desc" class="form-control" rows="3">${esc(p.description || '')}</textarea></label>
+    <label class="form-group"><span>${esc(t('seller.priceText'))}</span><input id="edit-product-price" class="form-control" value="${esc(priceLabel(p.price, p.currency, p.priceText))}" /></label>`;
+  openModal({
+    title: t('seller.editProduct'),
+    body: wrap,
+    actions: [
+      { label: t('shop.close'), className: 'btn-ghost', onClick: closeModal },
+      { label: t('admin.save'), className: 'btn-primary', onClick: async btn => {
+        btn.disabled = true;
+        try {
+          await api(`/api/seller/product/${encodeURIComponent(p.id)}`, {
+            method: 'POST',
+            body: JSON.stringify({
+              name: wrap.querySelector('#edit-product-name').value,
+              description: wrap.querySelector('#edit-product-desc').value,
+              priceText: wrap.querySelector('#edit-product-price').value,
+            }),
+          });
+          toast(t('seller.productUpdated'));
+          closeModal();
+          await loadSellerProductsTable();
+          await loadSeller();
+        } catch (err) { toast(err.message, 'error'); }
+        finally { btn.disabled = false; }
+      } },
+    ],
+  });
 }
 
 function renderSellerShopFilter(shops) {
@@ -1478,17 +1615,24 @@ function renderSellerShops(shops) {
   if (!shops.length) { root.innerHTML = `<div class="empty">${esc(t('seller.noShops'))}</div>`; return; }
   root.innerHTML = shops.map(s => `
     <div class="store-card">
-      <div class="store-banner" data-bg="${esc(s.backgroundUrl || '')}">
-        ${s.logoUrl
-          ? `<img class="store-logo" src="${esc(s.logoUrl)}" alt="" onerror="this.style.display='none'" />`
-          : `<span class="store-logo placeholder"><span class="ico">${icon('store', 22)}</span></span>`}
-      </div>
+      <div class="store-banner" data-bg="${esc(s.backgroundUrl || '')}"></div>
       <div class="store-card-body">
-        <div class="store-card-title"><b>${esc(s.name)}</b><small>${num(s.productCount)} ${esc(t('seller.navProducts'))}</small></div>
-        <p class="muted">${esc(s.description || t('seller.noShops'))}</p>
-        <div class="store-card-actions">
-          <button class="btn btn-ghost btn-sm" data-shop-products="${esc(s.id)}">${icon('eye', 13)}<span>${esc(t('seller.viewProducts'))}</span></button>
-          <button class="btn btn-soft btn-sm" data-shop-edit="${esc(s.id)}">${icon('settings', 13)}<span>${esc(t('admin.edit'))}</span></button>
+        <div class="store-card-top">
+          ${s.logoUrl
+            ? `<img class="store-logo" src="${esc(s.logoUrl)}" alt="" onerror="this.style.display='none'" />`
+            : `<span class="store-logo placeholder"><span class="ico">${icon('store', 22)}</span></span>`}
+          <span class="status-badge active"><span></span>${esc(t('seller.statusActive'))}</span>
+        </div>
+        <h3 class="store-name">${esc(s.name)}</h3>
+        <p class="store-desc">${esc(s.description || t('seller.noShops'))}</p>
+        <div class="store-metrics">
+          <div class="metric-item"><b>${num(s.productCount)}</b><small>${esc(t('seller.navProducts'))}</small></div>
+          <div class="metric-item"><b>${num((state.seller.data || {}).soldByItem ? Object.values((state.seller.data || {}).soldByItem).reduce((a, b) => a + (Number(b) || 0), 0) : 0)}</b><small>${esc(t('seller.sold'))}</small></div>
+        </div>
+        <div class="store-actions">
+          <button class="btn btn-ghost btn-sm btn-action edit" data-shop-edit="${esc(s.id)}">${icon('settings', 14)}<span>${esc(t('admin.edit'))}</span></button>
+          <button class="btn btn-primary btn-sm btn-action primary" data-shop-products="${esc(s.id)}">${icon('eye', 14)}<span>${esc(t('seller.viewProducts'))}</span></button>
+          <button class="btn btn-ghost btn-sm btn-action danger" data-shop-delete="${esc(s.id)}">${icon('trash', 14)}</button>
         </div>
       </div>
     </div>`).join('');
@@ -1496,6 +1640,16 @@ function renderSellerShops(shops) {
     if (el.dataset.bg) el.style.backgroundImage = `url("${String(el.dataset.bg).replace(/"/g, '%22')}")`;
   });
   $$('[data-shop-products]', root).forEach(btn => btn.addEventListener('click', () => showSellerProducts(btn.dataset.shopProducts)));
+  $$('[data-shop-delete]', root).forEach(btn => btn.addEventListener('click', async () => {
+    const shop = shops.find(s => s.id === btn.dataset.shopDelete);
+    if (!shop || !window.confirm(t('seller.confirmDeleteShop', { name: shop.name }))) return;
+    try {
+      await api(`/api/seller/shop/${encodeURIComponent(shop.id)}/delete`, { method: 'POST', body: '{}' });
+      toast(t('seller.shopDeleted'));
+      await loadSeller();
+      await loadSellerProductsTable();
+    } catch (err) { toast(err.message, 'error'); }
+  }));
   $$('[data-shop-edit]', root).forEach(btn => btn.addEventListener('click', () => {
     const shop = shops.find(s => s.id === btn.dataset.shopEdit);
     if (!shop) return;
@@ -1603,7 +1757,42 @@ $('#seller-product-form').addEventListener('submit', async e => {
   if (el) el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', renderSellerProductsTable);
 });
 
-/** Xuất CSV dùng chung cho 3 nút trong tab "Xuất dữ liệu". */
+/** 6 ô tổng hợp dữ liệu trong tab "Xuất dữ liệu" của temp. */
+function renderSellerDataSummary(data) {
+  const root = $('#seller-data-summary');
+  if (!root) return;
+  const stats = data.stats || {};
+  const orders = data.orders || {};
+  const shops = data.shops || [];
+  const items = [
+    [t('seller.summaryProducts'), num((state.seller.products || []).length || stats.activeProducts), ''],
+    [t('seller.summaryOrders'), num(orders.total), ''],
+    [t('seller.summaryRevenue'), `${num(stats.processedCoin)} ${t('topbar.coinShort')}`, 'highlight'],
+    [t('seller.summaryPending'), `${num(stats.pendingCoin)} ${t('topbar.coinShort')}`, 'pending'],
+    [t('seller.summaryActiveProducts'), num(stats.activeProducts), ''],
+    [t('seller.summaryActiveShops'), num(shops.length), ''],
+  ];
+  root.innerHTML = `<h3 class="summary-title">${esc(t('seller.dataSummary'))}</h3>
+    <div class="summary-cards">${items.map(([label, value, tone]) => `<div class="summary-item ${tone}">
+      <span class="summary-label">${esc(label)}</span><span class="summary-value">${esc(value)}</span>
+    </div>`).join('')}</div>`;
+  const hints = [
+    ['#export-products-hint', 'seller.exportProductsHint', (state.seller.products || []).length],
+    ['#export-orders-hint', 'seller.exportOrdersHint', (orders.recent || []).length],
+    ['#export-shops-hint', 'seller.exportShopsHint', shops.length],
+  ];
+  hints.forEach(([sel, key, count]) => {
+    const el = $(sel);
+    if (el) setText(el, `${t(key)} · ${num(count)}`);
+  });
+}
+
+['#seller-order-search', '#seller-order-status'].forEach(sel => {
+  const el = $(sel);
+  if (el) el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', renderSellerOrdersPanel);
+});
+
+/** Xuất CSV dùng chung cho 4 nút trong tab "Xuất dữ liệu". */
 function downloadSellerCsv(filename, rows) {
   const csv = '\uFEFF' + rows.map(row => row.map(v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -1638,6 +1827,15 @@ $('#export-shops-btn').addEventListener('click', () => {
     s.id, s.name, s.description, s.productCount,
   ])];
   downloadSellerCsv('seller-shops.csv', rows);
+});
+
+$('#export-revenue-btn').addEventListener('click', () => {
+  const revenue = ((state.seller.data || {}).revenue) || {};
+  const rowsList = Array.isArray(revenue[state.seller.revenue]) ? revenue[state.seller.revenue] : [];
+  const rows = [['Period', 'Gross', 'Net'], ...rowsList.map(r => [
+    r.label, r.value, r.net == null ? Math.round((Number(r.value) || 0) * 0.9) : r.net,
+  ])];
+  downloadSellerCsv('seller-revenue.csv', rows);
 });
 
 // ==================== BUY DEVICE / TASKS / STATUS / GIFTS / LB / TRANSFER ====================

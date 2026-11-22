@@ -1032,6 +1032,123 @@ textarea { resize: vertical; }
 .form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .import-accounts-form .pill { display: inline-block; }
 
+/* ============ SELLER HUB: FULL-TEMP SHELL & COMPONENTS ============ */
+/* Header riêng của seller, ngồi trong #view-seller như temp. */
+.seller-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  margin-bottom: 18px; padding: 13px 18px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel); box-shadow: var(--shadow);
+}
+.seller-header-left, .seller-header-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.seller-brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.brand-icon-wrap { width: 40px; height: 40px; flex-shrink: 0; border-radius: 12px; display: grid; place-items: center; background: rgba(57,245,138,.14); color: var(--accent); }
+.brand-texts { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.brand-name { font-size: 15px; font-weight: 800; letter-spacing: -.02em; }
+.brand-sub { font-size: 11px; color: var(--muted); }
+.seller-user-card { display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 6px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,.03); }
+.user-avatar { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; overflow: hidden; background: rgba(57,245,138,.16); color: var(--accent); font-size: 13px; font-weight: 800; }
+.user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.user-details { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.user-name { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+.role-badge { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.role-badge.role-seller { color: var(--accent); }
+.market-btn { display: inline-flex; align-items: center; justify-content: center; padding: 9px 16px; border-radius: 11px; border: 1px solid var(--border-strong); background: rgba(57,245,138,.12); color: var(--accent); font-size: 13px; font-weight: 800; text-decoration: none; }
+.market-btn:hover { background: rgba(57,245,138,.2); }
+
+/* Khi ở seller, thanh sidebar (3 gạch) lấy nhãn riêng; menu home bị ẩn ở syncSidebar. */
+body.seller-mode .sidebar-brand-texts { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sidebar-brand-sub { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seller-nav-footer { margin-top: auto; padding-top: 10px; }
+body.seller-mode .sidebar { background: linear-gradient(180deg, rgba(16,26,20,.96), rgba(10,19,16,.98)); }
+
+/* Overview: 6 KPI dạng temp + bottom-grid 2 cột. */
+.kpi-card.kpi-quickactions .quick-actions-grid { margin: auto 0 0; padding-top: 12px; border-top: 1px dashed var(--border); gap: 8px; }
+.kpi-card.kpi-quickactions .quick-action-btn { flex: 1; justify-content: center; padding: 9px 10px; border-radius: 11px; font-size: 11.5px; }
+.kpi-label small { display: block; margin-top: 3px; font-size: 11px; color: var(--text); font-weight: 700; }
+.kpi-trend.processing, .kpi-trend.success { color: var(--accent); }
+.bottom-grid { display: grid; grid-template-columns: minmax(0,1.65fr) minmax(0,1fr); gap: 16px; align-items: start; margin-top: 18px; }
+.recent-orders-card { margin-top: 0; }
+.recent-orders-table .order-id-cell { color: var(--accent-2); font-weight: 800; }
+.recent-orders-table .product-name-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-pill.status-active, .status-pill.success, .status-pill.completed { color: var(--accent); background: rgba(57,245,138,.12); }
+.status-pill.status-inactive { color: var(--muted); background: rgba(255,255,255,.06); }
+.status-pill.status-sold, .status-pill.cancelled { color: var(--danger); background: rgba(255,107,129,.12); }
+.status-pill.processing { color: var(--accent-2); background: rgba(20,200,255,.12); }
+.status-pill.status-pending { color: var(--gold); background: rgba(255,193,7,.12); }
+
+/* Bảng sản phẩm: ảnh + tên xếp ngang như temp. */
+.products-table .product-info-cell { flex-direction: row; align-items: center; gap: 10px; max-width: none; }
+.product-img-placeholder, .product-img-thumb { width: 38px; height: 38px; flex-shrink: 0; border-radius: 9px; display: grid; place-items: center; overflow: hidden; background: linear-gradient(135deg, rgba(57,245,138,.18), rgba(20,200,255,.12)); color: var(--accent); font-size: 14px; font-weight: 800; }
+.product-img-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.product-name-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.product-name-info strong { font-size: 12.5px; line-height: 1.3; }
+.product-name-info small { color: var(--muted); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 210px; }
+.stock-out { color: var(--danger); font-weight: 700; }
+.btn-icon-action.edit { color: var(--accent-2); }
+.btn-icon-action.accounts { color: var(--accent); }
+.btn-icon-action.danger { color: var(--danger); }
+.btn-icon-action.danger:hover { color: var(--danger); border-color: var(--danger); background: rgba(255,107,129,.1); }
+
+/* Đơn hàng dạng card. */
+.orders-list { display: grid; gap: 12px; }
+.order-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); padding: 16px; }
+.order-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.order-id-group { display: flex; align-items: center; gap: 10px; }
+.order-id { font-weight: 800; color: var(--accent-2); }
+.order-date { font-size: 11.5px; color: var(--muted); }
+.order-card-body { padding-top: 13px; }
+.order-info-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px 18px; }
+.order-info-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.info-label { font-size: 10.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.info-value { font-size: 12.5px; overflow-wrap: anywhere; }
+.info-value.price-highlight { color: var(--accent); font-weight: 800; }
+.hold-time-bar { display: flex; align-items: center; gap: 7px; margin-top: 13px; padding: 9px 12px; border-radius: 10px; background: rgba(255,193,7,.09); color: var(--gold); font-size: 11.5px; font-weight: 700; }
+.btn-message { margin-top: 12px; }
+
+/* Gian hàng: store card đúng temp (logo nằm trong body, banner chỉ là ảnh nền). */
+.store-banner { height: 96px; }
+.store-card-body { position: relative; }
+.store-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-top: -24px; }
+.store-card-top .store-logo { position: static; width: 48px; height: 48px; border: 2px solid var(--panel); box-shadow: var(--shadow); }
+.status-badge { display: inline-flex; align-items: center; gap: 6px; margin-top: 28px; padding: 4px 9px; border-radius: 999px; background: rgba(57,245,138,.12); color: var(--accent); font-size: 10.5px; font-weight: 800; }
+.status-badge > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.store-card .store-name { margin-top: 10px; font-size: 15px; }
+.store-card .store-desc { margin: 6px 0 12px; min-height: 32px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.store-metrics { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+.metric-item { padding: 10px; border: 1px solid var(--border); border-radius: 11px; background: rgba(255,255,255,.02); display: flex; flex-direction: column; gap: 3px; }
+.metric-item b { font-size: 16px; color: var(--accent); }
+.metric-item small { font-size: 10.5px; color: var(--muted); }
+.store-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.store-actions .btn-action { flex: 1; padding: 8px 10px; font-size: 11.5px; }
+.store-actions .btn-action.danger { flex: 0 0 auto; }
+
+/* Xuất dữ liệu: 4 card + 6 ô summary. */
+.export-info h3 { margin: 0; font-size: 13px; }
+.export-info p { margin: 4px 0 0; font-size: 11.5px; color: var(--muted); }
+.export-card .export-arrow { display: none; }
+.export-icon.purple { background: rgba(124,120,255,.14); color: var(--accent-2); }
+.data-summary-section { margin-top: 20px; }
+.summary-title { margin-bottom: 12px; font-size: 15px; font-weight: 800; }
+.summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.summary-item { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--border); border-radius: 13px; background: var(--panel); }
+.summary-label { font-size: 11px; color: var(--muted); }
+.summary-value { font-size: 18px; font-weight: 800; }
+.summary-item.highlight .summary-value { color: var(--accent); }
+.summary-item.pending .summary-value { color: var(--gold); }
+.seller-modal .modal, .modal.seller-modal { max-width: 520px; }
+.edit-product-form .form-group { margin-bottom: 10px; }
+
+@media (max-width: 900px) {
+  .bottom-grid, .charts-grid { grid-template-columns: 1fr; }
+  .seller-header { align-items: flex-start; }
+}
+@media (max-width: 640px) {
+  .kpi-grid { grid-template-columns: 1fr 1fr; }
+  .seller-header-right { width: 100%; justify-content: space-between; }
+  .order-info-row { grid-template-columns: 1fr 1fr; }
+}
+
 /* ============ CHAT PANEL ============ */
 .chat-panel {
   position: fixed; right: 20px; bottom: 20px; z-index: 80;
