@@ -27,6 +27,12 @@ const state = {
 let cloudStatusTimer = null;
 let deviceIdCache = null;
 
+const DEVICE_LOGOS = {
+  vmos: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSnEz_zC4ZHJBI8GYKBKoLB4OArt8V9lVet6fX5Ndv83w&s=10',
+  vsphone: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT_g3u538-aiEWP_68-48toiD36I5eBqhVWVI6V0U0uww&s=10',
+  ugphone: 'https://img.utdstc.com/icon/48f/fcd/48ffcdcfb167f38e517727e184da795d34418c94094af934298aacc64fceddb6:600',
+};
+
 // ==================== HELPERS ====================
 function esc(value) {
   return String(value == null ? '' : value)
@@ -91,6 +97,19 @@ function renderIcons(root = document) {
     const size = Number(el.dataset.size) || 18;
     el.innerHTML = icon(el.dataset.icon, size);
     el.removeAttribute('data-icon');
+  });
+}
+
+function renderProviderLogos(root = document) {
+  $$('[data-provider-logo]', root).forEach(el => {
+    const src = DEVICE_LOGOS[el.dataset.providerLogo];
+    if (!src || el.querySelector('.provider-logo')) return;
+    const img = document.createElement('img');
+    img.className = 'provider-logo';
+    img.src = src;
+    img.alt = '';
+    img.loading = 'lazy';
+    el.insertBefore(img, el.firstChild);
   });
 }
 
@@ -2227,6 +2246,7 @@ async function sendChatMessage() {
 // ==================== INIT ====================
 (async function init() {
   renderIcons(document);
+  renderProviderLogos(document);
   updateLanguageChrome();
   updateSellerLinesCount();
   try {

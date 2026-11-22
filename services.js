@@ -14,6 +14,11 @@ const REG_COST = 10;
 const MEOWS_COOKIE_KEY = 'meows_cookie';
 const MEOWS_COSTS = { UG: 49, VSVIP: 15 };
 const MEOWS_NAMES = { UG: 'UGPhone', VSVIP: 'VSPhone VIP' };
+const DEVICE_LOGOS = {
+  UG: 'https://img.utdstc.com/icon/48f/fcd/48ffcdcfb167f38e517727e184da795d34418c94094af934298aacc64fceddb6:600',
+  VS: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT_g3u538-aiEWP_68-48toiD36I5eBqhVWVI6V0U0uww&s=10',
+  VM: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSnEz_zC4ZHJBI8GYKBKoLB4OArt8V9lVet6fX5Ndv83w&s=10',
+};
 const MEOWS_UA = 'Mozilla/5.0 (Linux; Android 10; S28 Ultra Build/QP1A.190711.020) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.8103.52 Mobile Safari/537.36';
 
 function vsphoneReady() {
@@ -440,6 +445,7 @@ module.exports = {
     MEOWS_COOKIE_KEY,
     MEOWS_COSTS,
     MEOWS_NAMES,
+    DEVICE_LOGOS,
     vsphoneReady,
     buyHanami,
     regVmosAccount,

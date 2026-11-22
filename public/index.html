@@ -341,8 +341,8 @@
             <div class="card-head"><h3><span class="ico" data-icon="profile"></span><span data-i18n="device.regTitle">Reg tài khoản</span></h3></div>
             <p class="muted" data-i18n="device.regDesc">Tạo nhanh tài khoản cloud. Phí 10 xu, chỉ trừ khi thành công.</p>
             <div class="device-actions">
-              <button class="btn btn-soft" data-reg="vmos">VMOS Cloud</button>
-              <button class="btn btn-soft" data-reg="vsphone">VSPhone</button>
+              <button class="btn btn-soft" data-reg="vmos" data-provider-logo="vmos">VMOS Cloud</button>
+              <button class="btn btn-soft" data-reg="vsphone" data-provider-logo="vsphone">VSPhone</button>
             </div>
             <div id="reg-result" class="result-box hidden"></div>
           </div>
@@ -350,8 +350,8 @@
             <div class="card-head"><h3><span class="ico" data-icon="bolt"></span><span data-i18n="device.quickTitle">Mua nhanh</span></h3></div>
             <p class="muted" data-i18n="device.quickDesc">Tài khoản trả về ngay. Chỉ trừ coin khi mua thành công.</p>
             <div class="device-actions">
-              <button class="btn btn-soft" data-meows="UG">UGPhone — 49 xu</button>
-              <button class="btn btn-soft" data-meows="VSVIP">VSPhone VIP — 15 xu</button>
+              <button class="btn btn-soft" data-meows="UG" data-provider-logo="ugphone">UGPhone — 49 xu</button>
+              <button class="btn btn-soft" data-meows="VSVIP" data-provider-logo="vsphone">VSPhone VIP — 15 xu</button>
             </div>
             <div id="meows-result" class="result-box hidden"></div>
           </div>
@@ -368,12 +368,12 @@
           <div class="card-head"><h3><span class="ico" data-icon="bolt"></span><span data-i18n="device.quickTitle">Mua nhanh</span></h3><span id="cloud-status-time" class="muted">—</span></div>
           <div class="grid two-col">
             <div class="status-row">
-              <span>VMOS Cloud</span>
+              <span data-provider-logo="vmos">VMOS Cloud</span>
               <span id="status-meows-vmos" class="status-badge">—</span>
               <small id="status-meows-vmos-msg" class="status-msg"></small>
             </div>
             <div class="status-row">
-              <span>VSPhone</span>
+              <span data-provider-logo="vsphone">VSPhone</span>
               <span id="status-meows-vsphone" class="status-badge">—</span>
               <small id="status-meows-vsphone-msg" class="status-msg"></small>
             </div>

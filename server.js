@@ -651,32 +651,50 @@ function regButton(customId, label, style, envName, fallbackEmoji, disabled) {
 }
 function buildRegPanel(ownerId) {
     const vsReady = vsphoneReady();
-    const embed = new EmbedBuilder()
+    const logos = services.DEVICE_LOGOS || {};
+    const main = new EmbedBuilder()
         .setTitle('📋 Reg Panel')
         .setDescription([
             'Chọn dịch vụ bên dưới để tạo tài khoản nhanh gọn.',
             '',
             '**Đăng ký tài khoản**',
-            `• 🌐 VMOS Cloud — ${REG_COST} xu`,
-            `• 🥽 VSPhone — ${vsReady ? `${REG_COST} xu` : 'Sắp có'}`,
+            `• VMOS Cloud — ${REG_COST} xu`,
+            `• VSPhone — ${vsReady ? `${REG_COST} xu` : 'Sắp có'}`,
             '',
             '**Mua nhanh Meows**',
-            `• 🟢 UGPhone — ${MEOWS_COSTS.UG} xu`,
-            `• 💎 VSPhone VIP — ${MEOWS_COSTS.VSVIP} xu`,
+            `• UGPhone — ${MEOWS_COSTS.UG} xu`,
+            `• VSPhone VIP — ${MEOWS_COSTS.VSVIP} xu`,
             '',
-            `💰 Chỉ trừ xu khi tạo thành công.`,
+            '💰 Chỉ trừ xu khi tạo thành công.',
             '',
             '*Panel chỉ dùng được bởi người đã mở lệnh.*'
         ].join('\n'))
         .setColor(0x00B0F4)
         .setFooter({ text: 'ASYNCTAS • Reg System' });
+    if (logos.VM) main.setThumbnail(logos.VM);
+
+    const ugEmbed = new EmbedBuilder()
+        .setTitle('UGPhone — Mua nhanh')
+        .setDescription(`Tài khoản trả về ngay · **${MEOWS_COSTS.UG} xu**`)
+        .setColor(0x5865F2);
+    if (logos.UG) ugEmbed.setThumbnail(logos.UG);
+
+    const vsEmbed = new EmbedBuilder()
+        .setTitle('VSPhone — Đăng ký & VIP')
+        .setDescription([
+            `• VSPhone thường — **${REG_COST} xu**${vsReady ? '' : ' (sắp có)'}`,
+            `• VSPhone VIP — **${MEOWS_COSTS.VSVIP} xu**`,
+        ].join('\n'))
+        .setColor(0x39F58A);
+    if (logos.VS) vsEmbed.setThumbnail(logos.VS);
+
     const row = new ActionRowBuilder().addComponents(
         regButton(`reg:vmos:${ownerId}`, `VMOS Cloud · ${REG_COST} xu`, ButtonStyle.Success, 'REG_EMOJI_VMOS', '🌐', false),
         regButton(`reg:vsphone:${ownerId}`, vsReady ? `VSPhone · ${REG_COST} xu` : 'VSPhone • Sắp có', vsReady ? ButtonStyle.Success : ButtonStyle.Secondary, 'REG_EMOJI_VSPHONE', '🥽', !vsReady),
         regButton(`reg:meows-ug:${ownerId}`, `UGPhone · ${MEOWS_COSTS.UG} xu`, ButtonStyle.Primary, 'REG_EMOJI_UGPHONE', '🟢', false),
         regButton(`reg:meows-vsvip:${ownerId}`, `VSPhone VIP · ${MEOWS_COSTS.VSVIP} xu`, ButtonStyle.Primary, 'REG_EMOJI_VSVIP', '💎', false)
     );
-    return { embeds: [embed], components: [row] };
+    return { embeds: [main, ugEmbed, vsEmbed], components: [row] };
 }
 
 // Lưu tài khoản tạm vào KV để nút "Copy" gửi lại đúng định dạng account|password
