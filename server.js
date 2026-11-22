@@ -482,6 +482,8 @@ client.once('ready', async () => {
         new SlashCommandBuilder().setName('tasks').setDescription('Xem tiến độ nhiệm vụ vượt link hôm nay'),
         new SlashCommandBuilder().setName('vmosfree').setDescription('Lấy 1 VMOS free mỗi ngày (cần vượt ít nhất 1 link)'),
         new SlashCommandBuilder().setName('cloudstatus').setDescription('Xem trạng thái VMOS Cloud và VSPhone'),
+        new SlashCommandBuilder().setName('cloudphone_status').setDescription('Xem trạng thái cloudphone như web (VMOS / VSPhone)')
+            .addBooleanOption(o => o.setName('lam_moi').setDescription('Bỏ cache, gọi lại API ngay').setRequired(false)),
         new SlashCommandBuilder().setName('theme').setDescription('Đổi giao diện web (Bubble / Classic)')
             .addStringOption(o => o.setName('kieu').setDescription('Chọn giao diện').setRequired(true)
                 .addChoices({ name: 'Bubble Interface', value: 'bubble' }, { name: 'Classic', value: 'classic' })),
@@ -654,21 +656,25 @@ function buildRegPanel(ownerId) {
         .setDescription([
             'Chọn dịch vụ bên dưới để tạo tài khoản nhanh gọn.',
             '',
-            '**Dịch vụ cloud**',
-            '• 🌐 VMOS Cloud — Đang hoạt động',
-            `• 🥽 VSPhone — ${vsReady ? 'Đang hoạt động' : 'Sắp có'}`,
-            '• 🔴 UGPhone — Sắp có',
+            '**Đăng ký tài khoản**',
+            `• 🌐 VMOS Cloud — ${REG_COST} xu`,
+            `• 🥽 VSPhone — ${vsReady ? `${REG_COST} xu` : 'Sắp có'}`,
             '',
-            `💰 Phí: **${REG_COST} xu** mỗi lần (chỉ trừ khi tạo thành công)`,
+            '**Mua nhanh Meows**',
+            `• 🟢 UGPhone — ${MEOWS_COSTS.UG} xu`,
+            `• 💎 VSPhone VIP — ${MEOWS_COSTS.VSVIP} xu`,
+            '',
+            `💰 Chỉ trừ xu khi tạo thành công.`,
             '',
             '*Panel chỉ dùng được bởi người đã mở lệnh.*'
         ].join('\n'))
         .setColor(0x00B0F4)
         .setFooter({ text: 'ASYNCTAS • Reg System' });
     const row = new ActionRowBuilder().addComponents(
-        regButton(`reg:vmos:${ownerId}`, 'VMOS Cloud', ButtonStyle.Success, 'REG_EMOJI_VMOS', '🌐', false),
-        regButton(`reg:vsphone:${ownerId}`, vsReady ? 'VSPhone' : 'VSPhone • Sắp có', vsReady ? ButtonStyle.Success : ButtonStyle.Secondary, 'REG_EMOJI_VSPHONE', '🥽', !vsReady),
-        regButton(`reg:ugphone:${ownerId}`, 'UGPhone • Sắp có', ButtonStyle.Secondary, 'REG_EMOJI_UGPHONE', '🔴', true)
+        regButton(`reg:vmos:${ownerId}`, `VMOS Cloud · ${REG_COST} xu`, ButtonStyle.Success, 'REG_EMOJI_VMOS', '🌐', false),
+        regButton(`reg:vsphone:${ownerId}`, vsReady ? `VSPhone · ${REG_COST} xu` : 'VSPhone • Sắp có', vsReady ? ButtonStyle.Success : ButtonStyle.Secondary, 'REG_EMOJI_VSPHONE', '🥽', !vsReady),
+        regButton(`reg:meows-ug:${ownerId}`, `UGPhone · ${MEOWS_COSTS.UG} xu`, ButtonStyle.Primary, 'REG_EMOJI_UGPHONE', '🟢', false),
+        regButton(`reg:meows-vsvip:${ownerId}`, `VSPhone VIP · ${MEOWS_COSTS.VSVIP} xu`, ButtonStyle.Primary, 'REG_EMOJI_VSVIP', '💎', false)
     );
     return { embeds: [embed], components: [row] };
 }
@@ -733,6 +739,39 @@ async function regVsphone(interaction, userId) {
     });
 }
 
+/** Dùng chung cho /meows và các nút mua nhanh trong /reg. Giả định busyUsers đã được giữ bởi caller. */
+async function buyMeowsForUser(interaction, userId, provider) {
+    const cost = MEOWS_COSTS[provider];
+    if (!cost) return interaction.editReply({ content: '❌ Dịch vụ không hợp lệ.' });
+
+    const balance = await db.getCoins(userId);
+    if (balance < cost) {
+        return interaction.editReply({ content: `❌ Bạn không đủ xu (cần ${cost} xu). Số dư: **${balance} xu**.` });
+    }
+
+    const result = await services.buyMeows(provider);
+    const newBalance = await db.updateCoins(userId, -cost);
+    hook('bot:device:meows', {
+        userId, provider, cost, newBalance, source: result.source || null,
+    });
+    const copyText = result.copyText
+        || [result.account, result.password].filter(Boolean).join('|')
+        || String(result.raw || '').slice(0, 1000);
+    const lines = [
+        `🎯 Dịch vụ: **${MEOWS_NAMES[provider]}**`,
+        `💰 Đã trừ: **${cost} xu** · Số dư: **${newBalance} xu**`,
+    ];
+    if (result.account) lines.push(`📧 \`${result.account}\``);
+    if (result.password) lines.push(`🔑 \`${result.password}\``);
+    if (result.token) lines.push(`🎫 Token: \`${result.token}\``);
+    if (!result.account && !result.password) lines.push(`📄 Dữ liệu: \`\`\`${String(copyText).slice(0, 600)}\`\`\``);
+    return sendAccountWithCopy(interaction, {
+        header: `Mua ${MEOWS_NAMES[provider]} thành công!`,
+        copyText,
+        lines,
+    });
+}
+
 // Xử lý nút Copy acc|pass
 async function handleCopyButton(interaction) {
     const id = interaction.customId.split(':')[1];
@@ -766,8 +805,13 @@ async function handleRegButton(interaction) {
     try {
         if (service === 'vmos') await regVmos(interaction, userId);
         else if (service === 'vsphone') await regVsphone(interaction, userId);
+        else if (service === 'meows-ug') await buyMeowsForUser(interaction, userId, 'UG');
+        else if (service === 'meows-vsvip') await buyMeowsForUser(interaction, userId, 'VSVIP');
         else await interaction.editReply({ content: '🚧 Dịch vụ này sắp có.' });
-        hook('bot:device:reg', { service, userId, cost: REG_COST });
+        const regCost = service === 'meows-ug' ? MEOWS_COSTS.UG
+            : service === 'meows-vsvip' ? MEOWS_COSTS.VSVIP
+                : REG_COST;
+        hook('bot:device:reg', { service, userId, cost: regCost });
     } catch (error) {
         console.error(`[reg:${service}] lỗi:`, error, error.cause);
         await interaction.editReply({ content: `❌ ${error.message}${error.cause ? ' - ' + (error.cause.code || error.cause.message) : ''} (Chưa bị trừ xu).` }).catch(() => {});
@@ -1041,11 +1085,13 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // LỆNH /cloudstatus — đồng bộ GET /api/status/cloud
-    if (interaction.commandName === 'cloudstatus') {
+    // LỆNH /cloudstatus & /cloudphone_status — đồng bộ GET /api/status/cloud
+    if (interaction.commandName === 'cloudstatus' || interaction.commandName === 'cloudphone_status') {
         await interaction.deferReply();
         try {
-            const data = await services.getCloudStatus({ force: false });
+            const force = interaction.commandName === 'cloudphone_status'
+                && interaction.options.getBoolean('lam_moi') === true;
+            const data = await services.getCloudStatus({ force });
             const embed = new EmbedBuilder()
                 .setColor(0x39f58a)
                 .setTitle('📡 Cloud Status')
@@ -1314,30 +1360,9 @@ client.on('interactionCreate', async interaction => {
         if (busyUsers.has(userId)) {
             return interaction.editReply({ content: '⏳ Bạn đang có thao tác khác, thử lại sau giây lát.' });
         }
-        const balance = await db.getCoins(userId);
-        if (balance < cost) {
-            return interaction.editReply({ content: `❌ Bạn không đủ xu (cần ${cost} xu). Số dư: **${balance} xu**.` });
-        }
         busyUsers.add(userId);
         try {
-            const result = await services.buyMeows(provider);
-            const newBalance = await db.updateCoins(userId, -cost);
-            hook('bot:device:meows', {
-                userId, provider, cost, newBalance, source: result.source || null,
-            });
-            const lines = [
-                `🎯 Dịch vụ: **${MEOWS_NAMES[provider]}**`,
-                `💰 Đã trừ: **${cost} xu** · Số dư: **${newBalance} xu**`,
-            ];
-            if (result.account) lines.push(`📧 \`${result.account}\``);
-            if (result.password) lines.push(`🔑 \`${result.password}\``);
-            if (result.token) lines.push(`🎫 Token: \`${result.token}\``);
-            if (!result.account && !result.password) lines.push(`📄 Dữ liệu: \`\`\`${String(result.copyText).slice(0, 600)}\`\`\``);
-            return await sendAccountWithCopy(interaction, {
-                header: `Mua ${MEOWS_NAMES[provider]} thành công!`,
-                copyText: result.copyText,
-                lines,
-            });
+            return await buyMeowsForUser(interaction, userId, provider);
         } catch (error) {
             console.error(`[meows:${provider}] lỗi:`, error);
             return interaction.editReply({ content: `❌ ${error.message}`.slice(0, 1900) });

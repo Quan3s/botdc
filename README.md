@@ -6,12 +6,12 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 ## Tính năng
 
 ### Bot Discord
-- `/reg` — panel chọn dịch vụ tạo tài khoản nhanh (VMOS, VSPhone).
+- `/reg` — panel chọn dịch vụ: VMOS (10 xu), VSPhone (10 xu), **UGPhone (49 xu)** và **VSPhone VIP (15 xu)**. Hai dịch vụ Meows dùng chung luồng với `/meows`.
 - `/buycloud` — mua máy cloud qua Hanami (UGPhone / VMOS / VSPhone).
 - `/getlink` — nhận link nhiệm vụ: **Link4M / LayMa +50 xu** (2 lượt/ngày), **bbmkts +25 xu** (1 lượt/ngày).
 - `/tasks` — xem tiến độ từng dịch vụ hôm nay (cùng dữ liệu `GET /api/tasks`).
 - `/vmosfree` — lấy 1 tài khoản VMOS free mỗi ngày (cần đã vượt ≥ 1 link).
-- `/cloudstatus` — xem trạng thái VMOS Cloud / VSPhone (cùng nguồn với web).
+- `/cloudstatus` / `/cloudphone_status` — xem trạng thái VMOS Cloud / VSPhone (cùng nguồn với web). `/cloudphone_status lam_moi:true` bỏ cache như nút Làm mới trên web.
 - `/theme`, `/username`, `/history`, `/buy`, `/leaderboard` — đồng bộ các chức năng web (giao diện, tên tài khoản, lịch sử mua/chuyển, mua shop, BXH) lên Discord.
 - `/wallpaper`, `/proxy`, `/cookie` — (Admin) đổi ảnh nền, proxy trạng thái và cookie Meows ngay trong Discord.
 - `/shop` — xem danh sách sản phẩm, giá, logo và tồn kho.
