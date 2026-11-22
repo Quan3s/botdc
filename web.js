@@ -83,6 +83,8 @@ async function bindDevice(req, res, userId) {
 
 // Nền mặc định cho toàn dashboard (admin đổi trong Quản trị → Giao diện).
 const DEFAULT_BACKGROUND_URL = 'https://a.storyblok.com/f/178900/1200x1697/7cea549b0c/sword-art-online-clear-visual.jpg/m/filters:quality(95)format(webp)';
+const DEFAULT_YOUTUBE_URL = 'https://youtube.com';
+const DEFAULT_DISCORD_URL = 'https://discord.com';
 const avatarCache = new Map();
 
 /** avatar Discord: ưu tiên kv (lưu lúc /connect, /token), fallback gọi Discord API bằng bot token. */
@@ -122,13 +124,13 @@ async function publicUser(user) {
     const extra = await marketplace.summaryForUser(user);
     let theme = 'bubble';
     let background = DEFAULT_BACKGROUND_URL;
-    let youtubeUrl = null;
-    let discordUrl = null;
+    let youtubeUrl = DEFAULT_YOUTUBE_URL;
+    let discordUrl = DEFAULT_DISCORD_URL;
     try {
         theme = (await db.getKv(`theme:${user.id}`)) === 'classic' ? 'classic' : 'bubble';
         background = (await db.getKv('admin_background_url')) || DEFAULT_BACKGROUND_URL;
-        youtubeUrl = (await db.getKv('youtube_url')) || null;
-        discordUrl = (await db.getKv('discord_url')) || null;
+        youtubeUrl = (await db.getKv('youtube_url')) || DEFAULT_YOUTUBE_URL;
+        discordUrl = (await db.getKv('discord_url')) || DEFAULT_DISCORD_URL;
     } catch (e) { /* bỏ qua */ }
     return {
         id: user.id,
@@ -1178,6 +1180,39 @@ router.post('/api/admin/background', requireAdmin, ah(async (req, res) => {
 router.delete('/api/admin/background', requireAdmin, ah(async (req, res) => {
     await db.setKv('admin_background_url', '');
     res.json({ ok: true, url: DEFAULT_BACKGROUND_URL });
+}));
+
+// Link nút YouTube / Discord trên dashboard (admin đổi, mọi user thấy ngay).
+router.get('/api/admin/social-links', requireAdmin, ah(async (req, res) => {
+    res.json({
+        youtubeUrl: (await db.getKv('youtube_url')) || DEFAULT_YOUTUBE_URL,
+        discordUrl: (await db.getKv('discord_url')) || DEFAULT_DISCORD_URL,
+        defaultYoutubeUrl: DEFAULT_YOUTUBE_URL,
+        defaultDiscordUrl: DEFAULT_DISCORD_URL,
+    });
+}));
+
+router.post('/api/admin/social-links', requireAdmin, ah(async (req, res) => {
+    const youtubeUrl = String(req.body.youtubeUrl || '').trim();
+    const discordUrl = String(req.body.discordUrl || '').trim();
+    const valid = value => !value || /^https?:\/\//i.test(value);
+    if (!valid(youtubeUrl) || !valid(discordUrl)) {
+        return res.status(400).json({ error: 'Link phải bắt đầu bằng http:// hoặc https://' });
+    }
+    await db.setKv('youtube_url', youtubeUrl);
+    await db.setKv('discord_url', discordUrl);
+    const result = {
+        youtubeUrl: youtubeUrl || DEFAULT_YOUTUBE_URL,
+        discordUrl: discordUrl || DEFAULT_DISCORD_URL,
+    };
+    hook('web:admin:social-links', { ...result, by: req.webUser.id });
+    res.json({ ok: true, ...result });
+}));
+
+router.delete('/api/admin/social-links', requireAdmin, ah(async (req, res) => {
+    await db.setKv('youtube_url', '');
+    await db.setKv('discord_url', '');
+    res.json({ ok: true, youtubeUrl: DEFAULT_YOUTUBE_URL, discordUrl: DEFAULT_DISCORD_URL });
 }));
 
 // ==================== ADMIN: MEOWS COOKIE ====================

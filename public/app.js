@@ -1575,7 +1575,7 @@ async function loadAdmin() {
     $('#admin-payouts').innerHTML = data.payouts.length
       ? data.payouts.map(p => `<div class="mini-row"><span>${esc(t('admin.period', { period: p.period }))}</span><b>${num(p.total)} coin</b></div>`).join('')
       : `<div class="empty">${esc(t('admin.noPayouts'))}</div>`;
-    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminBackground()]);
+    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminBackground(), loadAdminSocial()]);
     if (state.adminTab === 'market') loadAdminMarket();
   } catch (err) { toast(err.message, 'error'); }
 }
@@ -1591,7 +1591,7 @@ function switchAdminTab(tabName) {
   else if (tabName === 'plugin') loadAdminPlugins();
   else if (tabName === 'meows') loadMeowsCookie();
   else if (tabName === 'market') loadAdminMarket();
-  else if (tabName === 'appearance') loadAdminBackground();
+  else if (tabName === 'appearance') { loadAdminBackground(); loadAdminSocial(); }
 }
 
 async function loadAdminItems() {
@@ -1698,6 +1698,44 @@ async function loadAdminBackground() {
   preview.style.backgroundImage = data.url ? `url("${data.url.replace(/"/g, '%22')}")` : 'none';
   preview.title = data.url || '';
 }
+
+async function loadAdminSocial() {
+  const data = await api('/api/admin/social-links');
+  $('#admin-youtube-url').value = data.youtubeUrl === data.defaultYoutubeUrl ? '' : data.youtubeUrl;
+  $('#admin-discord-url').value = data.discordUrl === data.defaultDiscordUrl ? '' : data.discordUrl;
+  $('#admin-youtube-url').placeholder = data.defaultYoutubeUrl;
+  $('#admin-discord-url').placeholder = data.defaultDiscordUrl;
+}
+
+function applySocialLinks(youtubeUrl, discordUrl) {
+  if (!state.user) return;
+  state.user.youtubeUrl = youtubeUrl;
+  state.user.discordUrl = discordUrl;
+  applyUser(state.user);
+}
+
+$('#admin-social-save-btn').addEventListener('click', async () => {
+  const box = $('#admin-social-result');
+  try {
+    const youtubeUrl = $('#admin-youtube-url').value.trim();
+    const discordUrl = $('#admin-discord-url').value.trim();
+    const data = await api('/api/admin/social-links', { method: 'POST', body: JSON.stringify({ youtubeUrl, discordUrl }) });
+    applySocialLinks(data.youtubeUrl, data.discordUrl);
+    await loadAdminSocial();
+    box.className = 'result-box';
+    box.textContent = t('admin.socialSaved');
+    box.classList.remove('hidden');
+  } catch (err) { box.className = 'result-box error'; box.textContent = err.message; box.classList.remove('hidden'); }
+});
+
+$('#admin-social-default-btn').addEventListener('click', async () => {
+  try {
+    const data = await api('/api/admin/social-links', { method: 'DELETE' });
+    applySocialLinks(data.youtubeUrl, data.discordUrl);
+    await loadAdminSocial();
+    toast(t('admin.socialDefault'));
+  } catch (err) { toast(err.message, 'error'); }
+});
 
 $('#admin-background-save-btn').addEventListener('click', async () => {
   const box = $('#admin-background-result');

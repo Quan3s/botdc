@@ -656,6 +656,18 @@
             <div id="admin-background-result" class="result-box hidden"></div>
             <div id="admin-background-preview" class="background-preview"></div>
           </div>
+
+          <div class="card">
+            <div class="card-head"><h3><span class="ico" data-icon="globe"></span><span data-i18n="admin.socialTitle">Link mạng xã hội</span></h3><span class="pill" data-i18n="admin.backgroundBadge">Áp dụng cho mọi user</span></div>
+            <p class="muted" data-i18n="admin.socialDesc">URL cho 2 nút logo YouTube và Discord bên dưới nút Mua ngay trên trang chủ. Để trống để dùng link mặc định.</p>
+            <label><span data-i18n="admin.youtubeUrl">Link YouTube</span><input id="admin-youtube-url" type="url" placeholder="https://youtube.com/@..." autocomplete="off" /></label>
+            <label><span data-i18n="admin.discordUrl">Link Discord</span><input id="admin-discord-url" type="url" placeholder="https://discord.gg/..." autocomplete="off" /></label>
+            <div class="device-actions">
+              <button id="admin-social-save-btn" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="admin.saveSocial">Lưu link</span></button>
+              <button id="admin-social-default-btn" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="admin.useDefault">Dùng mặc định</span></button>
+            </div>
+            <div id="admin-social-result" class="result-box hidden"></div>
+          </div>
         </div>
       </section>
     </div>
