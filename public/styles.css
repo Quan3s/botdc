@@ -655,8 +655,31 @@ textarea { resize: vertical; }
 [data-theme="bubble"] .avatar-wrap,
 [data-theme="bubble"] .sidebar-avatar { background: linear-gradient(135deg, #a2ffd9, #6fd6ff); box-shadow: 0 4px 14px rgba(111,214,255,.3); }
 [data-theme="bubble"] .toast { border-radius: 18px; background: rgba(16,34,46,.86); backdrop-filter: blur(2.4px); }
-[data-theme="bubble"] .modal-root { background: rgba(2,8,14,.66); backdrop-filter: blur(1.4px) saturate(140%); }
-[data-theme="bubble"] .modal { border-radius: 30px; }
+/* Bubble: overlay và panel modal dùng lớp kính riêng, đậm hơn mặt nền thường. */
+[data-theme="bubble"] .modal-root {
+  background: rgba(2,8,14,.7);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+}
+[data-theme="bubble"] .modal,
+[data-theme="bubble"] .modal.seller-modal {
+  background:
+    radial-gradient(340px 190px at 100% -12%, rgba(255,255,255,.28), transparent 62%),
+    linear-gradient(145deg, rgba(255,255,255,.17), rgba(255,255,255,.065) 55%, rgba(125,255,196,.11));
+  border: 1px solid rgba(255,255,255,.3);
+  border-radius: 30px;
+  box-shadow: 0 30px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.4), inset 0 -1px 0 rgba(255,255,255,.08);
+  backdrop-filter: blur(70px) saturate(180%);
+  -webkit-backdrop-filter: blur(70px) saturate(180%);
+}
+[data-theme="bubble"] .modal .form-control,
+[data-theme="bubble"] .modal textarea {
+  background: rgba(255,255,255,.1);
+  border-color: rgba(255,255,255,.26);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+[data-theme="bubble"] .modal .modal-actions .btn-ghost { background: rgba(255,255,255,.09); }
 [data-theme="bubble"] .view.active .card { animation: bubbleIn .38s cubic-bezier(.2,.9,.25,1.15) both; }
 [data-theme="bubble"] .view.active .card:nth-child(2) { animation-delay: .04s; }
 [data-theme="bubble"] .view.active .card:nth-child(3) { animation-delay: .08s; }
