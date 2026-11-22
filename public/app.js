@@ -454,12 +454,27 @@ function applyUser() {
 
 function isSeller() { return !!(state.user && (state.user.isSeller || state.user.sellerStatus === 'active')); }
 
-/** Sidebar + menu avatar phải đổi chung một trạng thái seller. */
+/** Menu avatar đổi nhãn theo trạng thái seller; sidebar seller do switchView quản lý. */
 function updateSellerChrome() {
   const seller = isSeller();
-  $$('.seller-only').forEach(el => el.classList.toggle('hidden', !seller));
   const avatarSeller = $('#avatar-seller');
   if (avatarSeller) labelButton(avatarSeller, seller ? 'nav.seller' : 'topbar.sellerRequest');
+}
+
+/** Sidebar của seller thay hẳn sidebar home khi đang ở view seller. */
+function setActiveSellerTab(name) {
+  $$('#seller-nav .nav-item').forEach(n => n.classList.toggle('active', n.dataset.sellerTab === name));
+}
+
+function syncSidebar(view) {
+  const seller = view === 'seller';
+  const nav = $('#nav');
+  const sellerNav = $('#seller-nav');
+  if (nav) nav.classList.toggle('hidden', seller);
+  if (sellerNav) sellerNav.classList.toggle('hidden', !seller);
+  setText('#sidebar-brand-label', t(seller ? 'seller.brand' : 'nav.brand'));
+  $$('#nav .nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
+  if (seller) setActiveSellerTab('overview');
 }
 
 async function refreshUser() {
@@ -550,7 +565,7 @@ $('#avatar-seller').addEventListener('click', () => {
 function switchView(view) {
   if (!VIEW_TITLE_KEYS[view]) view = 'dashboard';
   state.view = view;
-  $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
+  syncSidebar(view);
   $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
   setText('#view-title', t(VIEW_TITLE_KEYS[view]));
   closeSidebar();
@@ -560,12 +575,34 @@ function switchView(view) {
   loadView(view);
 }
 
-$$('.nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
-$$('[data-goto]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.goto)));
+$$('#nav .nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
+$$('[data-goto]').forEach(btn => btn.addEventListener('click', () => {
+  if (btn.dataset.sellerTab) setActiveSellerTab(btn.dataset.sellerTab);
+  switchView(btn.dataset.goto);
+}));
 $$('[data-scroll-to]').forEach(btn => btn.addEventListener('click', () => {
   const target = $(btn.dataset.scrollTo);
   if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (btn.dataset.sellerTab) setActiveSellerTab(btn.dataset.sellerTab);
+  closeSidebar();
 }));
+
+$('#seller-export-btn').addEventListener('click', () => {
+  const orders = ((state.seller.data || {}).orders || {}).recent || [];
+  const rows = [['ID', 'Product', 'Buyer', 'Total', 'Status'], ...orders.map(o => [
+    o.id, o.itemName, o.buyer, o.total, t(SELLER_STATUS_KEYS[o.status] || o.status),
+  ])];
+  const csv = '\uFEFF' + rows.map(row => row.map(v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'seller-orders.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+  setActiveSellerTab('export');
+  closeSidebar();
+  toast(t('seller.exported'));
+});
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;

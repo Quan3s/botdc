@@ -38,6 +38,7 @@
     'auth.copied': 'Đã sao chép',
 
     // nav / topbar
+    'nav.brand': 'ASYNCTAS',
     'nav.dashboard': 'Tổng quan',
     'nav.shop': 'Shop',
     'nav.buydevice': 'Buy Device',
@@ -423,6 +424,13 @@
     'seller.productEmpty': 'Shop chưa có sản phẩm.',
     'seller.shopProducts': 'Sản phẩm của {name}',
     'seller.dashboardSubtitle': 'Quản lý gian hàng, sản phẩm và đơn hàng của bạn.',
+    'seller.brand': 'SELLER HUB',
+    'seller.navOverview': 'Tổng quan',
+    'seller.navShops': 'Gian hàng',
+    'seller.navProducts': 'Sản phẩm',
+    'seller.navExport': 'Xuất dữ liệu',
+    'seller.navBack': 'Quay về Meows',
+    'seller.exported': 'Đã xuất dữ liệu bán hàng.',
     'seller.received': 'Đã nhận',
     'seller.afterFee': 'sau phí 10%',
     'seller.gross': 'Tổng gốc',
@@ -579,6 +587,7 @@
     'auth.copied': 'Copied',
 
     // nav / topbar
+    'nav.brand': 'ASYNCTAS',
     'nav.dashboard': 'Dashboard',
     'nav.shop': 'Shop',
     'nav.buydevice': 'Buy Device',
@@ -964,6 +973,13 @@
     'seller.productEmpty': 'This shop has no products yet.',
     'seller.shopProducts': 'Products of {name}',
     'seller.dashboardSubtitle': 'Manage your shops, products and orders.',
+    'seller.brand': 'SELLER HUB',
+    'seller.navOverview': 'Overview',
+    'seller.navShops': 'Shops',
+    'seller.navProducts': 'Products',
+    'seller.navExport': 'Export data',
+    'seller.navBack': 'Back to Meows',
+    'seller.exported': 'Sales data exported.',
     'seller.received': 'Received',
     'seller.afterFee': 'after 10% fee',
     'seller.gross': 'Gross total',
