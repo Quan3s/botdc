@@ -1475,7 +1475,7 @@ function renderSellerProductsTable() {
   const rows = rowsData.map(p => `<tr>
     <td class="td-checkbox"><input type="checkbox" aria-label="${esc(p.name)}" /></td>
     <td class="product-info-cell">
-      <div class="${p.imageUrl ? 'product-img-thumb' : 'product-img-placeholder'}">${p.imageUrl ? `<img src="${esc(p.imageUrl)}" alt="" onerror="this.style.display='none'" />` : `<span>${esc(String(p.name || '?').trim().charAt(0).toUpperCase())}</span>`}</div>
+      ${(() => { const img = p.logoUrl || p.imageUrl || ''; return `<div class="${img ? 'product-img-thumb' : 'product-img-placeholder'}">${img ? `<img src="${esc(img)}" alt="" onerror="this.style.display='none'" />` : `<span>${esc(String(p.name || '?').trim().charAt(0).toUpperCase())}</span>`}</div>`; })()}
       <div class="product-name-info"><strong>${esc(p.name)}</strong><small>${esc(p.description || '')}</small></div>
     </td>
     <td><span class="store-tag">${esc(p.shopName || '')}</span></td>
@@ -1486,7 +1486,7 @@ function renderSellerProductsTable() {
     <td class="actions-cell">
       <button class="btn-icon-action edit" data-edit-product="${esc(p.id)}" title="${esc(t('seller.editProduct'))}"><span class="ico">${icon('settings', 16)}</span></button>
       <button class="btn-icon-action accounts" data-import-accounts="${esc(p.id)}" title="${esc(t('seller.importAccounts'))}"><span class="ico">${icon('plus', 16)}</span></button>
-      <button class="btn-icon-action toggle" data-toggle-product="${esc(p.id)}" title="${esc(t('seller.toggleProduct'))}"><span class="ico">${icon(p.active === false ? 'check' : 'close', 16)}</span></button>
+      <button class="btn-icon-action toggle ${p.active === false ? 'resume' : ''}" data-toggle-product="${esc(p.id)}" title="${esc(t(p.active === false ? 'seller.resumeSelling' : 'seller.stopSelling'))}"><span class="ico">${icon(p.active === false ? 'check' : 'close', 16)}</span></button>
       <button class="btn-icon-action danger" data-delete-product="${esc(p.id)}" title="${esc(t('seller.deleteProduct'))}"><span class="ico">${icon('trash', 16)}</span></button>
     </td>
   </tr>`).join('');
@@ -1523,6 +1523,7 @@ function showEditProductModal(productId) {
   wrap.className = 'edit-product-form';
   wrap.innerHTML = `
     <label class="form-group"><span>${esc(t('seller.productName'))}</span><input id="edit-product-name" class="form-control" value="${esc(p.name)}" /></label>
+    <label class="form-group"><span>${esc(t('seller.productLogo'))}</span><input id="edit-product-logo" class="form-control" type="url" value="${esc(p.logoUrl || '')}" placeholder="https://..." /></label>
     <label class="form-group"><span>${esc(t('seller.productDesc'))}</span><textarea id="edit-product-desc" class="form-control" rows="3">${esc(p.description || '')}</textarea></label>
     <label class="form-group"><span>${esc(t('seller.priceText'))}</span><input id="edit-product-price" class="form-control" value="${esc(priceLabel(p.price, p.currency, p.priceText))}" /></label>`;
   openModal({
@@ -1538,6 +1539,7 @@ function showEditProductModal(productId) {
             body: JSON.stringify({
               name: wrap.querySelector('#edit-product-name').value,
               description: wrap.querySelector('#edit-product-desc').value,
+              logoUrl: wrap.querySelector('#edit-product-logo').value.trim(),
               priceText: wrap.querySelector('#edit-product-price').value,
             }),
           });
@@ -1673,6 +1675,7 @@ function showCreateProductModal() {
       <label class="form-group"><span>${esc(t('seller.priceText'))}</span><input id="cp-product-price" class="form-control" placeholder="$100" />
         <small class="muted">${esc(t('seller.priceHint'))}</small></label>
     </div>
+    <label class="form-group"><span>${esc(t('seller.productLogo'))}</span><input id="cp-product-logo" class="form-control" type="url" placeholder="https://..." /></label>
     <label class="form-group"><span>${esc(t('seller.productDesc'))}</span><textarea id="cp-product-desc" class="form-control" rows="2"></textarea></label>
     <label class="form-group"><span>${esc(t('seller.accountsText'))}</span><textarea id="cp-product-accounts" class="form-control" rows="5" data-i18n-placeholder="seller.accountsPlaceholder" placeholder="mail|pass"></textarea></label>
     <div class="two-inline">
@@ -1709,6 +1712,7 @@ function showCreateProductModal() {
             method: 'POST',
             body: JSON.stringify({
               name, priceText, accountsText, maxLines,
+              logoUrl: wrap.querySelector('#cp-product-logo').value.trim(),
               description: wrap.querySelector('#cp-product-desc').value.trim(),
             }),
           });
@@ -1782,20 +1786,16 @@ function renderSellerShops(shops) {
   }));
 }
 
-async function showSellerProducts(shopId) {
-  try {
-    const data = await api(`/api/seller/shop/${encodeURIComponent(shopId)}/products`);
-    const wrap = document.createElement('div');
-    const products = data.products || [];
-    wrap.innerHTML = products.length ? products.map(p => `
-      <div class="mini-row"><span>${icon('package', 15)} ${esc(p.name)}</span><b>${esc(priceLabel(p.price, p.currency, p.priceText))}</b></div>`).join('')
-      : `<div class="empty">${esc(t('seller.productEmpty'))}</div>`;
-    openModal({
-      title: t('seller.shopProducts', { name: (state.seller.data?.shops || []).find(s => s.id === shopId)?.name || '' }),
-      body: wrap,
-      actions: [{ label: t('shop.close'), className: 'btn-primary', onClick: closeModal }],
-    });
-  } catch (err) { toast(err.message, 'error'); }
+/** Nút “Xem sản phẩm” trên store card: chuyển sang tab Sản phẩm và lọc theo shop đó. */
+function showSellerProducts(shopId) {
+  const filter = $('#seller-product-shop-filter');
+  if (filter) filter.value = shopId;
+  const search = $('#seller-product-search');
+  if (search) search.value = '';
+  const status = $('#seller-product-status');
+  if (status) status.value = '';
+  showSellerPanel('products');
+  renderSellerProductsTable();
 }
 
 $('#seller-shop-form').addEventListener('submit', async e => {
@@ -2280,19 +2280,25 @@ function switchAdminTab(tabName) {
 async function loadAdminItems() {
   const data = await api('/api/admin/items');
   const root = $('#admin-items');
-  root.innerHTML = data.items.length ? data.items.map(item => `
-    <div class="admin-item">
-      ${/^https?:\/\//i.test(item.logoUrl) ? `<img src="${esc(item.logoUrl)}" alt="" onerror="this.style.display='none'" />` : `<span class="ico">${icon('package', 24)}</span>`}
-      <div class="info">
-        <b>${esc(item.name)} ${item.active ? '' : `<small class="muted">(${esc(t('admin.hide'))})</small>`}</b>
-        <small>${num(item.price)} xu · ${esc(t('shop.stock', { count: num(item.stock) }))} · ${esc(item.category)}</small>
-      </div>
-      <div class="actions">
-        <button class="btn btn-soft btn-sm" data-addstock="${esc(item.id)}">${icon('plus', 13)}<span>${esc(t('admin.addStock'))}</span></button>
-        <button class="btn btn-ghost btn-sm" data-edititem="${esc(item.id)}">${icon('settings', 13)}<span>${esc(t('admin.edit'))}</span></button>
-        <button class="btn btn-danger btn-sm" data-delitem="${esc(item.id)}">${icon('close', 13)}<span>${esc(t('admin.delete'))}</span></button>
-      </div>
-    </div>`).join('') : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
+  root.innerHTML = data.items.length ? `<table class="data-table products-table admin-products-table"><thead><tr>
+    <th>${esc(t('seller.productName'))}</th><th>${esc(t('admin.category'))}</th>
+    <th>${esc(t('admin.priceCoin'))}</th><th>${esc(t('seller.stock'))}</th>
+    <th>${esc(t('orders.status'))}</th><th>${esc(t('seller.actions'))}</th>
+  </tr></thead><tbody>${data.items.map(item => `<tr>
+    <td class="product-info-cell">
+      ${(() => { const img = /^https?:\/\//i.test(item.logoUrl) ? item.logoUrl : ''; return `<div class="${img ? 'product-img-thumb' : 'product-img-placeholder'}">${img ? `<img src="${esc(img)}" alt="" onerror="this.style.display='none'" />` : `<span>${esc(String(item.name || '?').trim().charAt(0).toUpperCase())}</span>`}</div>`; })()}
+      <div class="product-name-info"><strong>${esc(item.name)}</strong><small>${esc(item.description || '')}</small></div>
+    </td>
+    <td><span class="store-tag">${esc(item.category)}</span></td>
+    <td class="price-cell">${num(item.price)} ${esc(t('topbar.coinShort'))}</td>
+    <td><span class="${Number(item.stock) > 0 ? 'stock-ok' : 'stock-out'}">${num(item.stock)}</span></td>
+    <td><span class="status-pill ${item.active === false ? 'status-inactive' : 'status-active'}">${esc(t(item.active === false ? 'seller.statusInactive' : 'seller.statusActive'))}</span></td>
+    <td class="actions-cell">
+      <button class="btn-icon-action accounts" data-addstock="${esc(item.id)}" title="${esc(t('admin.addStock'))}"><span class="ico">${icon('plus', 16)}</span></button>
+      <button class="btn-icon-action edit" data-edititem="${esc(item.id)}" title="${esc(t('admin.edit'))}"><span class="ico">${icon('settings', 16)}</span></button>
+      <button class="btn-icon-action danger" data-delitem="${esc(item.id)}" title="${esc(t('admin.delete'))}"><span class="ico">${icon('trash', 16)}</span></button>
+    </td>
+  </tr>`).join('')}</tbody></table>` : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
   $$('[data-addstock]', root).forEach(b => b.addEventListener('click', () => addStockModal(b.dataset.addstock, data.items.find(i => i.id === b.dataset.addstock))));
   $$('[data-edititem]', root).forEach(b => b.addEventListener('click', () => editItemModal(data.items.find(i => i.id === b.dataset.edititem))));
   $$('[data-delitem]', root).forEach(b => b.addEventListener('click', () => deleteItem(b.dataset.delitem)));

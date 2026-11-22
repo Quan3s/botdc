@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
-<link rel="stylesheet" href="/styles.css?v=20261122i" />
+<link rel="stylesheet" href="/styles.css?v=20261122j" />
 <script>
   // Áp theme và ngôn ngữ ngay để không bị flash classic / sai ngôn ngữ.
   try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
@@ -674,25 +674,30 @@
         </div>
 
         <div id="admin-sub-shop" class="admin-sub hidden">
-          <div class="grid two-col">
-            <div class="card">
-              <div class="card-head"><h3><span class="ico" data-icon="plus"></span><span data-i18n="admin.createProduct">Tạo sản phẩm</span></h3></div>
-              <p class="muted" data-i18n="admin.createProductDesc">Hàng hoá lưu tự động lên GitHub Gist (cần GITHUB_TOKEN) và tự xoá tài khoản đã bán.</p>
-              <label><span data-i18n="admin.itemName">Tên sản phẩm</span><input id="admin-item-name" data-i18n-placeholder="admin.itemNamePlaceholder" placeholder="VD: VMOS 1 tháng" /></label>
-              <label><span data-i18n="admin.priceCoin">Giá (xu)</span><input id="admin-item-price" type="number" min="1" value="100" /></label>
-              <label><span data-i18n="admin.logo">Logo (link ảnh)</span><input id="admin-item-logo" placeholder="https://..." /></label>
-              <label><span data-i18n="admin.category">Danh mục</span>
-                <select id="admin-item-category"><option value="shop">Shop</option><option value="device">Device</option></select>
-              </label>
-              <label><span data-i18n="admin.description">Mô tả</span><input id="admin-item-desc" data-i18n-placeholder="admin.descPlaceholder" placeholder="Mô tả ngắn" /></label>
-              <label><span data-i18n="admin.accounts">Danh sách tài khoản (mỗi dòng 1 tài khoản)</span>
-                <textarea id="admin-item-accounts" rows="5" placeholder="mail|pass"></textarea>
-              </label>
-              <button id="admin-create-btn" class="btn btn-primary btn-block" data-i18n="admin.createUpload">Tạo & upload</button>
+          <div class="panel-header">
+            <div><h2 class="panel-title" data-i18n="admin.products">Sản phẩm</h2><p class="panel-description muted" data-i18n="admin.createProductDesc">Hàng hoá lưu tự động lên GitHub Gist và tự xoá tài khoản đã bán.</p></div>
+            <div class="header-actions-group"><button class="btn-primary" data-scroll-to="#admin-item-name"><span data-i18n="admin.createProduct">Tạo sản phẩm</span></button></div>
+          </div>
+          <div class="admin-shop-grid">
+            <div class="card form-card admin-create-card">
+              <div class="chart-header"><h3 class="chart-title"><span class="ico" data-icon="plus"></span><span data-i18n="admin.createProduct">Tạo sản phẩm</span></h3></div>
+              <form id="admin-create-form" onsubmit="return false">
+                <label class="form-group"><span data-i18n="admin.itemName">Tên sản phẩm</span><input id="admin-item-name" class="form-control" data-i18n-placeholder="admin.itemNamePlaceholder" placeholder="VD: VMOS 1 tháng" /></label>
+                <div class="form-row">
+                  <label class="form-group"><span data-i18n="admin.priceCoin">Giá (xu)</span><input id="admin-item-price" class="form-control" type="number" min="1" value="100" /></label>
+                  <label class="form-group"><span data-i18n="admin.category">Danh mục</span>
+                    <select id="admin-item-category" class="form-control"><option value="shop">Shop</option><option value="device">Device</option></select></label>
+                </div>
+                <label class="form-group"><span data-i18n="admin.logo">Logo (link ảnh)</span><input id="admin-item-logo" class="form-control" placeholder="https://..." /></label>
+                <label class="form-group"><span data-i18n="admin.description">Mô tả</span><input id="admin-item-desc" class="form-control" data-i18n-placeholder="admin.descPlaceholder" placeholder="Mô tả ngắn" /></label>
+                <label class="form-group"><span data-i18n="admin.accounts">Danh sách tài khoản (mỗi dòng 1 tài khoản)</span>
+                  <textarea id="admin-item-accounts" class="form-control" rows="5" placeholder="mail|pass"></textarea></label>
+                <button id="admin-create-btn" class="btn btn-primary" type="button"><span data-i18n="admin.createUpload">Tạo & upload</span></button>
+              </form>
             </div>
-            <div class="card">
-              <div class="card-head"><h3><span class="ico" data-icon="shop"></span><span data-i18n="admin.products">Sản phẩm</span></h3><button id="admin-refresh" class="btn btn-ghost" data-i18n="admin.refresh">Làm mới</button></div>
-              <div id="admin-items" class="admin-items"></div>
+            <div class="card admin-list-card">
+              <div class="chart-header"><h3 class="chart-title"><span class="ico" data-icon="shop"></span><span data-i18n="admin.products">Sản phẩm</span></h3><button id="admin-refresh" class="btn btn-ghost btn-sm" data-i18n="admin.refresh">Làm mới</button></div>
+              <div id="admin-items" class="products-table-wrapper data-table-wrapper"></div>
             </div>
           </div>
         </div>
@@ -826,8 +831,8 @@
 <div id="toasts" class="toasts"></div>
 <div id="modal-root" class="modal-root hidden"></div>
 
-<script src="/icons.js?v=20261122i"></script>
-<script src="/i18n.js?v=20261122i"></script>
-<script src="/app.js?v=20261122i"></script>
+<script src="/icons.js?v=20261122j"></script>
+<script src="/i18n.js?v=20261122j"></script>
+<script src="/app.js?v=20261122j"></script>
 </body>
 </html>

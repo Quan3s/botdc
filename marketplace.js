@@ -286,6 +286,7 @@ function publicProduct(item) {
         priceText: item.currency === 'acoin' ? `$${Number(item.price_value === undefined ? item.price : item.price_value)}` : String(Number(item.price_value === undefined ? item.price : item.price_value)),
         stock: Number(item.line_count === undefined ? item.stock : item.line_count) || 0,
         active: item.active !== false,
+        logoUrl: item.logo_url || '',
         maxLines: Math.min(2000, Math.max(1, parseInt(item.max_lines, 10) || 2000)),
         createdAt: item.created_at,
     };
@@ -604,7 +605,8 @@ router.post('/api/seller/shop/:id/product', requireAuth, requireSeller, ah(async
     const item = await db.createShopItem({
         id: randomId(), name, description, price, price_value: price, currency,
         shop_id: row.id, max_lines: maxLines, line_count: stockInfo.stock,
-        logo_url: row.logo_url || '', category: 'user-shop', created_by: req.webUser.id,
+        logo_url: String(req.body.logoUrl || '').trim() || row.logo_url || '',
+        category: 'user-shop', created_by: req.webUser.id,
         ...stockInfo,
     });
     res.json({ ok: true, product: publicProduct(item) });
@@ -651,6 +653,7 @@ router.post('/api/seller/product/:id', requireAuth, requireSeller, ah(async (req
         patch.name = name;
     }
     if (req.body.description !== undefined) patch.description = String(req.body.description).trim();
+    if (req.body.logoUrl !== undefined) patch.logo_url = String(req.body.logoUrl).trim();
     if (req.body.priceText !== undefined) {
         const { currency, price } = parsePrice(req.body.priceText);
         if (price <= 0) return res.status(400).json({ error: 'Giá sản phẩm phải lớn hơn 0.' });
