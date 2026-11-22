@@ -676,8 +676,8 @@ router.post('/api/seller/product/:id/toggle', requireAuth, requireSeller, ah(asy
 router.post('/api/seller/product/:id/delete', requireAuth, requireSeller, ah(async (req, res) => {
     const owned = await ownedSellerProduct(req);
     if (!owned.item) return res.status(owned.status).json({ error: owned.error });
-    const row = await db.updateShopItem(req.params.id, { active: false });
-    res.json({ ok: true, product: publicProduct({ ...owned.item, active: false, ...(row || {}) }) });
+    await db.deleteShopItem(owned.item.id);
+    res.json({ ok: true });
 }));
 
 /** Xoá gian hàng (chỉ chủ shop). Lịch sử đơn hàng vẫn giữ shop_name/item_name. */

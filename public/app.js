@@ -1503,7 +1503,7 @@ function renderSellerProductsTable() {
   $$('[data-delete-product]', root).forEach(btn => btn.addEventListener('click', () => {
     const p = products.find(x => x.id === btn.dataset.deleteProduct);
     if (!p || !window.confirm(t('seller.confirmDeleteProduct', { name: p.name }))) return;
-    updateSellerProduct(p.id, '/delete', t('seller.productDeleted'));
+    updateSellerProduct(p.id, '/delete', 'seller.productDeleted');
   }));
 }
 
