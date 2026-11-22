@@ -879,6 +879,13 @@ textarea { resize: vertical; }
 .status-legend { min-width: 130px; display: flex; flex-direction: column; gap: 8px; }
 .status-legend-row { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
 .status-legend-row b { margin-left: auto; color: var(--text); font-size: 13px; }
+.seller-mini-stats {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+  margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border);
+}
+.seller-mini-stat { min-width: 0; text-align: center; }
+.seller-mini-stat b { display: block; font-size: 15px; color: var(--text); }
+.seller-mini-stat small { display: block; margin-top: 2px; font-size: 10.5px; line-height: 1.35; color: var(--muted); }
 .seller-orders-card { padding-bottom: 8px; }
 .seller-table-wrap { overflow-x: auto; }
 .seller-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 12.5px; }
@@ -996,6 +1003,7 @@ textarea { resize: vertical; }
   .hero-balance { font-size: 36px; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .seller-kpis { grid-template-columns: 1fr 1fr; }
+  .seller-mini-stats { grid-template-columns: repeat(2, 1fr); }
   .seller-hero { padding: 16px; }
   .seller-head { flex-direction: column; }
   .exchange-row { grid-template-columns: 1fr; }

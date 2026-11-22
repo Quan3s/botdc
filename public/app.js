@@ -1224,8 +1224,19 @@ function renderSellerDashboard(data) {
   setText('#seller-orders-summary', t('seller.ordersSummary', { total: num(orders.total), pending: num(orders.pending) }));
   renderRevenueChart(data.revenue || {}, state.seller.revenue);
   renderSellerStatusChart(orders.statusCounts || {});
+  renderSellerLegacyStats(stats);
   renderSellerRecentOrders(orders.recent || []);
   renderSellerShops(data.shops || []);
+}
+
+/** Giữ lại đủ 6 chỉ số thống kê cũ của Seller Dashboard. */
+function renderSellerLegacyStats(stats) {
+  const root = $('#seller-legacy-stats');
+  if (!root) return;
+  const keys = ['complainants', 'complaintPercent', 'completedOrders', 'completedPercent', 'returns', 'returnPercent'];
+  root.innerHTML = keys.map(key => `<div class="seller-mini-stat">
+    <b>${esc(stats[key] == null ? '0' : stats[key])}</b><small>${esc(t(`seller.stat.${key}`))}</small>
+  </div>`).join('');
 }
 
 function renderRevenueChart(revenue, period) {
