@@ -18,7 +18,7 @@ const state = {
   plugins: [],
   orders: [],
   skipLangRefresh: false,
-  seller: { revenue: 'week', data: null },
+  seller: { revenue: 'week', data: null, products: [] },
   userShop: { q: '', filter: 'recommended', page: 1, detail: null },
   chat: { contacts: [], with: null, messages: [], poll: null, unread: 0, open: false },
   adminReviews: [],
@@ -474,7 +474,19 @@ function syncSidebar(view) {
   if (sellerNav) sellerNav.classList.toggle('hidden', !seller);
   setText('#sidebar-brand-label', t(seller ? 'seller.brand' : 'nav.brand'));
   $$('#nav .nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
-  if (seller) setActiveSellerTab('overview');
+  if (seller) showSellerPanel('overview');
+}
+
+/** Temp seller hub dùng các tab-panel, không phải scroll dài một trang. */
+function showSellerPanel(name) {
+  const panels = $$('#seller-dashboard-content .tab-panel');
+  if (!panels.length) return;
+  const target = panels.find(p => p.dataset.sellerPanel === name) || panels[0];
+  panels.forEach(p => p.classList.toggle('active', p === target));
+  setActiveSellerTab(target.dataset.sellerPanel);
+  closeSidebar();
+  if (target.dataset.sellerPanel === 'products') loadSellerProductsTable();
+  if (target.dataset.sellerPanel === 'orders') renderSellerOrdersPanel();
 }
 
 async function refreshUser() {
@@ -576,33 +588,22 @@ function switchView(view) {
 }
 
 $$('#nav .nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
-$$('[data-goto]').forEach(btn => btn.addEventListener('click', () => {
-  if (btn.dataset.sellerTab) setActiveSellerTab(btn.dataset.sellerTab);
-  switchView(btn.dataset.goto);
-}));
+$$('[data-goto]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.goto)));
 $$('[data-scroll-to]').forEach(btn => btn.addEventListener('click', () => {
+  if (btn.dataset.sellerPanel) return; // nút seller chuyển panel ở handler bên dưới
   const target = $(btn.dataset.scrollTo);
   if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  if (btn.dataset.sellerTab) setActiveSellerTab(btn.dataset.sellerTab);
   closeSidebar();
 }));
 
-$('#seller-export-btn').addEventListener('click', () => {
-  const orders = ((state.seller.data || {}).orders || {}).recent || [];
-  const rows = [['ID', 'Product', 'Buyer', 'Total', 'Status'], ...orders.map(o => [
-    o.id, o.itemName, o.buyer, o.total, t(SELLER_STATUS_KEYS[o.status] || o.status),
-  ])];
-  const csv = '\uFEFF' + rows.map(row => row.map(v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'seller-orders.csv';
-  link.click();
-  URL.revokeObjectURL(url);
-  setActiveSellerTab('export');
-  closeSidebar();
-  toast(t('seller.exported'));
-});
+/** Sidebar seller và các nút quick action đều chuyển tab-panel, không scroll dài. */
+$$('button[data-seller-panel]').forEach(btn => btn.addEventListener('click', () => {
+  showSellerPanel(btn.dataset.sellerPanel);
+  if (btn.dataset.scrollTo) {
+    const target = $(btn.dataset.scrollTo);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}));
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
@@ -1233,37 +1234,43 @@ const SELLER_STATUS_KEYS = {
   complained: 'seller.statusComplained', returned: 'seller.statusReturned',
 };
 
-function sellerKpi(iconName, label, value, foot, tone) {
-  return `<div class="card seller-kpi ${tone || ''}">
-    <div class="seller-kpi-head"><span class="ico">${icon(iconName, 18)}</span><span>${esc(label)}</span></div>
-    <div class="seller-kpi-value">${value}</div>
-    ${foot ? `<div class="seller-kpi-foot">${foot}</div>` : ''}
+function sellerKpi(iconName, label, value, foot, tone, trend) {
+  return `<div class="card seller-kpi kpi-card ${tone || ''}">
+    <div class="kpi-header">
+      <span class="kpi-icon-box ${tone || ''}"><span class="ico">${icon(iconName, 18)}</span></span>
+      ${trend ? `<span class="kpi-trend ${trend}">${icon(trend === 'up' ? 'arrowUp' : 'pending', 15)}</span>` : ''}
+    </div>
+    <div class="kpi-body"><div class="kpi-value">${value}</div><div class="kpi-label">${esc(label)}</div></div>
+    ${foot ? `<div class="kpi-footer"><span class="kpi-gross">${foot}</span></div>` : ''}
   </div>`;
 }
 
 function renderSellerDashboard(data) {
   const stats = data.stats || {};
   const orders = data.orders || {};
-  const coin = `<small>${esc(t('topbar.coinShort'))}</small>`;
+  const coin = `<span class="kpi-unit">${esc(t('topbar.coinShort'))}</span>`;
   const root = $('#seller-stats');
   if (root) root.innerHTML = [
     sellerKpi('wallet', t('seller.received'), `${num(stats.processedCoin)} ${coin}`,
-      `${esc(t('seller.afterFee'))} · ${esc(t('seller.gross'))}: ${num(stats.grossReceived)} ${coin}`, 'kpi-green'),
+      `${esc(t('seller.afterFee'))} · ${esc(t('seller.gross'))}: <strong>${num(stats.grossReceived)} ${coin}</strong>`, 'green', 'up'),
     sellerKpi('pending', t('seller.pendingPayout'), `${num(stats.pendingCoin)} ${coin}`,
-      `${esc(t('seller.payoutHold'))} · ${esc(t('seller.gross'))}: ${num(stats.grossPending)} ${coin}`, 'kpi-gold'),
+      `${esc(t('seller.payoutHold'))} · ${esc(t('seller.gross'))}: <strong>${num(stats.grossPending)} ${coin}</strong>`, 'orange', 'neutral'),
     sellerKpi('receipt', t('seller.totalOrders'), num(stats.totalOrders),
-      `${num(stats.pendingOrders)} ${esc(t('seller.pendingOrders'))}`),
+      `<strong>${num(stats.pendingOrders)}</strong> ${esc(t('seller.pendingOrders'))}`, 'blue'),
     sellerKpi('package', t('seller.activeProducts'), num(stats.activeProducts),
-      `${num(stats.inactiveProducts)} ${esc(t('seller.inactiveProducts'))}`),
-    sellerKpi('store', t('seller.totalShops'), num(stats.shops), esc(t('seller.allActive'))),
-    sellerKpi('users', t('seller.stat.accountsImported'), num(stats.accountsImported)),
+      `<strong>${num(stats.inactiveProducts)}</strong> ${esc(t('seller.inactiveProducts'))}`, 'purple'),
+    sellerKpi('store', t('seller.totalShops'), num(stats.shops), esc(t('seller.allActive')), 'cyan'),
+    sellerKpi('users', t('seller.stat.accountsImported'), num(stats.accountsImported), '', 'cyan'),
   ].join('');
   setText('#seller-orders-summary', t('seller.ordersSummary', { total: num(orders.total), pending: num(orders.pending) }));
   renderRevenueChart(data.revenue || {}, state.seller.revenue);
   renderSellerStatusChart(orders.statusCounts || {});
   renderSellerLegacyStats(stats);
   renderSellerRecentOrders(orders.recent || []);
+  renderSellerOrdersPanel();
+  renderSellerProductsTable();
   renderSellerShops(data.shops || []);
+  renderSellerShopFilter(data.shops || []);
 }
 
 /** Giữ lại đủ 6 chỉ số thống kê cũ của Seller Dashboard. */
@@ -1331,21 +1338,135 @@ function renderSellerStatusChart(counts) {
   </div>`;
 }
 
-function renderSellerRecentOrders(list) {
-  const root = $('#seller-recent-orders');
-  if (!root) return;
-  if (!list.length) { root.innerHTML = `<div class="empty">${esc(t('seller.noOrders'))}</div>`; return; }
+function sellerOrdersTableHtml(list) {
+  if (!list.length) return `<div class="empty">${esc(t('seller.noOrders'))}</div>`;
   const rows = list.map(o => `<tr>
     <td>#${esc(String(o.id || '').slice(0, 6))}</td>
     <td>${esc(o.itemName)}</td>
     <td>${esc(o.buyer)}</td>
     <td><b>${num(o.total)}</b> ${esc(t('topbar.coinShort'))}</td>
-    <td><span class="pill ${esc(o.status)}">${esc(t(SELLER_STATUS_KEYS[o.status] || o.status))}</span></td>
+    <td><span class="status-pill ${esc(o.status)}">${esc(t(SELLER_STATUS_KEYS[o.status] || o.status))}</span></td>
   </tr>`).join('');
-  root.innerHTML = `<table class="seller-table"><thead><tr>
+  return `<table class="data-table seller-table"><thead><tr>
     <th>ID</th><th>${esc(t('seller.productName'))}</th><th>${esc(t('seller.buyer'))}</th>
     <th>${esc(t('orders.total'))}</th><th>${esc(t('orders.status'))}</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderSellerRecentOrders(list) {
+  const root = $('#seller-recent-orders');
+  if (root) root.innerHTML = sellerOrdersTableHtml(list);
+}
+
+/** Tab "Đơn hàng" của seller dùng chung nguồn dữ liệu với bảng gần đây. */
+function renderSellerOrdersPanel() {
+  const root = $('#seller-orders-panel-table');
+  if (!root) return;
+  root.innerHTML = sellerOrdersTableHtml(((state.seller.data || {}).orders || {}).recent || []);
+}
+
+/** Nạp danh sách sản phẩm của mọi shop seller cho bảng quản lý. */
+async function loadSellerProductsTable() {
+  const root = $('#seller-products');
+  if (!root) return;
+  const shops = ((state.seller.data || {}).shops) || [];
+  if (!shops.length) { root.innerHTML = `<div class="empty">${esc(t('seller.noShops'))}</div>`; return; }
+  try {
+    const groups = await Promise.all(shops.map(async s => {
+      const data = await api(`/api/seller/shop/${encodeURIComponent(s.id)}/products`);
+      return (data.products || []).map(p => ({ ...p, shopId: s.id, shopName: s.name }));
+    }));
+    state.seller.products = groups.flat();
+    renderSellerProductsTable();
+  } catch (err) { root.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+}
+
+function renderSellerProductsTable() {
+  const root = $('#seller-products');
+  if (!root) return;
+  const products = state.seller.products || [];
+  const query = String($('#seller-product-search')?.value || '').trim().toLowerCase();
+  const status = $('#seller-product-status')?.value || '';
+  const shopId = $('#seller-product-shop-filter')?.value || '';
+  const rowsData = products.filter(p =>
+    (!query || String(p.name || '').toLowerCase().includes(query)) &&
+    (!status || (status === 'active' ? p.active !== false : p.active === false)) &&
+    (!shopId || p.shopId === shopId));
+  if (!rowsData.length) { root.innerHTML = `<div class="empty">${esc(t('seller.productEmpty'))}</div>`; return; }
+  const rows = rowsData.map(p => `<tr>
+    <td class="td-checkbox"><input type="checkbox" aria-label="${esc(p.name)}" /></td>
+    <td><div class="product-info-cell"><b>${esc(p.name)}</b><small>${esc(p.description || '')}</small></div></td>
+    <td><span class="store-tag">${esc(p.shopName || '')}</span></td>
+    <td class="price-cell">${esc(priceLabel(p.price, p.currency, p.priceText))}</td>
+    <td class="stock-ok">${num(p.stock)}</td>
+    <td>—</td>
+    <td><span class="status-pill ${p.active === false ? 'inactive' : 'active'}">${esc(t(p.active === false ? 'seller.statusInactive' : 'seller.statusActive'))}</span></td>
+    <td class="actions-cell">
+      <button class="btn-icon-action accounts" data-import-accounts="${esc(p.id)}" title="${esc(t('seller.importAccounts'))}"><span class="ico">${icon('plus', 16)}</span></button>
+    </td>
+  </tr>`).join('');
+  root.innerHTML = `<table class="data-table products-table"><thead><tr>
+    <th class="th-checkbox"><input type="checkbox" id="seller-products-check-all" /></th>
+    <th>${esc(t('seller.productName'))}</th><th>${esc(t('seller.navShops'))}</th>
+    <th>${esc(t('seller.priceText'))}</th><th>${esc(t('seller.stock'))}</th>
+    <th>${esc(t('seller.sold'))}</th><th>${esc(t('orders.status'))}</th>
+    <th>${esc(t('seller.actions'))}</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+  $$('[data-import-accounts]', root).forEach(btn => btn.addEventListener('click', () => showImportAccountsModal(btn.dataset.importAccounts)));
+}
+
+function renderSellerShopFilter(shops) {
+  const select = $('#seller-product-shop-filter');
+  if (!select) return;
+  const previous = select.value;
+  const all = `<option value="">${esc(t('seller.allShops'))}</option>`;
+  select.innerHTML = all + shops.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  if (previous && shops.some(s => s.id === previous)) select.value = previous;
+}
+
+/** Modal "Nhập tài khoản" giống temp: dán nhiều dòng, nạp vào kho hiện tại. */
+function showImportAccountsModal(productId) {
+  const product = (state.seller.products || []).find(p => p.id === productId);
+  if (!product) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'import-accounts-form';
+  wrap.innerHTML = `<p class="muted">${esc(t('seller.importHint'))}</p>
+    <label class="form-group"><span>${esc(t('seller.accountsText'))}</span>
+      <textarea id="import-accounts-text" class="form-control" rows="6" placeholder="mail|pass"></textarea></label>
+    <div id="import-accounts-count" class="pill"></div>`;
+  const field = wrap.querySelector('#import-accounts-text');
+  const maxLines = Math.min(2000, Math.max(1, Number(product.maxLines) || 2000));
+  const updateCount = () => {
+    const count = String(field.value || '').split('\n').filter(x => x.trim()).length;
+    setText('#import-accounts-count', t('seller.linesCount', { count: num(count), max: num(maxLines) }), wrap);
+  };
+  field.addEventListener('input', updateCount);
+  updateCount();
+  openModal({
+    title: `${t('seller.importAccounts')} — ${product.name}`,
+    body: wrap,
+    actions: [
+      { label: t('shop.close'), className: 'btn-ghost', onClick: closeModal },
+      { label: t('seller.importAccountsBtn'), className: 'btn-primary', onClick: async btn => {
+        const accountsText = String(field.value || '');
+        const lines = accountsText.split('\n').filter(x => x.trim()).length;
+        if (!lines) { toast(t('seller.noAccounts'), 'error'); return; }
+        if ((Number(product.stock) || 0) + lines > maxLines) { toast(t('seller.tooManyLines', { max: num(maxLines) }), 'error'); return; }
+        btn.disabled = true;
+        try {
+          await api(`/api/seller/product/${encodeURIComponent(productId)}/accounts`, {
+            method: 'POST', body: JSON.stringify({ accountsText }),
+          });
+          toast(t('seller.accountsImported'));
+          closeModal();
+          await loadSeller();
+          await loadSellerProductsTable();
+        } catch (err) { toast(err.message, 'error'); }
+        finally { btn.disabled = false; }
+      } },
+    ],
+  });
+  field.focus();
 }
 
 function renderSellerShops(shops) {
@@ -1356,13 +1477,24 @@ function renderSellerShops(shops) {
   if (previous && shops.some(s => s.id === previous)) select.value = previous;
   if (!shops.length) { root.innerHTML = `<div class="empty">${esc(t('seller.noShops'))}</div>`; return; }
   root.innerHTML = shops.map(s => `
-    <div class="mini-row shop-row">
-      <span>${s.logoUrl ? `<img class="shop-mini-logo" src="${esc(s.logoUrl)}" alt="" onerror="this.style.display='none'" />` : icon('store', 16)} <b>${esc(s.name)}</b></span>
-      <span class="shop-row-actions">
-        <button class="btn btn-ghost btn-sm" data-shop-products="${esc(s.id)}">${icon('eye', 13)}<span>${esc(t('seller.viewProducts'))}</span></button>
-        <button class="btn btn-soft btn-sm" data-shop-edit="${esc(s.id)}">${icon('settings', 13)}<span>${esc(t('admin.edit'))}</span></button>
-      </span>
+    <div class="store-card">
+      <div class="store-banner" data-bg="${esc(s.backgroundUrl || '')}">
+        ${s.logoUrl
+          ? `<img class="store-logo" src="${esc(s.logoUrl)}" alt="" onerror="this.style.display='none'" />`
+          : `<span class="store-logo placeholder"><span class="ico">${icon('store', 22)}</span></span>`}
+      </div>
+      <div class="store-card-body">
+        <div class="store-card-title"><b>${esc(s.name)}</b><small>${num(s.productCount)} ${esc(t('seller.navProducts'))}</small></div>
+        <p class="muted">${esc(s.description || t('seller.noShops'))}</p>
+        <div class="store-card-actions">
+          <button class="btn btn-ghost btn-sm" data-shop-products="${esc(s.id)}">${icon('eye', 13)}<span>${esc(t('seller.viewProducts'))}</span></button>
+          <button class="btn btn-soft btn-sm" data-shop-edit="${esc(s.id)}">${icon('settings', 13)}<span>${esc(t('admin.edit'))}</span></button>
+        </div>
+      </div>
     </div>`).join('');
+  $$('[data-bg]', root).forEach(el => {
+    if (el.dataset.bg) el.style.backgroundImage = `url("${String(el.dataset.bg).replace(/"/g, '%22')}")`;
+  });
   $$('[data-shop-products]', root).forEach(btn => btn.addEventListener('click', () => showSellerProducts(btn.dataset.shopProducts)));
   $$('[data-shop-edit]', root).forEach(btn => btn.addEventListener('click', () => {
     const shop = shops.find(s => s.id === btn.dataset.shopEdit);
@@ -1374,6 +1506,7 @@ function renderSellerShops(shops) {
     $('#seller-shop-bg').value = shop.backgroundUrl || '';
     labelButton($('#seller-shop-submit'), 'seller.saveShopBtn');
     labelButton($('#seller-shop-form-title'), 'seller.editShop');
+    showSellerPanel('shops');
     $('#seller-shop-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
 }
@@ -1458,9 +1591,53 @@ $('#seller-product-form').addEventListener('submit', async e => {
     $('#seller-product-price').value = '';
     $('#seller-product-accounts').value = '';
     updateSellerLinesCount();
-    loadSeller();
+    await loadSeller();
+    await loadSellerProductsTable();
   } catch (err) { toast(err.message, 'error'); }
   finally { btn.disabled = false; }
+});
+
+// Bộ lọc bảng sản phẩm theo đúng giao diện temp.
+['#seller-product-search', '#seller-product-status', '#seller-product-shop-filter'].forEach(sel => {
+  const el = $(sel);
+  if (el) el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', renderSellerProductsTable);
+});
+
+/** Xuất CSV dùng chung cho 3 nút trong tab "Xuất dữ liệu". */
+function downloadSellerCsv(filename, rows) {
+  const csv = '\uFEFF' + rows.map(row => row.map(v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+  toast(t('seller.exported'));
+}
+
+$('#export-products-btn').addEventListener('click', async () => {
+  if (!(state.seller.products || []).length) await loadSellerProductsTable();
+  const rows = [['ID', 'Product', 'Shop', 'Price', 'Stock', 'Status'], ...(state.seller.products || []).map(p => [
+    p.id, p.name, p.shopName, priceLabel(p.price, p.currency, p.priceText), p.stock,
+    t(p.active === false ? 'seller.statusInactive' : 'seller.statusActive'),
+  ])];
+  downloadSellerCsv('seller-products.csv', rows);
+});
+
+$('#export-orders-btn').addEventListener('click', () => {
+  const orders = ((state.seller.data || {}).orders || {}).recent || [];
+  const rows = [['ID', 'Product', 'Buyer', 'Total', 'Status'], ...orders.map(o => [
+    o.id, o.itemName, o.buyer, o.total, t(SELLER_STATUS_KEYS[o.status] || o.status),
+  ])];
+  downloadSellerCsv('seller-orders.csv', rows);
+});
+
+$('#export-shops-btn').addEventListener('click', () => {
+  const shops = ((state.seller.data || {}).shops) || [];
+  const rows = [['ID', 'Shop', 'Description', 'Products'], ...shops.map(s => [
+    s.id, s.name, s.description, s.productCount,
+  ])];
+  downloadSellerCsv('seller-shops.csv', rows);
 });
 
 // ==================== BUY DEVICE / TASKS / STATUS / GIFTS / LB / TRANSFER ====================

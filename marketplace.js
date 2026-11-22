@@ -285,6 +285,7 @@ function publicProduct(item) {
         currency: item.currency === 'acoin' ? 'acoin' : 'coin',
         priceText: item.currency === 'acoin' ? `$${Number(item.price_value === undefined ? item.price : item.price_value)}` : String(Number(item.price_value === undefined ? item.price : item.price_value)),
         stock: Number(item.line_count === undefined ? item.stock : item.line_count) || 0,
+        active: item.active !== false,
         maxLines: Math.min(2000, Math.max(1, parseInt(item.max_lines, 10) || 2000)),
         createdAt: item.created_at,
     };
@@ -597,6 +598,28 @@ router.post('/api/seller/shop/:id/product', requireAuth, requireSeller, ah(async
         ...stockInfo,
     });
     res.json({ ok: true, product: publicProduct(item) });
+}));
+
+/** Nạp thêm tài khoản vào kho của 1 sản phẩm (nút "Nhập tài khoản" trong temp). */
+router.post('/api/seller/product/:id/accounts', requireAuth, requireSeller, ah(async (req, res) => {
+    const item = await db.getShopItem(req.params.id);
+    if (!item) return res.status(404).json({ error: 'Không tìm thấy sản phẩm.' });
+    const owner = await db.getShop(item.shop_id);
+    if (!owner || String(owner.owner_id) !== String(req.webUser.id)) return res.status(403).json({ error: 'Bạn không phải chủ sản phẩm này.' });
+
+    const accountsText = String(req.body.accountsText || '');
+    const added = github.parseLines(accountsText);
+    if (!added.length) return res.status(400).json({ error: 'Danh sách tài khoản trống.' });
+    const maxLines = Math.min(2000, Math.max(1, parseInt(item.max_lines, 10) || 2000));
+    const currentStock = Number(item.line_count === undefined ? item.stock : item.line_count) || 0;
+    if (currentStock + added.length > maxLines) return res.status(400).json({ error: `Tối đa ${maxLines} tài khoản cho mỗi sản phẩm.` });
+
+    const updatedStock = await shop.addStock(item, accountsText);
+    const patch = { stock: updatedStock.stock };
+    if (updatedStock.stock_content !== undefined) patch.stock_content = updatedStock.stock_content;
+    if (updatedStock.gist_id) { patch.gist_id = updatedStock.gist_id; patch.gist_filename = updatedStock.gist_filename; }
+    const row = await db.updateShopItem(item.id, patch);
+    res.json({ ok: true, added: added.length, product: publicProduct({ ...item, ...patch, ...(row || {}) }) });
 }));
 
 router.get('/api/seller/shop/:id/products', requireAuth, requireSeller, ah(async (req, res) => {
