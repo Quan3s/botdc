@@ -1374,7 +1374,9 @@ async function loadTasks() {
       const used = Number(p.used || data.daily[p.id] || 0);
       return `<span class="pill">${esc(p.name)}: ${used}/${p.dailyMax} · +${p.reward} xu</span>`;
     }).join('') + `<span class="pill">${esc(t('tasks.weekly', { count: num(data.weeklyCount) }))}</span>`;
-    $('#task-period').textContent = data.period || '—';
+    const periodEl = $('#task-period');
+    periodEl.setAttribute('data-vars', JSON.stringify({ period: data.period || '—' }));
+    applyTranslations(periodEl);
     const labels = Array.from({ length: 10 }, (_, i) => `Top ${i + 1}`);
     $('#reward-list').innerHTML = (data.rewards || []).map((r, i) => `<li><span>${labels[i] || `#${i + 1}`}</span><b>+${num(r)} coin</b></li>`).join('');
   } catch (err) { toast(err.message, 'error'); }
