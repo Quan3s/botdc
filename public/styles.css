@@ -665,7 +665,7 @@ textarea { resize: vertical; }
 [data-theme="bubble"] .modal.seller-modal {
   background:
     radial-gradient(340px 190px at 100% -12%, rgba(255,255,255,.28), transparent 62%),
-    linear-gradient(145deg, rgba(255,255,255,.17), rgba(255,255,255,.065) 55%, rgba(111,214,255,.1));
+    linear-gradient(145deg, rgba(255,255,255,.17), rgba(255,255,255,.065) 55%, rgba(255,255,255,.1));
   border: 1px solid rgba(255,255,255,.3);
   border-radius: 30px;
   box-shadow: 0 30px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.4), inset 0 -1px 0 rgba(255,255,255,.08);
@@ -680,13 +680,18 @@ textarea { resize: vertical; }
   -webkit-backdrop-filter: blur(10px);
 }
 [data-theme="bubble"] .modal .modal-actions .btn-ghost { background: rgba(255,255,255,.09); }
-/* Không để xanh lá cũ (#39f58a) lọt vào bề mặt modal nữa. */
+/* Modal là kính trắng trung tính: không xanh lá, cũng không xanh dương. */
 [data-theme="bubble"] .modal .pill,
 [data-theme="bubble"] .modal .status-badge,
 [data-theme="bubble"] .modal .btn-soft {
-  background: rgba(111,214,255,.14);
-  border-color: rgba(111,214,255,.32);
-  color: #e8faff;
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.3);
+  color: var(--text);
+}
+[data-theme="bubble"] .modal input:focus,
+[data-theme="bubble"] .modal textarea:focus {
+  border-color: rgba(255,255,255,.55);
+  box-shadow: 0 0 0 4px rgba(255,255,255,.14);
 }
 [data-theme="bubble"] .view.active .card { animation: bubbleIn .38s cubic-bezier(.2,.9,.25,1.15) both; }
 [data-theme="bubble"] .view.active .card:nth-child(2) { animation-delay: .04s; }
@@ -1189,15 +1194,21 @@ body.seller-mode .sidebar-brand-texts { display: flex; flex-direction: column; g
   transition: transform .16s ease, box-shadow .16s ease;
 }
 .header-actions-group .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(57,245,138,.28); }
-/* Dải xanh lá cũ bị loại khỏi cả nút tạo lẫn nút trong modal. */
+/* Nút tạo / nút trong modal là kính trắng, không dải màu xanh nào. */
 [data-theme="bubble"] .header-actions-group .btn-primary,
 [data-theme="bubble"] .modal .btn-primary {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 55%, white), var(--accent-2));
-  color: var(--bg); border-color: transparent;
-  box-shadow: 0 14px 32px rgba(111,214,255,.3);
+  background: linear-gradient(145deg, rgba(255,255,255,.32), rgba(255,255,255,.14));
+  border: 1px solid rgba(255,255,255,.5);
+  color: var(--text);
+  box-shadow: 0 14px 32px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 [data-theme="bubble"] .header-actions-group .btn-primary:hover,
-[data-theme="bubble"] .modal .btn-primary:hover { box-shadow: 0 18px 40px rgba(111,214,255,.42); }
+[data-theme="bubble"] .modal .btn-primary:hover {
+  background: linear-gradient(145deg, rgba(255,255,255,.42), rgba(255,255,255,.2));
+  box-shadow: 0 18px 40px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.5);
+}
 .modal.seller-modal { width: min(560px, 100%); max-width: 560px; }
 .modal.seller-modal h3 { font-size: 17px; font-weight: 800; }
 .seller-create-form .form-group { margin-bottom: 12px; }
