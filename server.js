@@ -538,7 +538,7 @@ client.once('ready', async () => {
             .addStringOption(o => o.setName('id').setDescription('Hoặc nhập ID Discord').setRequired(false)),
         new SlashCommandBuilder().setName('adcoin').setDescription('Chỉnh số xu hoặc ACOIN của người dùng (Admin)')
             .addStringOption(o => o.setName('hanhdong').setDescription('Hành động').setRequired(true)
-                .addChoices({ name: 'set (đặt bằng)', value: 'set' }, { name: 'cộng', value: 'cong' }, { name: 'trừ', value: 'tru' }))
+                .addChoices({ name: 'cộng', value: 'cong' }, { name: 'trừ', value: 'tru' }, { name: 'set (đặt bằng)', value: 'set' }))
             .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền').setRequired(true).setMinValue(0))
             .addStringOption(o => o.setName('loai').setDescription('Loại tiền (mặc định: xu)').setRequired(false)
                 .addChoices({ name: 'Xu (coin)', value: 'coin' }, { name: 'ACOIN', value: 'acoin' }))
@@ -1647,9 +1647,12 @@ client.on('interactionCreate', async interaction => {
             if (action === 'set') delta = amount - current;
             else if (action === 'cong') delta = amount;
             else delta = -Math.min(amount, current); // trừ không xuống dưới 0
-            const newBalance = delta === 0
-                ? current
-                : (currency === 'acoin' ? await adjustAcoin(targetId, delta) : await db.updateCoins(targetId, delta));
+            if (delta !== 0) {
+                if (currency === 'acoin') await adjustAcoin(targetId, delta);
+                else await db.updateCoins(targetId, delta);
+            }
+            // Đọc lại sau khi ghi để số báo ra luôn khớp số dư thực tế.
+            const newBalance = currency === 'acoin' ? await readAcoinSafe(targetId) : await db.getCoins(targetId);
             console.log(`[ADMIN] ${userId} ${action} ${amount} ${unit} -> ${targetId} (${current} => ${newBalance})`);
             const verb = action === 'set' ? 'Đặt' : (action === 'cong' ? 'Cộng' : 'Trừ');
             await interaction.editReply({ content: `✅ ${verb} **${action === 'set' ? amount : Math.abs(delta)} ${unit}** cho <@${targetId}>.\n💰 Số dư: **${current} → ${newBalance} ${unit}**` });

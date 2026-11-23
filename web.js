@@ -1207,7 +1207,9 @@ router.post('/api/admin/coins', requireAdmin, ah(async (req, res) => {
     if (action === 'set') delta = amount - current;
     else if (action === 'cong') delta = amount;
     else delta = -Math.min(amount, current);
-    const newBalance = delta === 0 ? current : await write(key, delta);
+    if (delta !== 0) await write(key, delta);
+    // Đọc lại từ nguồn dữ liệu để số trả về (dùng để hiển thị/toast) khớp số đã lưu.
+    const newBalance = await read(key);
     res.json({ ok: true, currency, current, newBalance });
 }));
 

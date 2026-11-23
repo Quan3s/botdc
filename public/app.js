@@ -2842,6 +2842,9 @@ function coinsModal(target, initialCurrency = 'coin') {
       <option value="set">${esc(t('admin.coinSet'))}</option>
     </select></label>
     <label>${esc(t('transfer.amount'))}<input id="coins-amount" type="number" min="0" value="100" /></label>`;
+  wrap.querySelector('#coins-currency').addEventListener('change', () => {
+    wrap.querySelector('#coins-action').value = 'cong';
+  });
   openModal({
     title: t('admin.adjustBalance', { target }),
     body: wrap,
@@ -2871,6 +2874,10 @@ function coinsModal(target, initialCurrency = 'coin') {
       },
     ],
   });
+  // Ép sau khi đã đưa vào DOM: browser có thể khôi phục value cũ của control cùng id.
+  const root = $('#modal-root');
+  root.querySelector('#coins-currency').value = currency;
+  root.querySelector('#coins-action').value = 'cong';
 }
 
 // ==================== CHAT ====================
