@@ -1141,6 +1141,7 @@ router.get('/api/admin/users', requireAdmin, ah(async (req, res) => {
             username: u.username,
             discordId: u.discord_id || null,
             balance: await db.getCoins(balanceKey(u)),
+            acoin: await db.getAcoin(balanceKey(u)),
             isAdmin: await isDiscordAdmin(u.discord_id),
             createdAt: u.created_at,
         });
@@ -1150,10 +1151,12 @@ router.get('/api/admin/users', requireAdmin, ah(async (req, res) => {
 
 router.post('/api/admin/coins', requireAdmin, ah(async (req, res) => {
     const action = String(req.body.action || 'cong');
+    const currency = String(req.body.currency || 'coin').toLowerCase();
     const amount = toInt(req.body.amount, 0);
     const target = String(req.body.target || '').trim();
     if (!['set', 'cong', 'tru'].includes(action)) return res.status(400).json({ error: 'Hành động không hợp lệ.' });
-    if (action !== 'set' && amount < 1) return res.status(400).json({ error: 'Số coin phải > 0.' });
+    if (!['coin', 'acoin'].includes(currency)) return res.status(400).json({ error: 'Loại tiền không hợp lệ.' });
+    if (action !== 'set' && amount < 1) return res.status(400).json({ error: `Số ${currency === 'acoin' ? 'ACOIN' : 'coin'} phải > 0.` });
 
     let key;
     if (/^\d{15,25}$/.test(target)) key = target;
@@ -1162,13 +1165,15 @@ router.post('/api/admin/coins', requireAdmin, ah(async (req, res) => {
         if (!u) return res.status(404).json({ error: 'Không tìm thấy người dùng.' });
         key = balanceKey(u);
     }
-    const current = await db.getCoins(key);
+    const read = currency === 'acoin' ? db.getAcoin : db.getCoins;
+    const write = currency === 'acoin' ? db.updateAcoin : db.updateCoins;
+    const current = await read(key);
     let delta;
     if (action === 'set') delta = amount - current;
     else if (action === 'cong') delta = amount;
     else delta = -Math.min(amount, current);
-    const newBalance = delta === 0 ? current : await db.updateCoins(key, delta);
-    res.json({ ok: true, current, newBalance });
+    const newBalance = delta === 0 ? current : await write(key, delta);
+    res.json({ ok: true, currency, current, newBalance });
 }));
 
 router.get('/api/admin/purchases', requireAdmin, ah(async (req, res) => {

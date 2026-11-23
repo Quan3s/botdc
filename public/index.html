@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
-<link rel="stylesheet" href="/styles.css?v=20261122x" />
+<link rel="stylesheet" href="/styles.css?v=20261122y" />
 <script>
   // Áp theme và ngôn ngữ ngay để không bị flash classic / sai ngôn ngữ.
   try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
@@ -471,8 +471,10 @@
             <div class="device-actions">
               <button class="btn btn-soft" data-reg="vmos" data-provider-logo="vmos">VMOS Cloud</button>
               <button class="btn btn-soft" data-reg="vsphone" data-provider-logo="vsphone">VSPhone</button>
+              <button class="btn btn-soft" data-vmos-free data-provider-logo="vmos"><span data-i18n="device.vmosFree">VMOS Free</span></button>
             </div>
             <div id="reg-result" class="result-box hidden"></div>
+            <div id="vmos-free-result" class="result-box hidden"></div>
           </div>
           <div class="card">
             <div class="card-head"><h3><span class="ico" data-icon="bolt"></span><span data-i18n="device.quickTitle">Mua nhanh</span></h3></div>
@@ -832,8 +834,8 @@
 <div id="toasts" class="toasts"></div>
 <div id="modal-root" class="modal-root hidden"></div>
 
-<script src="/icons.js?v=20261122x"></script>
-<script src="/i18n.js?v=20261122x"></script>
-<script src="/app.js?v=20261122x"></script>
+<script src="/icons.js?v=20261122y"></script>
+<script src="/i18n.js?v=20261122y"></script>
+<script src="/app.js?v=20261122y"></script>
 </body>
 </html>

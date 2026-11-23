@@ -708,19 +708,18 @@ $('#daily-claim-btn').addEventListener('click', async () => {
   }
 });
 
-$('#daily-vmos-btn').addEventListener('click', async () => {
-  const btn = $('#daily-vmos-btn');
-  const box = $('#daily-result');
+async function claimVmosFree(btn, box) {
   btn.disabled = true;
   try {
     const data = await api('/api/device/vmos-free', { method: 'POST' });
     box.className = 'result-box';
     box.innerHTML = `<div>${esc(t('dashboard.freeVmos', { count: num(data.linkCount) }))}</div>
       <div class="accounts-box">${esc(data.copyText)}</div>
-      <div class="copy-row"><button class="btn btn-soft btn-sm" id="free-vmos-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
+      <div class="copy-row"><button class="btn btn-soft btn-sm js-free-vmos-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
     box.classList.remove('hidden');
     renderIcons(box);
-    $('#free-vmos-copy').addEventListener('click', ev => copyText(data.copyText, ev.currentTarget));
+    $$('.js-free-vmos-copy', box).forEach(copyBtn =>
+      copyBtn.addEventListener('click', ev => copyText(data.copyText, ev.currentTarget)));
     await refreshDashboard();
   } catch (err) {
     box.className = 'result-box error';
@@ -728,7 +727,11 @@ $('#daily-vmos-btn').addEventListener('click', async () => {
     box.classList.remove('hidden');
     btn.disabled = false;
   }
-});
+}
+
+$('#daily-vmos-btn').addEventListener('click', () => claimVmosFree($('#daily-vmos-btn'), $('#daily-result')));
+$$('[data-vmos-free]').forEach(btn => btn.addEventListener('click', () =>
+  claimVmosFree(btn, $('#vmos-free-result'))));
 
 $('#exchange-btn').addEventListener('click', async e => {
   const btn = e.currentTarget;
@@ -2363,9 +2366,12 @@ async function loadAdminUsers() {
   $('#admin-users').innerHTML = data.users.length ? data.users.map(u => `
     <div class="mini-row">
       <span>${esc(u.username)} ${u.isAdmin ? icon('admin', 13) : ''} ${u.linked ? `<small class="muted">Discord ${icon('check', 12)}</small>` : ''}</span>
-      <span><b>${num(u.balance)} xu</b> <button class="btn btn-ghost btn-sm" data-coins="${esc(u.username)}">${esc(t('admin.edit'))}</button></span>
+      <span>
+        <b>${num(u.balance)} xu</b> <button class="btn btn-ghost btn-sm" data-adjust="coin" data-target="${esc(u.username)}" title="${esc(t('admin.currencyCoin'))}">${esc(t('admin.edit'))}</button>
+        · <b>${num(u.acoin || 0)} ACOIN</b> <button class="btn btn-ghost btn-sm" data-adjust="acoin" data-target="${esc(u.username)}" title="${esc(t('admin.currencyAcoin'))}">${esc(t('admin.edit'))}</button>
+      </span>
     </div>`).join('') : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
-  $$('[data-coins]').forEach(b => b.addEventListener('click', () => coinsModal(b.dataset.coins)));
+  $$('[data-adjust]').forEach(b => b.addEventListener('click', () => coinsModal(b.dataset.target, b.dataset.adjust)));
 }
 
 async function loadAdminExchangeRate() {
@@ -2789,9 +2795,14 @@ function deleteItem(id) {
   });
 }
 
-function coinsModal(target) {
+function coinsModal(target, initialCurrency = 'coin') {
+  const currency = initialCurrency === 'acoin' ? 'acoin' : 'coin';
   const wrap = document.createElement('div');
   wrap.innerHTML = `
+    <label>${esc(t('admin.currency'))}<select id="coins-currency">
+      <option value="coin"${currency === 'coin' ? ' selected' : ''}>${esc(t('admin.currencyCoin'))}</option>
+      <option value="acoin"${currency === 'acoin' ? ' selected' : ''}>${esc(t('admin.currencyAcoin'))}</option>
+    </select></label>
     <label>${esc(t('admin.action'))}<select id="coins-action">
       <option value="cong">${esc(t('admin.coinAdd'))}</option>
       <option value="tru">${esc(t('admin.coinSub'))}</option>
@@ -2799,7 +2810,7 @@ function coinsModal(target) {
     </select></label>
     <label>${esc(t('transfer.amount'))}<input id="coins-amount" type="number" min="0" value="100" /></label>`;
   openModal({
-    title: t('admin.coins', { target }),
+    title: t('admin.adjustBalance', { target }),
     body: wrap,
     actions: [
       { label: t('auth.cancel'), onClick: closeModal },
@@ -2807,15 +2818,20 @@ function coinsModal(target) {
         label: t('admin.apply'), className: 'btn-primary', onClick: async btn => {
           btn.disabled = true;
           try {
+            const selected = wrap.querySelector('#coins-currency').value;
             const data = await api('/api/admin/coins', {
               method: 'POST', body: JSON.stringify({
                 target,
+                currency: selected,
                 action: wrap.querySelector('#coins-action').value,
                 amount: parseInt(wrap.querySelector('#coins-amount').value, 10) || 0,
               }),
             });
             closeModal();
-            toast(t('profile.coinUnit', { amount: num(data.newBalance) }));
+            toast(t('admin.balanceUpdated', {
+              amount: num(data.newBalance),
+              unit: selected === 'acoin' ? 'ACOIN' : t('topbar.coinShort'),
+            }));
             loadAdmin();
           } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
         },

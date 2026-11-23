@@ -536,10 +536,12 @@ client.once('ready', async () => {
         new SlashCommandBuilder().setName('sdone').setDescription('(Admin) Xác nhận user hoàn thành nhiệm vụ /star')
             .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
             .addStringOption(o => o.setName('id').setDescription('Hoặc nhập ID Discord').setRequired(false)),
-        new SlashCommandBuilder().setName('adcoin').setDescription('Chỉnh số xu của người dùng (Admin)')
+        new SlashCommandBuilder().setName('adcoin').setDescription('Chỉnh số xu hoặc ACOIN của người dùng (Admin)')
             .addStringOption(o => o.setName('hanhdong').setDescription('Hành động').setRequired(true)
                 .addChoices({ name: 'set (đặt bằng)', value: 'set' }, { name: 'cộng', value: 'cong' }, { name: 'trừ', value: 'tru' }))
-            .addIntegerOption(o => o.setName('sotien').setDescription('Số xu').setRequired(true).setMinValue(0))
+            .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền').setRequired(true).setMinValue(0))
+            .addStringOption(o => o.setName('loai').setDescription('Loại tiền (mặc định: xu)').setRequired(false)
+                .addChoices({ name: 'Xu (coin)', value: 'coin' }, { name: 'ACOIN', value: 'acoin' }))
             .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
             .addStringOption(o => o.setName('id').setDescription('Hoặc nhập ID Discord').setRequired(false)),
         new SlashCommandBuilder().setName('daily').setDescription('Nhận quà hàng ngày (ngẫu nhiên 1-20 xu)'),
@@ -659,6 +661,7 @@ function buildRegPanel(ownerId) {
             '',
             '**Đăng ký tài khoản**',
             `• VMOS Cloud — ${REG_COST} xu`,
+            '• VMOS Free — 0 xu (1 link/ngày)',
             `• VSPhone — ${vsReady ? `${REG_COST} xu` : 'Sắp có'}`,
             '',
             '**Mua nhanh Meows**',
@@ -690,6 +693,7 @@ function buildRegPanel(ownerId) {
 
     const row = new ActionRowBuilder().addComponents(
         regButton(`reg:vmos:${ownerId}`, `VMOS Cloud · ${REG_COST} xu`, ButtonStyle.Success, 'REG_EMOJI_VMOS', '🌐', false),
+        regButton(`reg:vmos-free:${ownerId}`, 'VMOS Free · 0 xu', ButtonStyle.Secondary, 'REG_EMOJI_VMOS', '🌐', false),
         regButton(`reg:vsphone:${ownerId}`, vsReady ? `VSPhone · ${REG_COST} xu` : 'VSPhone • Sắp có', vsReady ? ButtonStyle.Success : ButtonStyle.Secondary, 'REG_EMOJI_VSPHONE', '🥽', !vsReady),
         regButton(`reg:meows-ug:${ownerId}`, `UGPhone · ${MEOWS_COSTS.UG} xu`, ButtonStyle.Primary, 'REG_EMOJI_UGPHONE', '🟢', false),
         regButton(`reg:meows-vsvip:${ownerId}`, `VSPhone VIP · ${MEOWS_COSTS.VSVIP} xu`, ButtonStyle.Primary, 'REG_EMOJI_VSVIP', '💎', false)
@@ -713,6 +717,33 @@ async function sendAccountWithCopy(interaction, { header, copyText, lines }) {
             .setEmoji('📋')
     );
     return interaction.editReply({ content: [`✅ ${header}`, ...lines].join('\n'), components: [row] });
+}
+
+/** Dùng chung cho /vmosfree và nút VMOS Free trong /reg. Giả sử caller đã defer + giữ busyUsers. */
+async function claimVmosFreeForUser(interaction, userId) {
+    const today = getTodayString();
+    const [claimed, linkCount] = await Promise.all([
+        db.checkDailyLimit(userId, 'vmos_free', today),
+        db.getAllTimeLinkCount(userId),
+    ]);
+    if (claimed > 0) {
+        return interaction.editReply({ content: '⏰ Hôm nay bạn đã lấy VMOS free rồi. Quay lại sau 0h giờ VN nhé!' });
+    }
+    if (linkCount < 1) {
+        return interaction.editReply({ content: '🔒 Bạn cần vượt ít nhất **1 link** để mở quà VMOS free.' });
+    }
+    const result = await services.regVmosAccount();
+    await db.increaseDailyLimit(userId, 'vmos_free', today);
+    hook('bot:device:vmos-free', { userId, linkCount, date: today });
+    return await sendAccountWithCopy(interaction, {
+        header: '🎁 VMOS free hôm nay',
+        copyText: result.copyText,
+        lines: [
+            `📧 \`${result.account}\``,
+            `🔑 \`${result.password}\``,
+            `🔗 Đã vượt ${linkCount} link từ trước đến nay.`,
+        ],
+    });
 }
 
 async function regVmos(interaction, userId) {
@@ -821,6 +852,10 @@ async function handleRegButton(interaction) {
     }
     busyUsers.add(userId);
     try {
+        if (service === 'vmos-free') {
+            await claimVmosFreeForUser(interaction, userId);
+            return;
+        }
         if (service === 'vmos') await regVmos(interaction, userId);
         else if (service === 'vsphone') await regVsphone(interaction, userId);
         else if (service === 'meows-ug') await buyMeowsForUser(interaction, userId, 'UG');
@@ -1072,29 +1107,7 @@ client.on('interactionCreate', async interaction => {
         }
         busyUsers.add(userId);
         try {
-            const today = getTodayString();
-            const [claimed, linkCount] = await Promise.all([
-                db.checkDailyLimit(userId, 'vmos_free', today),
-                db.getAllTimeLinkCount(userId),
-            ]);
-            if (claimed > 0) {
-                return interaction.editReply({ content: '⏰ Hôm nay bạn đã lấy VMOS free rồi. Quay lại sau 0h giờ VN nhé!' });
-            }
-            if (linkCount < 1) {
-                return interaction.editReply({ content: '🔒 Bạn cần vượt ít nhất **1 link** để mở quà VMOS free.' });
-            }
-            const result = await services.regVmosAccount();
-            await db.increaseDailyLimit(userId, 'vmos_free', today);
-            hook('bot:device:vmos-free', { userId, linkCount, date: today });
-            return await sendAccountWithCopy(interaction, {
-                header: '🎁 VMOS free hôm nay',
-                copyText: result.copyText,
-                lines: [
-                    `📧 \`${result.account}\``,
-                    `🔑 \`${result.password}\``,
-                    `🔗 Đã vượt ${linkCount} link từ trước đến nay.`,
-                ],
-            });
+            return await claimVmosFreeForUser(interaction, userId);
         } catch (e) {
             console.error('[vmosfree] lỗi:', e);
             return interaction.editReply({ content: `❌ ${e.message}`.slice(0, 1900) });
@@ -1610,13 +1623,18 @@ client.on('interactionCreate', async interaction => {
         }
         const action = interaction.options.getString('hanhdong');
         const amount = interaction.options.getInteger('sotien');
+        const currency = interaction.options.getString('loai') || 'coin';
+        if (!['coin', 'acoin'].includes(currency)) {
+            return interaction.reply({ content: '❌ Loại tiền không hợp lệ.', flags: MessageFlags.Ephemeral });
+        }
+        const unit = currency === 'acoin' ? 'ACOIN' : 'xu';
         const pickedUser = interaction.options.getUser('user');
         const targetId = pickedUser ? pickedUser.id : (interaction.options.getString('id') || '').trim();
         if (!/^\d{15,25}$/.test(targetId)) {
             return interaction.reply({ content: '❌ Hãy chọn user hoặc nhập ID Discord hợp lệ (chỉ gồm số).', flags: MessageFlags.Ephemeral });
         }
         if (action !== 'set' && amount < 1) {
-            return interaction.reply({ content: '❌ Số xu phải lớn hơn 0.', flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: `❌ Số ${unit} phải lớn hơn 0.`, flags: MessageFlags.Ephemeral });
         }
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         if (busyUsers.has(targetId)) {
@@ -1624,15 +1642,17 @@ client.on('interactionCreate', async interaction => {
         }
         busyUsers.add(targetId);
         try {
-            const current = await db.getCoins(targetId);
+            const current = currency === 'acoin' ? await readAcoinSafe(targetId) : await db.getCoins(targetId);
             let delta;
             if (action === 'set') delta = amount - current;
             else if (action === 'cong') delta = amount;
             else delta = -Math.min(amount, current); // trừ không xuống dưới 0
-            const newBalance = delta === 0 ? current : await db.updateCoins(targetId, delta);
-            console.log(`[ADMIN] ${userId} ${action} ${amount} -> ${targetId} (${current} => ${newBalance})`);
+            const newBalance = delta === 0
+                ? current
+                : (currency === 'acoin' ? await adjustAcoin(targetId, delta) : await db.updateCoins(targetId, delta));
+            console.log(`[ADMIN] ${userId} ${action} ${amount} ${unit} -> ${targetId} (${current} => ${newBalance})`);
             const verb = action === 'set' ? 'Đặt' : (action === 'cong' ? 'Cộng' : 'Trừ');
-            await interaction.editReply({ content: `✅ ${verb} **${action === 'set' ? amount : Math.abs(delta)} xu** cho <@${targetId}>.\n💰 Số dư: **${current} → ${newBalance} xu**` });
+            await interaction.editReply({ content: `✅ ${verb} **${action === 'set' ? amount : Math.abs(delta)} ${unit}** cho <@${targetId}>.\n💰 Số dư: **${current} → ${newBalance} ${unit}**` });
         } catch (error) {
             console.error('[adcoin] lỗi:', error);
             await interaction.editReply({ content: `❌ Lỗi: ${error.message}`.slice(0, 1900) });
