@@ -1031,8 +1031,22 @@ router.get('/api/admin/overview', requireAdmin, ah(async (req, res) => {
 }));
 
 router.get('/api/admin/items', requireAdmin, ah(async (req, res) => {
-    const items = await db.getShopItems(false);
-    res.json({ items: items.map(publicItem) });
+    // Admin chỉ quản lý hàng hệ thống ở bảng chính; hàng của user-shop tách riêng
+    // để không lẫn vào danh sách tạo từ admin.
+    const [allItems, shops] = await Promise.all([db.getShopItems(false), db.listShops()]);
+    const shopNames = new Map(shops.map(s => [String(s.id), s.name]));
+    const system = allItems.filter(i => !i.shop_id);
+    const userItems = allItems.filter(i => !!i.shop_id).map(i => ({
+        ...publicItem(i),
+        shopId: String(i.shop_id),
+        shopName: shopNames.get(String(i.shop_id)) || '',
+        ownerId: i.created_by ? String(i.created_by) : '',
+    }));
+    res.json({
+        items: system.map(publicItem),
+        userItems,
+        shops: shops.map(s => ({ id: String(s.id), name: s.name })),
+    });
 }));
 
 router.post('/api/admin/items', requireAdmin, ah(async (req, res) => {

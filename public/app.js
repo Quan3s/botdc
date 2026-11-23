@@ -903,7 +903,9 @@ function renderUserShopCards(shops) {
   grid.innerHTML = shops.map(shop => `
     <button class="product shop-card" data-shop="${esc(shop.id)}" type="button">
       <div class="shop-cover" style="${shop.backgroundUrl ? `background-image:url('${esc(shop.backgroundUrl)}')` : ''}">
-        ${shop.logoUrl ? `<img class="shop-logo" src="${esc(shop.logoUrl)}" alt="${esc(shop.name)}" onerror="this.style.display='none'" />` : `<span class="shop-logo placeholder">${icon('store', 26)}</span>`}
+        ${shop.logoUrl
+          ? `<img class="shop-logo" src="${esc(shop.logoUrl)}" alt="${esc(shop.name)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'shop-logo placeholder',innerHTML:window.icons.icon('store',26)}))" />`
+          : `<span class="shop-logo placeholder">${icon('store', 26)}</span>`}
       </div>
       <div class="product-body">
         <h4>${esc(shop.name)}</h4>
@@ -955,7 +957,12 @@ function renderUserShopDetail() {
   const head = $('#user-shop-detail-head');
   head.innerHTML = `
     <div class="shop-detail-cover" style="${shop.backgroundUrl ? `background-image:url('${esc(shop.backgroundUrl)}')` : ''}">
-      ${shop.logoUrl ? `<img class="shop-detail-logo" src="${esc(shop.logoUrl)}" alt="${esc(shop.name)}" onerror="this.style.display='none'" />` : `<span class="shop-detail-logo placeholder">${icon('store', 36)}</span>`}
+      ${(() => {
+        const box = () => `<span class="shop-detail-logo placeholder">${icon('store', 36)}</span>`;
+        return shop.logoUrl
+          ? `<img class="shop-detail-logo" src="${esc(shop.logoUrl)}" alt="${esc(shop.name)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'shop-detail-logo placeholder',innerHTML:window.icons.icon('store',36)}))" />`
+          : box();
+      })()}
       <div class="shop-detail-info">
         <h3>${esc(shop.name)}</h3>
         <p class="muted">${esc(shop.description || t('shop.noDescription'))}</p>
@@ -971,8 +978,14 @@ function renderUserShopDetail() {
 
   const products = d.products || [];
   const productRoot = $('#user-shop-products');
-  productRoot.innerHTML = products.length ? products.map(p => `
+  productRoot.innerHTML = products.length ? products.map(p => {
+    const img = p.logoUrl || p.imageUrl || '';
+    const logo = /^https?:\/\//i.test(img)
+      ? `<img class="product-logo" src="${esc(img)}" alt="${esc(p.name)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'product-logo placeholder',innerHTML:window.icons.icon('package',42)}))" />`
+      : `<div class="product-logo placeholder">${icon('package', 42)}</div>`;
+    return `
     <div class="product">
+      ${logo}
       <div class="product-body">
         <h4>${esc(p.name)}</h4>
         <p>${esc(p.description || t('shop.noDescription'))}</p>
@@ -982,7 +995,8 @@ function renderUserShopDetail() {
         </div>
         <button class="btn btn-primary btn-sm" data-buy-user-shop="${esc(p.id)}" ${Number(p.stock) < 1 ? 'disabled' : ''}>${icon('cart', 15)}<span>${esc(t('userShop.buy'))}</span></button>
       </div>
-    </div>`).join('') : `<div class="empty">${esc(t('userShop.noProducts'))}</div>`;
+    </div>`;
+  }).join('') : `<div class="empty">${esc(t('userShop.noProducts'))}</div>`;
   $$('[data-buy-user-shop]', productRoot).forEach(btn => btn.addEventListener('click', () => buyUserShopProduct(btn.dataset.buyUserShop)));
 
   renderShopReviews(d, shop, sellerId);
@@ -1745,11 +1759,11 @@ function renderSellerShops(shops) {
   if (!shops.length) { root.innerHTML = `<div class="empty">${esc(t('seller.noShops'))}</div>`; return; }
   root.innerHTML = shops.map(s => `
     <div class="store-card">
-      <div class="store-banner" data-bg="${esc(s.backgroundUrl || '')}"></div>
+      <div class="store-banner" style="${s.backgroundUrl ? `background-image:url('${esc(s.backgroundUrl)}')` : ''}"></div>
       <div class="store-card-body">
         <div class="store-card-top">
           ${s.logoUrl
-            ? `<img class="store-logo" src="${esc(s.logoUrl)}" alt="" onerror="this.style.display='none'" />`
+            ? `<img class="store-logo" src="${esc(s.logoUrl)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'store-logo placeholder',innerHTML:window.icons.icon('store',22)}))" />`
             : `<span class="store-logo placeholder"><span class="ico">${icon('store', 22)}</span></span>`}
           <span class="status-badge active"><span></span>${esc(t('seller.statusActive'))}</span>
         </div>
@@ -2279,16 +2293,26 @@ function switchAdminTab(tabName) {
 
 async function loadAdminItems() {
   const data = await api('/api/admin/items');
-  const root = $('#admin-items');
-  root.innerHTML = data.items.length ? `<table class="data-table products-table admin-products-table"><thead><tr>
-    <th>${esc(t('seller.productName'))}</th><th>${esc(t('admin.category'))}</th>
+  const systemItems = data.items || [];
+  const userItems = data.userItems || [];
+  renderAdminItemTable($('#admin-items'), systemItems, false);
+  renderAdminItemTable($('#admin-user-items'), userItems, true);
+}
+
+function renderAdminItemTable(root, items, withShop) {
+  if (!root) return;
+  const emptyKey = withShop ? 'admin.noUserProducts' : 'admin.noPending';
+  root.innerHTML = items.length ? `<table class="data-table products-table admin-products-table"><thead><tr>
+    <th>${esc(t('seller.productName'))}</th>${withShop ? `<th>${esc(t('admin.shop'))}</th>` : ''}
+    <th>${esc(t('admin.category'))}</th>
     <th>${esc(t('admin.priceCoin'))}</th><th>${esc(t('seller.stock'))}</th>
     <th>${esc(t('orders.status'))}</th><th>${esc(t('seller.actions'))}</th>
-  </tr></thead><tbody>${data.items.map(item => `<tr>
+  </tr></thead><tbody>${items.map(item => `<tr>
     <td class="product-info-cell">
-      ${(() => { const img = /^https?:\/\//i.test(item.logoUrl) ? item.logoUrl : ''; return `<div class="${img ? 'product-img-thumb' : 'product-img-placeholder'}">${img ? `<img src="${esc(img)}" alt="" onerror="this.style.display='none'" />` : `<span>${esc(String(item.name || '?').trim().charAt(0).toUpperCase())}</span>`}</div>`; })()}
+      ${(() => { const img = item.logoUrl; return `<div class="${img ? 'product-img-thumb' : 'product-img-placeholder'}">${img ? `<img src="${esc(img)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'product-img-placeholder',textContent:'?'}))" />` : `<span>${esc(String(item.name || '?').trim().charAt(0).toUpperCase())}</span>`}</div>`; })()}
       <div class="product-name-info"><strong>${esc(item.name)}</strong><small>${esc(item.description || '')}</small></div>
     </td>
+    ${withShop ? `<td><strong>${esc(item.shopName || '—')}</strong>${item.ownerId ? `<small class="muted">${esc(item.ownerId)}</small>` : ''}</td>` : ''}
     <td><span class="store-tag">${esc(item.category)}</span></td>
     <td class="price-cell">${num(item.price)} ${esc(t('topbar.coinShort'))}</td>
     <td><span class="${Number(item.stock) > 0 ? 'stock-ok' : 'stock-out'}">${num(item.stock)}</span></td>
@@ -2298,9 +2322,9 @@ async function loadAdminItems() {
       <button class="btn-icon-action edit" data-edititem="${esc(item.id)}" title="${esc(t('admin.edit'))}"><span class="ico">${icon('settings', 16)}</span></button>
       <button class="btn-icon-action danger" data-delitem="${esc(item.id)}" title="${esc(t('admin.delete'))}"><span class="ico">${icon('trash', 16)}</span></button>
     </td>
-  </tr>`).join('')}</tbody></table>` : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
-  $$('[data-addstock]', root).forEach(b => b.addEventListener('click', () => addStockModal(b.dataset.addstock, data.items.find(i => i.id === b.dataset.addstock))));
-  $$('[data-edititem]', root).forEach(b => b.addEventListener('click', () => editItemModal(data.items.find(i => i.id === b.dataset.edititem))));
+  </tr>`).join('')}</tbody></table>` : `<div class="empty">${esc(t(emptyKey))}</div>`;
+  $$('[data-addstock]', root).forEach(b => b.addEventListener('click', () => addStockModal(b.dataset.addstock, items.find(i => i.id === b.dataset.addstock))));
+  $$('[data-edititem]', root).forEach(b => b.addEventListener('click', () => editItemModal(items.find(i => i.id === b.dataset.edititem))));
   $$('[data-delitem]', root).forEach(b => b.addEventListener('click', () => deleteItem(b.dataset.delitem)));
 }
 
@@ -2651,6 +2675,7 @@ $('#admin-create-btn').addEventListener('click', async e => {
 });
 
 $('#admin-refresh').addEventListener('click', loadAdminItems);
+$('#admin-user-refresh').addEventListener('click', loadAdminItems);
 $('#admin-payout-btn').addEventListener('click', async e => {
   e.currentTarget.disabled = true;
   try {
