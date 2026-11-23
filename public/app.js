@@ -2300,7 +2300,7 @@ function switchAdminTab(tabName) {
   state.adminTab = tabName;
   $$('.admin-tabs .tab').forEach(x => x.classList.toggle('active', x.dataset.admin === tabName));
   $$('.admin-sub').forEach(el => el.classList.toggle('hidden', el.id !== `admin-sub-${tabName}`));
-  if (tabName === 'shop' || tabName === 'user-shop') loadAdminItems();
+  if (tabName === 'shop') loadAdminItems();
   else if (tabName === 'user') loadAdminUsers().catch(() => {});
   else if (tabName === 'plugin') loadAdminPlugins();
   else if (tabName === 'meows') loadMeowsCookie();
@@ -2310,17 +2310,15 @@ function switchAdminTab(tabName) {
 
 async function loadAdminItems() {
   const data = await api('/api/admin/items');
-  const systemItems = data.items || [];
-  const userItems = data.userItems || [];
-  renderAdminItemTable($('#admin-items'), systemItems, false);
-  renderAdminItemTable($('#admin-user-items'), userItems, true);
+  // Chỉ hàng hệ thống được phép xuất hiện trong mục Shop của admin.
+  // Hàng seller/user-shop có shop_id đã bị BE lọc khỏi `items`.
+  renderAdminItemTable($('#admin-items'), data.items || []);
 }
 
-function renderAdminItemTable(root, items, withShop) {
+function renderAdminItemTable(root, items) {
   if (!root) return;
-  const emptyKey = withShop ? 'admin.noUserProducts' : 'admin.noPending';
   root.innerHTML = items.length ? `<table class="data-table products-table admin-products-table"><thead><tr>
-    <th>${esc(t('seller.productName'))}</th>${withShop ? `<th>${esc(t('admin.shop'))}</th>` : ''}
+    <th>${esc(t('seller.productName'))}</th>
     <th>${esc(t('admin.category'))}</th>
     <th>${esc(t('admin.priceCoin'))}</th><th>${esc(t('seller.stock'))}</th>
     <th>${esc(t('orders.status'))}</th><th>${esc(t('seller.actions'))}</th>
@@ -2329,7 +2327,6 @@ function renderAdminItemTable(root, items, withShop) {
       ${(() => { const img = item.logoUrl; return `<div class="${img ? 'product-img-thumb' : 'product-img-placeholder'}">${img ? `<img src="${esc(img)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'product-img-placeholder',textContent:'?'}))" />` : `<span>${esc(String(item.name || '?').trim().charAt(0).toUpperCase())}</span>`}</div>`; })()}
       <div class="product-name-info"><strong>${esc(item.name)}</strong><small>${esc(item.description || '')}</small></div>
     </td>
-    ${withShop ? `<td><strong>${esc(item.shopName || '—')}</strong>${item.ownerId ? `<small class="muted">${esc(item.ownerId)}</small>` : ''}</td>` : ''}
     <td><span class="store-tag">${esc(item.category)}</span></td>
     <td class="price-cell">${num(item.price)} ${esc(t('topbar.coinShort'))}</td>
     <td><span class="${Number(item.stock) > 0 ? 'stock-ok' : 'stock-out'}">${num(item.stock)}</span></td>
@@ -2339,7 +2336,7 @@ function renderAdminItemTable(root, items, withShop) {
       <button class="btn-icon-action edit" data-edititem="${esc(item.id)}" title="${esc(t('admin.edit'))}"><span class="ico">${icon('settings', 16)}</span></button>
       <button class="btn-icon-action danger" data-delitem="${esc(item.id)}" title="${esc(t('admin.delete'))}"><span class="ico">${icon('trash', 16)}</span></button>
     </td>
-  </tr>`).join('')}</tbody></table>` : `<div class="empty">${esc(t(emptyKey))}</div>`;
+  </tr>`).join('')}</tbody></table>` : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
   $$('[data-addstock]', root).forEach(b => b.addEventListener('click', () => addStockModal(b.dataset.addstock, items.find(i => i.id === b.dataset.addstock))));
   $$('[data-edititem]', root).forEach(b => b.addEventListener('click', () => editItemModal(items.find(i => i.id === b.dataset.edititem))));
   $$('[data-delitem]', root).forEach(b => b.addEventListener('click', () => deleteItem(b.dataset.delitem)));
@@ -2692,7 +2689,6 @@ $('#admin-create-btn').addEventListener('click', async e => {
 });
 
 $('#admin-refresh').addEventListener('click', loadAdminItems);
-$('#admin-user-refresh').addEventListener('click', loadAdminItems);
 $('#admin-payout-btn').addEventListener('click', async e => {
   e.currentTarget.disabled = true;
   try {

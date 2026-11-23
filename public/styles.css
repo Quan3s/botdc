@@ -434,7 +434,6 @@ textarea { resize: vertical; }
 .admin-shop-grid { display: grid; grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.4fr); gap: 16px; align-items: start; }
 .admin-shop-grid .admin-create-card { margin-top: 0; }
 .admin-shop-grid .admin-list-card { padding: 18px; overflow: hidden; }
-.admin-user-items-card { margin-top: 16px; padding: 18px; overflow: hidden; }
 .admin-products-table { min-width: 720px; }
 .admin-products-table .product-name-info small { max-width: 180px; }
 @media (max-width: 980px) { .admin-shop-grid { grid-template-columns: 1fr; } }
