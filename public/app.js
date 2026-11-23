@@ -1175,7 +1175,7 @@ function renderOrders() {
         </div>
         <div class="order-actions">
           ${/pending/i.test(status) ? `<button class="btn btn-soft btn-sm" data-order-action="complete" data-id="${esc(o.id)}">${icon('check', 14)}<span>${esc(t('orders.complete'))}</span></button>` : ''}
-          ${/complete/i.test(status) ? `<button class="btn btn-soft btn-sm" data-order-action="review" data-id="${esc(o.id)}">${icon('star', 14)}<span>${esc(t('orders.review'))}</span></button>` : ''}
+          ${/complete|pending/i.test(status) ? `<button class="btn btn-soft btn-sm" data-order-action="review" data-id="${esc(o.id)}">${icon('star', 14)}<span>${esc(t('orders.review'))}</span></button>` : ''}
           <button class="btn btn-ghost btn-sm" data-order-action="view" data-id="${esc(o.id)}">${icon('eye', 14)}<span>${esc(t('orders.view'))}</span></button>
           ${/pending/i.test(status) ? `<button class="btn btn-soft btn-sm" data-order-action="complain" data-id="${esc(o.id)}">${icon('complaint', 14)}<span>${esc(t('orders.complain'))}</span></button>` : ''}
           ${/pending/i.test(status) ? `<button class="btn btn-danger btn-sm" data-order-action="return" data-id="${esc(o.id)}">${icon('refund', 14)}<span>${esc(t('orders.return'))}</span></button>` : ''}
@@ -1189,6 +1189,16 @@ function renderOrders() {
 async function handleOrderAction(action, id) {
   const order = state.orders.find(o => o.id === id) || {};
   if (action === 'review') {
+    // Đơn còn Chờ duyệt vẫn có nút Đánh giá: hoàn tất đơn trước rồi mở form.
+    if (/pending/i.test(String(order.status || ''))) {
+      try {
+        await api(`/api/orders/${encodeURIComponent(id)}/complete`, { method: 'POST' });
+        order.status = 'completed';
+      } catch (err) {
+        if (!/đã được xử lý/i.test(err.message || '')) { toast(err.message, 'error'); return; }
+        order.status = 'completed';
+      }
+    }
     const shopId = String(order.shopId || '');
     if (!shopId) { toast(t('orders.reviewNoShop'), 'error'); return; }
     state.userShop.reviewIntent = { shopId, productId: String(order.productId || ''), orderId: String(id) };
