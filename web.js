@@ -570,7 +570,10 @@ function publicItem(item) {
 }
 
 router.get('/api/shop', requireAuth, ah(async (req, res) => {
-    const items = await db.getShopItems(true);
+    // Tab Shop chính (#shop-grid) là hàng hệ thống/admin.
+    // Hàng seller có shop_id chỉ được phục vụ qua /api/user-shop/:id.
+    const allItems = await db.getShopItems(true);
+    const items = allItems.filter(i => !i.shop_id);
     res.json({ items: items.map(publicItem), gistEnabled: shop.useGist() });
 }));
 
@@ -581,6 +584,8 @@ router.post('/api/shop/buy', requireAuth, ah(async (req, res) => {
 
     const item = await db.getShopItem(itemId);
     if (!item || item.active === false) return res.status(404).json({ error: 'Sản phẩm không tồn tại.' });
+    // Không cho mua hàng user-shop qua luồng Shop hệ thống.
+    if (item.shop_id) return res.status(400).json({ error: 'Sản phẩm/user-shop chỉ mua tại User Shop.' });
     if (Number(item.stock) < quantity) return res.status(400).json({ error: `Kho chỉ còn ${item.stock} sản phẩm.` });
 
     const total = Number(item.price) * quantity;
