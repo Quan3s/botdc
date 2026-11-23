@@ -964,16 +964,30 @@ async function decorate(rows, valueKey) {
         });
     }
 
+    const adminFlags = await Promise.all(rows.map(async r => {
+        const key = String(r.user_id);
+        const discordId = key.startsWith('web_')
+            ? (byId.find(u => `web_${u.id}` === key) || {}).discord_id
+            : key;
+        return discordId ? isDiscordAdmin(discordId) : false;
+    }));
     return rows.map((r, i) => ({
         rank: i + 1,
         userId: String(r.user_id),
         display: map.get(String(r.user_id)) || (String(r.user_id).startsWith('web_') ? 'Người dùng web' : `Discord ${r.user_id}`),
         value: Number(r[valueKey]) || 0,
+        isAdmin: !!adminFlags[i],
     }));
 }
 
 router.get('/api/leaderboard/coins', requireAuth, ah(async (req, res) => {
     const top = await db.getTopCoins(10);
+    res.json({ leaderboard: await decorate(top, 'balance') });
+}));
+
+/** BXH số dư ACOIN (1 ACOIN = exchangeRate coin, khác BXH coin). */
+router.get('/api/leaderboard/acoin', requireAuth, ah(async (req, res) => {
+    const top = await db.getTopAcoin(10);
     res.json({ leaderboard: await decorate(top, 'balance') });
 }));
 

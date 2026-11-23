@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
-<link rel="stylesheet" href="/styles.css?v=20261122r" />
+<link rel="stylesheet" href="/styles.css?v=20261122t" />
 <script>
   // Áp theme và ngôn ngữ ngay để không bị flash classic / sai ngôn ngữ.
   try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
@@ -561,6 +561,7 @@
       <section id="view-leaderboard" class="view">
         <div class="tabs">
           <button class="tab active" data-lb="coins"><span class="ico" data-icon="coin"></span><span data-i18n="lb.coins">Coin</span></button>
+          <button class="tab" data-lb="acoin"><span class="ico" data-icon="acoin"></span><span data-i18n="lb.acoin">ACOIN</span></button>
           <button class="tab" data-lb="week"><span class="ico" data-icon="link"></span><span data-i18n="lb.week">Vượt link 7 ngày (có thưởng)</span></button>
           <button class="tab" data-lb="all"><span class="ico" data-icon="leaderboard"></span><span data-i18n="lb.all">Vượt link tổng (không thưởng)</span></button>
         </div>
@@ -650,6 +651,7 @@
         <div class="tabs admin-tabs">
           <button class="tab active" data-admin="user"><span class="ico" data-icon="users"></span><span data-i18n="admin.users">Người dùng</span></button>
           <button class="tab" data-admin="shop"><span class="ico" data-icon="shop"></span><span data-i18n="admin.products">Sản phẩm</span></button>
+          <button class="tab" data-admin="user-shop"><span class="ico" data-icon="store"></span><span data-i18n="admin.userProducts">Sản phẩm người dùng</span></button>
           <button class="tab" data-admin="plugin"><span class="ico" data-icon="plugin"></span><span data-i18n="admin.plugin">Plugin</span></button>
           <button class="tab" data-admin="meows"><span class="ico" data-icon="cookie"></span><span data-i18n="admin.cookie">Cookie</span></button>
           <button class="tab" data-admin="market"><span class="ico" data-icon="store"></span><span data-i18n="admin.market">Market</span></button>
@@ -699,6 +701,12 @@
               <div class="chart-header"><h3 class="chart-title"><span class="ico" data-icon="shop"></span><span data-i18n="admin.products">Sản phẩm</span></h3><button id="admin-refresh" class="btn btn-ghost btn-sm" data-i18n="admin.refresh">Làm mới</button></div>
               <div id="admin-items" class="products-table-wrapper data-table-wrapper"></div>
             </div>
+          </div>
+        </div>
+
+        <div id="admin-sub-user-shop" class="admin-sub hidden">
+          <div class="panel-header">
+            <div><h2 class="panel-title" data-i18n="admin.userProducts">Sản phẩm người dùng</h2><p class="panel-description muted" data-i18n="admin.userProductsDesc">Hàng do user tạo trong User Shop, tách riêng khỏi sản phẩm hệ thống.</p></div>
           </div>
           <div class="card admin-list-card admin-user-items-card">
             <div class="chart-header"><h3 class="chart-title"><span class="ico" data-icon="store"></span><span data-i18n="admin.userProducts">Sản phẩm người dùng</span></h3><button id="admin-user-refresh" class="btn btn-ghost btn-sm" data-i18n="admin.refresh">Làm mới</button></div>
@@ -835,8 +843,8 @@
 <div id="toasts" class="toasts"></div>
 <div id="modal-root" class="modal-root hidden"></div>
 
-<script src="/icons.js?v=20261122r"></script>
-<script src="/i18n.js?v=20261122r"></script>
-<script src="/app.js?v=20261122r"></script>
+<script src="/icons.js?v=20261122t"></script>
+<script src="/i18n.js?v=20261122t"></script>
+<script src="/app.js?v=20261122t"></script>
 </body>
 </html>

@@ -986,6 +986,19 @@ module.exports = {
         return next;
     },
 
+    /** BXH ACOIN: lấy từ acoin_balances, chỉ user có số dư > 0. */
+    async getTopAcoin(limit = 10) {
+        const n = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+        if (USE_LOCAL) {
+            return findMany('acoin_balances')
+                .filter(r => Number(r.balance) > 0)
+                .sort((a, b) => Number(b.balance) - Number(a.balance))
+                .slice(0, n)
+                .map(r => ({ user_id: r.user_id, balance: Number(r.balance) }));
+        }
+        return await supabaseFetch(`acoin_balances?select=user_id,balance&balance=gt.0&order=balance.desc&limit=${n}`);
+    },
+
     // ==================== DEVICE -> ACCOUNT ====================
     async getDeviceAccount(deviceId) {
         return await getRow('device_accounts', { device_id: String(deviceId) });

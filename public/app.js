@@ -6,6 +6,7 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 const t = (key, vars) => (window.t ? window.t(key, vars) : key);
 const icon = (name, size) => (window.icons && window.icons.icon ? window.icons.icon(name, size) : '');
+const adminCrown = () => `<span class="admin-crown" title="${esc(t('admin.crownTitle'))}">${icon('crown', 14)}</span>`;
 const getLanguage = () => (window.getLanguage ? window.getLanguage() : 'vi');
 const setLanguage = lang => (window.setLanguage ? window.setLanguage(lang) : lang);
 
@@ -19,8 +20,8 @@ const state = {
   orders: [],
   skipLangRefresh: false,
   seller: { revenue: 'week', data: null, products: [] },
-  userShop: { q: '', filter: 'recommended', page: 1, detail: null },
-  chat: { contacts: [], with: null, messages: [], poll: null, unread: 0, open: false },
+  userShop: { q: '', filter: 'recommended', page: 1, detail: null, reviewIntent: null },
+  chat: { contacts: [], with: null, withAdmin: false, messages: [], poll: null, unread: 0, open: false },
   adminReviews: [],
 };
 
@@ -1024,7 +1025,7 @@ function renderShopReviews(d, shop, sellerId) {
       <div class="review-card${appealed ? ' appealed' : ''}">
         <div class="review-head">
           ${renderStars(r.stars, appealed)}
-          <b>${esc(r.buyer || t('profile.member'))}</b>
+          <b>${esc(r.buyer || t('profile.member'))}${r.buyerIsAdmin ? adminCrown() : ''}</b>
           <span class="pill${appealed ? ' appealed-pill' : ''}">${esc(appealed ? t('userShop.appealed') : statusLabel(r.status))}</span>
         </div>
         <p>${esc(r.content)}</p>
@@ -1071,15 +1072,18 @@ function promptReviewText(title, onConfirm, defaultValue = '') {
 
 function renderReviewForm(shop, products) {
   const root = $('#user-shop-review-form');
-  const completed = state.orders.filter(o => String(o.shopName || '') === String(shop.name || '') && /complete/i.test(String(o.status || '')));
+  const intent = state.userShop.reviewIntent && String(state.userShop.reviewIntent.shopId) === String(shop.id)
+    ? state.userShop.reviewIntent : null;
+  const completed = state.orders.filter(o => /complete/i.test(String(o.status || '')) &&
+    (!String(o.shopId || '') || String(o.shopId) === String(shop.id) || String(o.shopName || '') === String(shop.name || '')));
   if (!completed.length) { root.classList.add('hidden'); root.innerHTML = ''; return; }
   root.classList.remove('hidden');
   root.innerHTML = `
     <h4>${esc(t('userShop.reviewTitle'))}</h4>
     <p class="muted">${esc(t('userShop.reviewDesc'))}</p>
     <div class="grid two-col">
-      <label>${esc(t('userShop.selectProduct'))}<select id="review-product">${products.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label>
-      <label>${esc(t('userShop.selectOrder'))}<select id="review-order">${completed.map(o => `<option value="${esc(o.id)}">${esc(o.itemName)} · ${esc(o.id)}</option>`).join('')}</select></label>
+      <label>${esc(t('userShop.selectProduct'))}<select id="review-product">${products.map(p => `<option value="${esc(p.id)}" ${intent && String(intent.productId) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+      <label>${esc(t('userShop.selectOrder'))}<select id="review-order">${completed.map(o => `<option value="${esc(o.id)}" ${intent && String(intent.orderId) === String(o.id) ? 'selected' : ''}>${esc(o.itemName)} · ${esc(o.id)}</option>`).join('')}</select></label>
     </div>
     <label>${esc(t('userShop.stars'))}<select id="review-stars"><option value="5">5</option><option value="4">4</option><option value="3">3</option><option value="2">2</option><option value="1">1</option></select></label>
     <label>${esc(t('userShop.reviewContent'))}<textarea id="review-content" rows="3" data-i18n-placeholder="userShop.reviewPlaceholder" placeholder="${esc(t('userShop.reviewPlaceholder'))}"></textarea></label>
@@ -1096,6 +1100,7 @@ function renderReviewForm(shop, products) {
         method: 'POST', body: JSON.stringify({ productId, orderId, stars, content }),
       });
       toast(t('userShop.reviewSent'));
+      state.userShop.reviewIntent = null;
       openUserShop(shop.id);
     } catch (err) { e.currentTarget.disabled = false; toast(err.message, 'error'); }
   });
@@ -1170,6 +1175,7 @@ function renderOrders() {
         </div>
         <div class="order-actions">
           ${/pending/i.test(status) ? `<button class="btn btn-soft btn-sm" data-order-action="complete" data-id="${esc(o.id)}">${icon('check', 14)}<span>${esc(t('orders.complete'))}</span></button>` : ''}
+          ${/complete/i.test(status) ? `<button class="btn btn-soft btn-sm" data-order-action="review" data-id="${esc(o.id)}">${icon('star', 14)}<span>${esc(t('orders.review'))}</span></button>` : ''}
           <button class="btn btn-ghost btn-sm" data-order-action="view" data-id="${esc(o.id)}">${icon('eye', 14)}<span>${esc(t('orders.view'))}</span></button>
           ${/pending/i.test(status) ? `<button class="btn btn-soft btn-sm" data-order-action="complain" data-id="${esc(o.id)}">${icon('complaint', 14)}<span>${esc(t('orders.complain'))}</span></button>` : ''}
           ${/pending/i.test(status) ? `<button class="btn btn-danger btn-sm" data-order-action="return" data-id="${esc(o.id)}">${icon('refund', 14)}<span>${esc(t('orders.return'))}</span></button>` : ''}
@@ -1182,6 +1188,16 @@ function renderOrders() {
 
 async function handleOrderAction(action, id) {
   const order = state.orders.find(o => o.id === id) || {};
+  if (action === 'review') {
+    const shopId = String(order.shopId || '');
+    if (!shopId) { toast(t('orders.reviewNoShop'), 'error'); return; }
+    state.userShop.reviewIntent = { shopId, productId: String(order.productId || ''), orderId: String(id) };
+    switchView('user-shop');
+    await openUserShop(shopId);
+    const form = $('#user-shop-review-form');
+    if (form && !form.classList.contains('hidden')) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
   if (action === 'view') {
     openModal({
       title: t('orders.viewTitle'),
@@ -2105,7 +2121,7 @@ function stopCloudStatusPolling() {
 function setDeviceStatus(sel, msgSel, device) {
   const online = device && device.status === 'online';
   const el = $(sel);
-  el.className = `status-badge ${online ? 'online' : ''}`;
+  el.className = `status-badge ${online ? 'online' : 'offline'}`;
   el.innerHTML = icon(online ? 'dot-online' : 'dot-offline', 12) + `<span>${esc(t(online ? 'status.hasMachine' : 'status.noMachine'))}</span>`;
   const parts = [];
   if (device && device.message) parts.push(device.message);
@@ -2165,6 +2181,7 @@ async function loadLeaderboard() {
   banner.classList.add('hidden');
   try {
     if (state.lbTab === 'coins') { const data = await api('/api/leaderboard/coins'); renderLb(root, data.leaderboard, t('lb.coins')); return; }
+    if (state.lbTab === 'acoin') { const data = await api('/api/leaderboard/acoin'); renderLb(root, data.leaderboard, t('lb.acoinUnit')); return; }
     if (state.lbTab === 'week') {
       const data = await api('/api/leaderboard/links/week');
       setText(note, t('tasks.weekPeriod', { period: data.period || '—' }));
@@ -2186,7 +2203,7 @@ function renderLb(root, rows, unit) {
   root.innerHTML = rows.map(r => `
     <div class="lb-row ${r.rank <= 3 ? `top${r.rank}` : ''}">
       <span class="lb-rank">${num(r.rank)}</span>
-      <span class="lb-name">${esc(r.display)}</span>
+      <span class="lb-name">${esc(r.display)}${r.isAdmin ? adminCrown() : ''}</span>
       <span class="lb-value">${num(r.value)} ${esc(unit)}</span>
     </div>`).join('');
 }
@@ -2283,7 +2300,7 @@ function switchAdminTab(tabName) {
   state.adminTab = tabName;
   $$('.admin-tabs .tab').forEach(x => x.classList.toggle('active', x.dataset.admin === tabName));
   $$('.admin-sub').forEach(el => el.classList.toggle('hidden', el.id !== `admin-sub-${tabName}`));
-  if (tabName === 'shop') loadAdminItems();
+  if (tabName === 'shop' || tabName === 'user-shop') loadAdminItems();
   else if (tabName === 'user') loadAdminUsers().catch(() => {});
   else if (tabName === 'plugin') loadAdminPlugins();
   else if (tabName === 'meows') loadMeowsCookie();
@@ -2387,7 +2404,7 @@ async function loadAdminMarket() {
 
   reviewsRoot.innerHTML = state.adminReviews.length ? state.adminReviews.map(r => `
     <div class="mini-row">
-      <span>${icon('star', 13)} ${esc(r.buyer || r.content || r.id)}</span>
+      <span>${icon('star', 13)} ${esc(r.buyer || r.content || r.id)}${r.buyerIsAdmin ? adminCrown() : ''}</span>
       <span><button class="btn btn-soft btn-sm" data-admin-review="${esc(r.id)}" data-approve="1">${icon('check', 13)}</button>
       <button class="btn btn-danger btn-sm" data-admin-review="${esc(r.id)}" data-approve="0">${icon('close', 13)}</button></span>
     </div>`).join('') : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
@@ -2859,7 +2876,7 @@ function renderChatContacts() {
     <button class="chat-contact${state.chat.with === c.userId ? ' active' : ''}" data-chat-user="${esc(c.userId)}" type="button">
       <span class="chat-avatar">${icon('user', 18)}</span>
       <span class="chat-contact-info">
-        <b>${esc(c.display || c.userId)}</b>
+        <b>${esc(c.display || c.userId)}${c.isAdmin ? adminCrown() : ''}</b>
         <small>${esc(c.lastMessage || '')}</small>
       </span>
       ${Number(c.unread) > 0 ? `<span class="contact-unread">${num(c.unread)}</span>` : ''}
@@ -2874,7 +2891,10 @@ function openChatWith(userId, display) {
   if (!userId) { toast(t('chat.noContacts'), 'error'); return; }
   state.chat.with = userId;
   state.chat.display = display || userId;
-  setText('#chat-with-label', state.chat.display);
+  const contact = state.chat.contacts.find(c => String(c.userId) === String(userId));
+  state.chat.withAdmin = !!(contact && contact.isAdmin);
+  const label = $('#chat-with-label');
+  if (label) label.innerHTML = `${esc(state.chat.display)}${state.chat.withAdmin ? adminCrown() : ''}`;
   $('#chat-contacts-view').classList.add('hidden');
   $('#chat-conversation-view').classList.remove('hidden');
   openChatPanel();

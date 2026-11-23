@@ -81,6 +81,7 @@
     // aliases referenced by legacy views
     admin: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/><path d="m18 3 1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z"/>',
     users: '<circle cx="9" cy="8" r="3"/><path d="M3 19a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15 19a5 5 0 0 1 6-4.6"/>',
+    crown: '<path d="M3 7l4.2 3L12 4l4.8 6L21 7l-2 11H5L3 7Z"/><path d="M5 20h14"/>',
   };
 
   const NAMES = [
@@ -89,7 +90,7 @@
     'close', 'youtube', 'discord', 'star', 'coin', 'acoin', 'search', 'filter', 'check',
     'plus', 'reply', 'appeal', 'warning', 'refresh', 'copy', 'eye', 'cart', 'wallet',
     'calendar', 'arrowUp', 'arrowDown', 'chevron', 'send', 'bell', 'lock', 'user',
-    'store', 'chart', 'pending', 'refund', 'complaint', 'replyAll', 'trash',
+    'store', 'chart', 'pending', 'refund', 'complaint', 'replyAll', 'trash', 'crown',
   ];
 
   function icon(name, size = 20) {

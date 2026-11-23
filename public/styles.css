@@ -395,6 +395,7 @@ textarea { resize: vertical; }
 .lb-rank { font-weight: 800; font-size: 16px; width: 34px; text-align: center; }
 .lb-name { flex: 1; font-weight: 600; }
 .lb-value { font-weight: 800; color: var(--accent); }
+.admin-crown { display: inline-flex; align-items: center; vertical-align: middle; margin-left: 5px; color: var(--gold); filter: drop-shadow(0 0 5px rgba(255,215,106,.5)); }
 .reward-banner { margin-bottom: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
 .reward-chip { background: rgba(255,193,7,0.1); border: 1px solid rgba(255,193,7,0.3); color: var(--gold); border-radius: 999px; padding: 7px 13px; font-size: 12.5px; font-weight: 600; }
 
@@ -1168,8 +1169,10 @@ body.seller-mode .sidebar-brand-texts { display: flex; flex-direction: column; g
 .store-card-body { position: relative; }
 .store-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-top: -24px; }
 .store-card-top .store-logo { position: static; width: 48px; height: 48px; border: 2px solid var(--panel); box-shadow: var(--shadow); }
-.status-badge { display: inline-flex; align-items: center; gap: 6px; margin-top: 28px; padding: 4px 9px; border-radius: 999px; background: rgba(57,245,138,.12); color: var(--accent); font-size: 10.5px; font-weight: 800; }
-.status-badge > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.store-card .status-badge { display: inline-flex; align-items: center; gap: 6px; margin-top: 28px; padding: 4px 9px; border-radius: 999px; background: rgba(57,245,138,.12); color: var(--accent); font-size: 10.5px; font-weight: 800; }
+.store-card .status-badge > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.status-badge.offline { background: rgba(255,107,129,.14); color: var(--danger); border-color: rgba(255,107,129,.3); }
+[data-theme="bubble"] .status-badge.offline { background: rgba(255,107,129,.16); color: var(--danger); border-color: rgba(255,107,129,.46); }
 .store-card .store-name { margin-top: 10px; font-size: 15px; }
 .store-card .store-desc { margin: 6px 0 12px; min-height: 32px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
 .store-metrics { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }

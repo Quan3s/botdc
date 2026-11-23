@@ -79,6 +79,16 @@ async function isAdmin(discordId) {
     return await safe(() => db.isAdmin(discordId), false);
 }
 
+/** key có thể là Discord ID hoặc `web_<id>` (dùng trong chat/đánh giá/BXH). */
+async function isAdminUserKey(key) {
+    if (!key) return false;
+    const raw = String(key);
+    const discordId = raw.startsWith('web_')
+        ? ((await safe(() => db.getWebUserById(raw.slice(4)), null)) || {}).discord_id
+        : raw;
+    return isAdmin(discordId);
+}
+
 async function requireAdmin(req, res, next) {
     if (!req.webUser) return res.status(401).json({ error: 'Bạn cần đăng nhập.' });
     if (!(await isAdmin(req.webUser.discord_id))) {
@@ -244,6 +254,8 @@ async function persistOrder(order) {
 function publicHistoryOrder(order, viewerId = null) {
     const out = {
         id: order.id,
+        shopId: order.shop_id || order.shopId || '',
+        productId: order.product_id || order.productId || '',
         itemName: order.item_name || order.itemName || '',
         shopName: order.shop_name || order.shopName || '',
         quantity: Number(order.quantity) || 0,
@@ -296,6 +308,7 @@ function publicReview(review) {
     return {
         id: review.id,
         buyer: review.buyer_name || review.buyer_id,
+        buyerIsAdmin: !!review.buyer_is_admin,
         stars: Number(review.stars) || 0,
         content: String(review.content || ''),
         status: review.status || 'visible',
@@ -377,7 +390,8 @@ router.get('/api/orders/history', requireAuth, ah(async (req, res) => {
 // ==================== CHAT RIÊNG ====================
 router.get('/api/messages/contacts', requireAuth, ah(async (req, res) => {
     const contacts = await gistStore.listContacts(req.webUser.id, displayName);
-    res.json({ contacts });
+    const withCrown = await Promise.all(contacts.map(async c => ({ ...c, isAdmin: await isAdminUserKey(c.userId) })));
+    res.json({ contacts: withCrown });
 }));
 
 router.get('/api/messages', requireAuth, ah(async (req, res) => {
@@ -816,7 +830,11 @@ router.get('/api/user-shop/:id', ah(async (req, res) => {
         reviewCount: ratingInfo.reviewCount,
     };
     const reviewsOut = await Promise.all(reviews.map(async review =>
-        publicReview({ ...review, buyer_name: await displayName(review.buyer_id) })));
+        publicReview({
+            ...review,
+            buyer_name: await displayName(review.buyer_id),
+            buyer_is_admin: await isAdminUserKey(review.buyer_id),
+        })));
     res.json({
         shop: shopSummary(row, products),
         products: products.map(publicProduct),
@@ -1018,7 +1036,7 @@ router.post('/api/user-shop/:id/review', requireAuth, ah(async (req, res) => {
         buyer_id: req.webUser.id, stars, content, status: 'visible',
     });
     hook('web:review:created', { id: review.id, shopId: row.id, stars });
-    res.json({ ok: true, review: publicReview(review) });
+    res.json({ ok: true, review: publicReview({ ...review, buyer_is_admin: await isAdminUserKey(req.webUser.id) }) });
 }));
 
 async function loadShopForOwner(req, res) {
@@ -1038,7 +1056,7 @@ router.post('/api/user-shop/:id/review/:reviewId/reply', requireAuth, ah(async (
     const content = String(req.body.content || '').trim();
     if (!content) return res.status(400).json({ error: 'Nhập nội dung phản hồi.' });
     const updated = await db.updateReview(review.id, { admin_reply: content });
-    res.json({ ok: true, review: publicReview({ ...review, ...(updated || {}) }) });
+    res.json({ ok: true, review: publicReview({ ...review, ...(updated || {}), buyer_is_admin: await isAdminUserKey(review.buyer_id) }) });
 }));
 
 router.post('/api/user-shop/:id/review/:reviewId/appeal', requireAuth, ah(async (req, res) => {
@@ -1051,7 +1069,7 @@ router.post('/api/user-shop/:id/review/:reviewId/appeal', requireAuth, ah(async 
     if (!reason) return res.status(400).json({ error: 'Nhập lý do kháng nghị.' });
     const updated = await db.updateReview(review.id, { status: 'appealed', appealed: true, appeal_reason: reason });
     hook('web:review:appealed', { id: review.id, shopId: row.id });
-    res.json({ ok: true, review: publicReview({ ...review, ...(updated || {}) }) });
+    res.json({ ok: true, review: publicReview({ ...review, ...(updated || {}), buyer_is_admin: await isAdminUserKey(review.buyer_id) }) });
 }));
 
 // ==================== ADMIN ====================
