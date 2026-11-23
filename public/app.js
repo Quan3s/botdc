@@ -2042,10 +2042,16 @@ $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
   try {
     const data = await api('/api/device/meows', { method: 'POST', body: JSON.stringify({ provider }) });
     box.className = 'result-box';
+    const ugFields = data.kind === 'ugphone' && Array.isArray(data.fields) ? data.fields : [];
     box.innerHTML = `
       <div>${esc(name)} · ${esc(t('device.newBalance', { amount: num(data.newBalance) }))}</div>
-      ${data.account ? `<div>${esc(data.account)}</div>` : ''}
-      ${data.password ? `<div>${esc(data.password)}</div>` : ''}
+      ${ugFields.length ? `
+        <div class="ug-fields">
+          <b>${esc(t('device.ugInfo'))}</b>
+          ${ugFields.map(f => `<div class="ug-field"><span>${esc(f.label)}</span><code${f.long ? ' class="ug-long"' : ''}>${esc(f.value)}</code></div>`).join('')}
+        </div>` : `
+        ${data.account ? `<div>${esc(data.account)}</div>` : ''}
+        ${data.password ? `<div>${esc(data.password)}</div>` : ''}`}
       <div class="accounts-box">${esc(data.copyText)}</div>
       <div class="copy-row"><button class="btn btn-soft btn-sm" id="meows-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
     box.classList.remove('hidden');

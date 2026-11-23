@@ -144,6 +144,105 @@ function extractMeowsInfo(node, depth = 0) {
     };
 }
 
+/** JSON có thể nằm trong markdown/backtick hoặc bị bọc bởi text ("Nội dung chính: {...}"). */
+function parseLooseJson(value) {
+    if (typeof value !== 'string') return value;
+    let text = value.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    try { return JSON.parse(text); } catch (e) { /* thử cắt giữa {} */ }
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+        try { return JSON.parse(text.slice(start, end + 1)); } catch (e) { /* không phải JSON */ }
+    }
+    return null;
+}
+
+const UG_CONTENT_KEY = /^(?:nội\s*dung\s*chính|noi\s*dung\s*chinh|content|contents|data|result|info|device|payload|storage|local-?storage|ugphone)/i;
+
+function looksLikeUgPhone(obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+    return Object.keys(obj).some(key => /^(?:UGPHONE-|ugPhone|ugBrowserId|hadAgreePolicy)/i.test(key));
+}
+
+/** Tìm object Local Storage UGPhone thật, bỏ các field tracking/_gcl_ls/fbapc_* của Meows. */
+function parseUgPhonePayload(node, depth = 0) {
+    if (depth > 6 || node === null || node === undefined) return null;
+    const parsed = parseLooseJson(node);
+    if (parsed && parsed !== node && parsed && typeof parsed === 'object') {
+        return parseUgPhonePayload(parsed, depth + 1);
+    }
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            const found = parseUgPhonePayload(item, depth + 1);
+            if (found) return found;
+        }
+        return null;
+    }
+    if (typeof node !== 'object') return null;
+    if (looksLikeUgPhone(node)) return node;
+    for (const [key, value] of Object.entries(node)) {
+        if (UG_CONTENT_KEY.test(key.replace(/[_-]+/g, ' ').trim())) {
+            const found = parseUgPhonePayload(value, depth + 1);
+            if (found) return found;
+        }
+    }
+    for (const value of Object.values(node)) {
+        if (value && typeof value === 'object') {
+            const found = parseUgPhonePayload(value, depth + 1);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+/** Tách field cần dùng từ Local Storage UGPhone để FE/Bot hiển thị gọn. */
+function ugPhoneInfo(payload) {
+    const pick = (keys, source) => {
+        for (const key of keys) {
+            const value = source && source[key];
+            if (value !== undefined && value !== null && value !== '') return value;
+        }
+        return null;
+    };
+    const mqtt = parseLooseJson(payload['UGPHONE-MQTT'] || payload.ugPhoneMqtt) || {};
+    const id = pick(['UGPHONE-ID', 'UGPHONE-Id', 'ugPhoneId', 'userId'], payload);
+    const token = pick(['UGPHONE-Token', 'ugPhoneToken', 'accessToken'], payload);
+    const browserId = pick(['ugBrowserId', 'UGPHONE-browserId', 'UGPHONE-BrowserId'], payload);
+    const publicKey = pick(['UGPHONE-PUBLICKEY', 'UGPHONE-publicKey'], payload) || pick(['public_key'], mqtt);
+    const fields = [
+        { key: 'UGPHONE-ID', label: 'UGPHONE-ID', value: String(id || '') },
+        { key: 'UGPHONE-Token', label: 'UGPHONE-Token', value: String(token || '') },
+        { key: 'ugBrowserId', label: 'ugBrowserId', value: String(browserId || '') },
+    ];
+    for (const key of [
+        'client_id', 'login_id', 'access_key', 'access_secret',
+        'mqtt_url', 'mqtt_ssl_url', 'mqtt_ws_url', 'mqtt_wss_url',
+        'mqtt_topic', 'mqtt_username', 'mqtt_password', 'ws_url',
+    ]) {
+        const value = mqtt[key];
+        if (value !== undefined && value !== null && value !== '') {
+            fields.push({ key: `UGPHONE-MQTT.${key}`, label: `MQTT ${key}`, value: String(value) });
+        }
+    }
+    if (publicKey) {
+        fields.push({ key: 'UGPHONE-PUBLICKEY', label: 'UGPHONE-PUBLICKEY', value: String(publicKey), long: true });
+    }
+    // Bỏ field tracking (_gcl_ls, fbapc_*) của Meows, giữ đủ key UGPhone cần import.
+    const clean = {};
+    for (const [key, value] of Object.entries(payload)) {
+        if (/^_/.test(key) || /^fbapc_/i.test(key)) continue;
+        clean[key] = value;
+    }
+    return {
+        id: id ? String(id) : null,
+        token: token ? String(token) : null,
+        browserId: browserId ? String(browserId) : null,
+        publicKey: publicKey ? String(publicKey) : null,
+        fields,
+        copyText: JSON.stringify(clean, null, 2),
+    };
+}
+
 function meowsApiError(response, data, raw) {
     if (!response.ok) return `API trả HTTP ${response.status}`;
     if (data && (data.success === false || data.ok === false)) {
@@ -206,6 +305,27 @@ async function buyMeows(provider) {
         const detail = raw ? ` (body: ${raw.replace(/\s+/g, ' ').slice(0, 200)})` : '';
         const chain = result.failures && result.failures.length ? ` · đã thử: ${result.failures.join('; ')}` : '';
         throw new Error(`${error}${detail} [nguồn: ${result.source}]${chain}`);
+    }
+
+    // UGPhone trả Local Storage trong "Nội dung chính" — tách riêng, không đổ cả raw JSON.
+    if (key === 'UG') {
+        const payload = parseUgPhonePayload(data || raw);
+        if (payload) {
+            const ug = ugPhoneInfo(payload);
+            return {
+                ok: true,
+                kind: 'ugphone',
+                account: ug.id,
+                password: ug.token,
+                token: ug.token,
+                userId: ug.id,
+                copyText: ug.copyText,
+                fields: ug.fields,
+                details: payload,
+                message: (data && (data.message || data.msg)) || 'Mua thành công',
+                source: result.source,
+            };
+        }
     }
 
     const info = extractMeowsInfo(data) || {};
@@ -452,6 +572,9 @@ module.exports = {
     regVsphoneAccount,
     normalizeMeowsCookie,
     getMeowsCookie,
+    parseLooseJson,
+    parseUgPhonePayload,
+    ugPhoneInfo,
     buyMeows,
     normalizeStatusProxy,
     getCloudStatus,

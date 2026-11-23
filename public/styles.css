@@ -369,6 +369,13 @@ textarea { resize: vertical; }
   font-size: 13.5px; line-height: 1.6; word-break: break-word;
 }
 .result-box.error { background: rgba(255,107,129,0.08); border-color: rgba(255,107,129,0.35); color: #ffc2cc; }
+.ug-fields { display: grid; gap: 6px; margin-top: 10px; }
+.ug-fields > b { color: var(--accent); }
+.ug-field { display: grid; grid-template-columns: minmax(130px, 190px) minmax(0, 1fr); gap: 8px; align-items: start; padding: 7px 9px; border: 1px solid var(--border); border-radius: 9px; background: rgba(0,0,0,.18); }
+.ug-field > span { color: var(--muted); }
+.ug-field code { color: #b9ffd8; white-space: pre-wrap; word-break: break-all; }
+.ug-field code.ug-long { max-height: 64px; overflow: auto; }
+[data-theme="bubble"] .ug-field { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.18); }
 .device-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
 .daily-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0 10px; }
 .daily-meta { display: flex; gap: 8px; flex-wrap: wrap; }
