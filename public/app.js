@@ -1999,18 +1999,51 @@ $('#export-revenue-btn').addEventListener('click', () => {
 });
 
 // ==================== BUY DEVICE / TASKS / STATUS / GIFTS / LB / TRANSFER ====================
-$('#cloud-provider').addEventListener('change', () => {
-  $('#cloud-server-wrap').classList.toggle('hidden', $('#cloud-provider').value !== 'UG');
-});
+function syncCloudMode() {
+  const provider = $('#cloud-provider').value;
+  if (provider !== 'VS') $('#cloud-mode').value = 'buy';
+  const isGetLink = provider === 'VS' && $('#cloud-mode').value === 'getlink';
+  $('#cloud-server-wrap').classList.toggle('hidden', provider !== 'UG');
+  $('#cloud-mode-wrap').classList.toggle('hidden', provider !== 'VS');
+  labelButton($('#cloud-buy-btn'), isGetLink ? 'device.getLink' : 'device.buyCloud');
+  const placeholderKey = isGetLink ? 'device.getLinkPlaceholder' : 'device.dataPlaceholder';
+  const input = $('#cloud-input');
+  input.setAttribute('data-i18n-placeholder', placeholderKey);
+  input.placeholder = t(placeholderKey);
+}
+
+$('#cloud-provider').addEventListener('change', syncCloudMode);
+$('#cloud-mode').addEventListener('change', syncCloudMode);
+syncCloudMode();
 
 $('#cloud-buy-btn').addEventListener('click', async e => {
   const btn = e.currentTarget;
   btn.disabled = true;
   const box = $('#cloud-result');
+  const provider = $('#cloud-provider').value;
+  const isGetLink = provider === 'VS' && $('#cloud-mode').value === 'getlink';
   try {
+    if (isGetLink) {
+      const data = await api('/api/device/vsphone/getss', {
+        method: 'POST',
+        body: JSON.stringify({ inputData: $('#cloud-input').value }),
+      });
+      box.className = 'result-box';
+      box.innerHTML = `
+        ${data.shareUrl ? `<div class="share-link"><a href="${esc(data.shareUrl)}" target="_blank" rel="noopener">${esc(data.shareUrl)}</a></div>` : ''}
+        <div class="ug-fields"><b>${esc(t('device.shareInfo'))}</b>
+          ${(data.fields || []).map(f => `<div class="ug-field"><span>${esc(f.label)}</span><code${/^(token|password)$/.test(f.label) ? ' class="ug-long"' : ''}>${esc(f.value)}</code></div>`).join('')}
+        </div>
+        <div class="accounts-box">${esc(data.copyText)}</div>
+        ${data.rawResponse ? `<div class="muted" style="margin-top:10px">${esc(t('device.fullResponse'))}</div><div class="accounts-box">${esc(data.rawResponse)}</div>` : ''}
+        <div class="copy-row"><button class="btn btn-soft btn-sm" id="getss-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
+      box.classList.remove('hidden');
+      $('#getss-copy').addEventListener('click', ev => copyText(data.copyText, ev.currentTarget));
+      return;
+    }
     const data = await api('/api/device/buycloud', {
       method: 'POST',
-      body: JSON.stringify({ provider: $('#cloud-provider').value, server: $('#cloud-server').value, inputData: $('#cloud-input').value }),
+      body: JSON.stringify({ provider, server: $('#cloud-server').value, inputData: $('#cloud-input').value }),
     });
     box.className = 'result-box';
     setText(box, t('device.success', { provider: data.provider, message: data.message }));

@@ -375,6 +375,10 @@ textarea { resize: vertical; }
 .ug-field > span { color: var(--muted); }
 .ug-field code { color: #b9ffd8; white-space: pre-wrap; word-break: break-all; }
 .ug-field code.ug-long { max-height: 64px; overflow: auto; }
+.share-link { margin-bottom: 10px; padding: 9px 11px; border: 1px solid rgba(0,176,244,.45); border-radius: 9px; background: rgba(0,176,244,.08); word-break: break-all; }
+.share-link a { color: #7fd8ff; text-decoration: underline; }
+[data-theme="bubble"] .share-link { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.22); }
+[data-theme="bubble"] .share-link a { color: #9be4ff; }
 [data-theme="bubble"] .ug-field { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.18); }
 .device-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
 .daily-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0 10px; }

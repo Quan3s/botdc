@@ -243,6 +243,128 @@ function ugPhoneInfo(payload) {
     };
 }
 
+/** Đọc full response VSPhone Fast-buy mà user dán vào (có thể kèm markdown/~ $). */
+function parseVsphoneFastResponse(raw) {
+    const parsed = parseLooseJson(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    let data = parsed.data || parsed.result || parsed.info || parsed;
+    if (typeof data === 'string') data = parseLooseJson(data) || data;
+    if (!data || typeof data !== 'object') return null;
+    const pick = (keys) => {
+        for (const key of keys) {
+            const value = data[key];
+            if (value !== undefined && value !== null && value !== '') return value;
+        }
+        return null;
+    };
+    const email = pick(['email', 'account', 'username']);
+    const password = pick(['password', 'pass', 'matKhau']);
+    const token = pick(['token', 'accessToken', 'access_token']);
+    const userId = pick(['userid', 'user_id', 'userId', 'id']);
+    if (!email || !password || !token || !userId) return null;
+    return {
+        ...data,
+        email: String(email),
+        password: String(password),
+        token: String(token),
+        userId: String(userId),
+        orderId: pick(['orderId', 'order_id']) || null,
+        devices: Array.isArray(data.devices) ? data.devices : [],
+    };
+}
+
+function field(label, value) {
+    return { label, value: value === undefined || value === null ? '' : String(value) };
+}
+
+/** Tạo share link VSPhone qua Meows, trả đủ field của tài khoản + response getss-uid. */
+async function getVsphoneShareLink(rawInput) {
+    const input = parseVsphoneFastResponse(rawInput);
+    if (!input) {
+        return { ok: false, message: 'Dán đúng full response VSPhone Fast (cần email/password/token/userid).' };
+    }
+    const cookie = await getMeowsCookie();
+    if (!cookie) return { ok: false, message: 'Admin chưa lưu cookie dịch vụ nhanh (Quản trị → Cookie).' };
+
+    const result = await requestWithFallback('https://meows.vn/api/vsphone/getss-uid', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            Origin: 'https://meows.vn',
+            Referer: 'https://meows.vn/client/cloud-manager',
+            'User-Agent': MEOWS_UA,
+            Cookie: cookie,
+        },
+        body: JSON.stringify({
+            token: input.token,
+            user_id: input.userId,
+            email: input.email,
+            pass: input.password,
+            cloud: 'vsphone',
+        }),
+        signal: AbortSignal.timeout(60000),
+        timeout: 60000,
+    }, { includeWww: false });
+
+    const response = { ok: result.ok, status: result.status };
+    let data = null;
+    try { data = JSON.parse(result.raw); } catch (e) { /* giữ raw để báo lỗi */ }
+    const error = meowsApiError(response, data, result.raw);
+    if (error) {
+        const detail = result.raw ? ` (body: ${result.raw.replace(/\s+/g, ' ').slice(0, 200)})` : '';
+        return { ok: false, message: `${error}${detail}`, source: result.source };
+    }
+
+    const share = data || {};
+    const pad = share.pad || {};
+    const fields = [
+        field('orderId', input.orderId),
+        field('email', input.email),
+        field('password', input.password),
+        field('token', input.token),
+        field('userid', input.userId),
+    ];
+    input.devices.forEach((device, index) => {
+        const prefix = input.devices.length > 1 ? `device${index + 1}.` : 'device.';
+        for (const key of [
+            'equipmentId', 'padCode', 'configName', 'countryCode', 'padName',
+            'expireTime', 'androidVersion', 'status', 'signExpirationTime',
+        ]) {
+            if (device[key] !== undefined && device[key] !== null && device[key] !== '') {
+                fields.push(field(`${prefix}${key}`, device[key]));
+            }
+        }
+    });
+    fields.push(field('shareToken', share.shareToken));
+    if (share.shareToken) {
+        fields.push(field('shareUrl', `https://cloud.vsphone.com/screen/share/${share.shareToken}`));
+    }
+    for (const key of ['padCode', 'equipmentId', 'configName', 'countryCode', 'padName', 'expireTime']) {
+        if (pad[key] !== undefined && pad[key] !== null && pad[key] !== '') {
+            fields.push(field(`pad.${key}`, pad[key]));
+        }
+    }
+
+    return {
+        ok: true,
+        source: result.source,
+        account: input.email,
+        password: input.password,
+        token: input.token,
+        userId: input.userId,
+        orderId: input.orderId,
+        shareToken: share.shareToken || null,
+        shareUrl: share.shareToken ? `https://cloud.vsphone.com/screen/share/${share.shareToken}` : null,
+        pad,
+        fields,
+        copyText: fields.map(f => `${f.label}: ${f.value}`).join('\n'),
+        rawResponse: result.raw,
+        data: share,
+        message: share.message || 'Lấy link thành công',
+    };
+}
+
 function meowsApiError(response, data, raw) {
     if (!response.ok) return `API trả HTTP ${response.status}`;
     if (data && (data.success === false || data.ok === false)) {
@@ -576,6 +698,8 @@ module.exports = {
     parseUgPhonePayload,
     ugPhoneInfo,
     buyMeows,
+    parseVsphoneFastResponse,
+    getVsphoneShareLink,
     normalizeStatusProxy,
     getCloudStatus,
     probeMeowsPost,

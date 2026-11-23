@@ -812,6 +812,41 @@ router.post('/api/device/meows', requireAuth, ah(async (req, res) => {
     }
 }));
 
+// Tạo share link VSPhone từ full response Fast-buy (không trừ coin).
+router.post('/api/device/vsphone/getss', requireAuth, ah(async (req, res) => {
+    const inputData = String(req.body.inputData || '').trim();
+    if (!inputData) return res.status(400).json({ error: 'Dán full response VSPhone Fast vào ô dữ liệu.' });
+    const key = balanceKey(req.webUser);
+    if (busyUsers.has(key)) return res.status(409).json({ error: 'Bạn đang có thao tác khác, thử lại sau.' });
+    busyUsers.add(key);
+    try {
+        const result = await services.getVsphoneShareLink(inputData);
+        if (!result.ok) return res.status(400).json({ error: result.message });
+        hook('web:device:vsphone-getss', {
+            userKey: key, orderId: result.orderId, shareToken: result.shareToken, source: result.source,
+        });
+        res.json({
+            ok: true,
+            account: result.account,
+            password: result.password,
+            token: result.token,
+            userId: result.userId,
+            orderId: result.orderId,
+            shareToken: result.shareToken,
+            shareUrl: result.shareUrl,
+            pad: result.pad,
+            fields: result.fields,
+            copyText: result.copyText,
+            rawResponse: result.rawResponse,
+            data: result.data,
+            message: result.message,
+            source: result.source,
+        });
+    } finally {
+        busyUsers.delete(key);
+    }
+}));
+
 // ==================== ĐIỂM DANH HÀNG NGÀY / QUÀ FREE ====================
 router.post('/api/daily/claim', requireAuth, ah(async (req, res) => {
     const key = balanceKey(req.webUser);
