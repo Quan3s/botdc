@@ -14,8 +14,8 @@ const PROVIDERS = {
     '2ktraffic': {
         id: '2ktraffic',
         name: '2ktraffic',
-        reward: 50,
-        dailyMax: 2,
+        reward: 38,
+        dailyMax: 4,
         color: 0xf97316,
     },
     bbmkts: {
