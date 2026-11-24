@@ -2457,7 +2457,7 @@ async function loadAdmin() {
     $('#admin-payouts').innerHTML = data.payouts.length
       ? data.payouts.map(p => `<div class="mini-row"><span>${esc(t('admin.period', { period: p.period }))}</span><b>${num(p.total)} coin</b></div>`).join('')
       : `<div class="empty">${esc(t('admin.noPayouts'))}</div>`;
-    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminGmail(), loadAdminBackground(), loadAdminSocial()]);
+    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminGmail(), loadAdminBackground(), loadAdminSocial(), loadAdminLinkApi()]);
     if (state.adminTab === 'market') loadAdminMarket();
   } catch (err) { toast(err.message, 'error'); }
 }
@@ -2474,7 +2474,7 @@ function switchAdminTab(tabName) {
   else if (tabName === 'meows') loadMeowsCookie();
   else if (tabName === 'google') loadAdminGmail().catch(err => toast(err.message, 'error'));
   else if (tabName === 'market') loadAdminMarket();
-  else if (tabName === 'appearance') { loadAdminBackground(); loadAdminSocial(); }
+  else if (tabName === 'appearance') { loadAdminBackground(); loadAdminSocial(); loadAdminLinkApi(); }
 }
 
 async function loadAdminItems() {
@@ -2740,6 +2740,14 @@ async function loadAdminSocial() {
   $('#admin-discord-url').placeholder = data.defaultDiscordUrl;
 }
 
+async function loadAdminLinkApi() {
+  const data = await api('/api/admin/link-api-key');
+  const input = $('#admin-link-api-key');
+  input.value = data.fromCookie ? (data.apiKey || '') : '';
+  input.placeholder = data.masked || '2kt_...';
+  input.title = data.masked ? ` Đang dùng: ${data.masked}` : '';
+}
+
 function applySocialLinks(youtubeUrl, discordUrl) {
   if (!state.user) return;
   state.user.youtubeUrl = youtubeUrl;
@@ -2768,6 +2776,30 @@ $('#admin-social-default-btn').addEventListener('click', async () => {
     await loadAdminSocial();
     toast(t('admin.socialDefault'));
   } catch (err) { toast(err.message, 'error'); }
+});
+
+$('#admin-link-api-save-btn').addEventListener('click', async () => {
+  const box = $('#admin-link-api-result');
+  try {
+    const apiKey = $('#admin-link-api-key').value.trim();
+    const data = await api('/api/admin/link-api-key', { method: 'POST', body: JSON.stringify({ apiKey }) });
+    await loadAdminLinkApi();
+    box.className = 'result-box';
+    setText(box, `${t('admin.linkApiSaved')} (${data.masked})`);
+    box.classList.remove('hidden');
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
+});
+
+$('#admin-link-api-clear-btn').addEventListener('click', async () => {
+  const box = $('#admin-link-api-result');
+  try {
+    await api('/api/admin/link-api-key', { method: 'DELETE' });
+    await loadAdminLinkApi();
+    box.className = 'result-box';
+    setText(box, t('admin.linkApiDefault'));
+    box.classList.remove('hidden');
+    toast(t('admin.linkApiDefault'));
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
 });
 
 $('#admin-background-save-btn').addEventListener('click', async () => {
