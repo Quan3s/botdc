@@ -14,6 +14,8 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const USE_LOCAL = !(SUPABASE_URL && SUPABASE_KEY);
 const LOCAL_FILE = process.env.LOCAL_DB_FILE || path.join(__dirname, 'data', 'local-db.json');
+/** Nhãn cập nhật theo từng user: web so sánh nhãn này để auto reload khi coin đổi. */
+const COIN_VERSION_PREFIX = 'coin_version:';
 
 const EMPTY_DB = {
     user_coins: [],
@@ -227,6 +229,7 @@ module.exports = {
             row.balance = (Number(row.balance) || 0) + delta;
             if (row.balance < 0) row.balance = 0;
             persist();
+            await module.exports.bumpCoinVersion(userId);
             return row.balance;
         }
         const rows = await supabaseFetch(`user_coins?user_id=eq.${enc(userId)}`);
@@ -237,6 +240,7 @@ module.exports = {
         } else {
             await supabaseFetch(`user_coins?user_id=eq.${enc(userId)}`, 'PATCH', { balance: newBalance });
         }
+        await module.exports.bumpCoinVersion(userId);
         return newBalance;
     },
 
@@ -373,6 +377,18 @@ module.exports = {
         const res = await supabaseFetch(`kv?key=eq.${enc(key)}`);
         if (res.length === 0) await supabaseFetch('kv', 'POST', { key: String(key), value: String(value) });
         else await supabaseFetch(`kv?key=eq.${enc(key)}`, 'PATCH', { value: String(value) });
+    },
+    /** Tăng nhãn coin của 1 user; web âm thầm so sánh nhãn và reload khi khác nhau. */
+    async bumpCoinVersion(userId) {
+        try {
+            const key = COIN_VERSION_PREFIX + String(userId);
+            const current = Number(await module.exports.getKv(key)) || 0;
+            await module.exports.setKv(key, String(current + 1));
+        } catch (e) { /* không làm hỏng giao dịch coin */ }
+    },
+    async getCoinVersion(userId) {
+        try { return String(await module.exports.getKv(COIN_VERSION_PREFIX + String(userId)) || '0'); }
+        catch (e) { return '0'; }
     },
     /** Liệt kê KV theo prefix (dùng để tìm Discord theo tên, kể cả tên lạ). */
     async listKv(prefix = '') {

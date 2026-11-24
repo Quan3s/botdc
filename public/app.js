@@ -15,7 +15,7 @@ const state = {
   view: 'dashboard',
   shop: [],
   lbTab: 'coins',
-  adminTab: 'user',
+  adminTab: 'overview',
   plugins: [],
   orders: [],
   skipLangRefresh: false,
@@ -440,6 +440,9 @@ function applyUser() {
   avatar.onerror = () => { avatar.classList.add('hidden'); $('#user-initial').classList.remove('hidden'); };
   const short = esc((u.username[0] || 'U').toUpperCase());
   $('#sidebar-user').innerHTML = `<span class="sidebar-avatar">${u.avatar ? `<img src="${esc(u.avatar)}" alt="" />` : short}</span><span>${esc(u.username)}</span>`;
+  setText('#admin-user-name', u.username);
+  const adminAvatar = $('#admin-user-avatar');
+  if (adminAvatar) adminAvatar.innerHTML = u.avatar ? `<img src="${esc(u.avatar)}" alt="" />` : short;
   setText('#profile-username', u.username);
   setText('#profile-balance', t('profile.coinUnit', { amount: num(u.balance) }));
   setText('#profile-discord', u.linked ? t('profile.linked', { id: u.discordId }) : t('profile.notLinked'));
@@ -469,16 +472,21 @@ function setActiveSellerTab(name) {
 
 function syncSidebar(view) {
   const seller = view === 'seller';
+  const admin = view === 'admin';
   const nav = $('#nav');
   const sellerNav = $('#seller-nav');
+  const adminNav = $('#admin-nav');
   document.body.classList.toggle('seller-mode', seller);
-  if (nav) nav.classList.toggle('hidden', seller);
+  document.body.classList.toggle('admin-mode', admin);
+  if (nav) nav.classList.toggle('hidden', seller || admin);
   if (sellerNav) sellerNav.classList.toggle('hidden', !seller);
-  setText('#sidebar-brand-label', t(seller ? 'seller.brandName' : 'nav.brand'));
+  if (adminNav) adminNav.classList.toggle('hidden', !admin);
+  setText('#sidebar-brand-label', t(seller ? 'seller.brandName' : admin ? 'admin.brandName' : 'nav.brand'));
   const sub = $('#sidebar-brand-sub');
-  if (sub) { setText(sub, seller ? t('seller.brandSub') : ''); sub.classList.toggle('hidden', !seller); }
+  if (sub) { setText(sub, seller ? t('seller.brandSub') : admin ? t('admin.brandSub') : ''); sub.classList.toggle('hidden', !seller && !admin); }
   $$('#nav .nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
   if (seller) showSellerPanel('overview');
+  if (admin) showAdminPanel('overview');
 }
 
 /** Temp seller hub dùng các tab-panel, không phải scroll dài một trang. */
@@ -491,6 +499,41 @@ function showSellerPanel(name) {
   closeSidebar();
   if (target.dataset.sellerPanel === 'products') loadSellerProductsTable();
   if (target.dataset.sellerPanel === 'orders') renderSellerOrdersPanel();
+}
+
+/** Admin Hub dùng sidebar riêng, mỗi mục là một tab-panel (không scroll dài). */
+function setActiveAdminTab(name) {
+  $$('#admin-nav .nav-item').forEach(n => n.classList.toggle('active', n.dataset.adminTab === name));
+}
+
+function showAdminPanel(name) {
+  const panels = $$('#admin-dashboard-content .tab-panel');
+  if (!panels.length) return;
+  const target = panels.find(p => p.dataset.adminPanel === name) || panels[0];
+  panels.forEach(p => p.classList.toggle('active', p === target));
+  const panel = target.dataset.adminPanel;
+  state.adminTab = panel;
+  setActiveAdminTab(panel);
+  closeSidebar();
+  loadAdminPanel(panel);
+}
+
+function loadAdminPanel(name) {
+  if (name === 'overview') loadAdminOverview().catch(() => {});
+  else if (name === 'users') {
+    loadAdminUsers().catch(() => {});
+    loadAdminWeeklyRewards().catch(() => {});
+  } else if (name === 'products') loadAdminItems().catch(() => {});
+  else if (name === 'plugins') loadAdminPlugins().catch(() => {});
+  else if (name === 'services') {
+    loadMeowsCookie().catch(() => {});
+    loadAdminLinkApi().catch(() => {});
+  } else if (name === 'google') loadAdminGmail().catch(err => toast(err.message, 'error'));
+  else if (name === 'market') loadAdminMarket().catch(() => {});
+  else if (name === 'appearance') {
+    loadAdminBackground().catch(() => {});
+    loadAdminSocial().catch(() => {});
+  }
 }
 
 async function refreshUser() {
@@ -578,6 +621,7 @@ $('#avatar-seller').addEventListener('click', () => {
   if (isSeller()) switchView('seller');
   else requestSeller();
 });
+$('#avatar-admin').addEventListener('click', () => { closeAvatarMenu(); switchView('admin'); });
 
 function switchView(view) {
   if (!VIEW_TITLE_KEYS[view]) view = 'dashboard';
@@ -617,6 +661,16 @@ function bindSellerPanelButtons() {
 }
 bindSellerPanelButtons();
 
+/** Sidebar Admin: nút tab chuyển panel, nút "Quay về" đã bắt bởi [data-goto]. */
+function bindAdminPanelButtons() {
+  $$('#admin-nav .nav-item').forEach(btn => {
+    if (!btn.dataset.adminPanel || btn.dataset.adminPanelBound) return;
+    btn.dataset.adminPanelBound = '1';
+    btn.addEventListener('click', () => showAdminPanel(btn.dataset.adminPanel));
+  });
+}
+bindAdminPanelButtons();
+
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   closeSidebar();
@@ -637,7 +691,7 @@ function loadView(view) {
   else if (view === 'giftcode') $('#giftcode-input').focus();
   else if (view === 'leaderboard') loadLeaderboard();
   else if (view === 'transfer') loadTransfers();
-  else if (view === 'admin') loadAdmin();
+  // Admin được nạp trong syncSidebar -> showAdminPanel (tránh fetch trùng).
   else if (view === 'messages') { /* panel được mở từ nút chat trên topbar */ }
 }
 
@@ -2442,40 +2496,30 @@ $('#pw-btn').addEventListener('click', async e => {
 });
 
 // ==================== ADMIN ====================
+async function loadAdminOverview() {
+  const data = await api('/api/admin/overview');
+  const s = data.stats;
+  $('#admin-stats').innerHTML = `
+    <div class="card stat">${icon('users', 20)}<div><b>${num(s.users)}</b><small>${esc(t('admin.userCount', { count: num(s.linked) }))}</small></div></div>
+    <div class="card stat">${icon('shop', 20)}<div><b>${num(s.items)}</b><small>${esc(t('admin.products'))}</small></div></div>
+    <div class="card stat">${icon('orders', 20)}<div><b>${num(s.purchases)}</b><small>${esc(t('admin.orders'))}</small></div></div>
+    <div class="card stat">${icon('coin', 20)}<div><b>${num(s.revenue)}</b><small>${esc(t('admin.coinSold', { source: s.gistEnabled ? 'Gist' : 'Local' }))}</small></div></div>`;
+  $('#admin-purchases').innerHTML = data.recentPurchases.length
+    ? data.recentPurchases.map(p => `<div class="mini-row"><span>${esc(p.itemName)} ×${p.quantity}</span><b>${num(p.totalPrice)} xu</b></div>`).join('')
+    : `<div class="empty">${esc(t('admin.noOrders'))}</div>`;
+  $('#admin-payouts').innerHTML = data.payouts.length
+    ? data.payouts.map(p => `<div class="mini-row"><span>${esc(t('admin.period', { period: p.period }))}</span><b>${num(p.total)} coin</b></div>`).join('')
+    : `<div class="empty">${esc(t('admin.noPayouts'))}</div>`;
+}
+
 async function loadAdmin() {
   try {
-    const data = await api('/api/admin/overview');
-    const s = data.stats;
-    $('#admin-stats').innerHTML = `
-      <div class="card stat">${icon('users', 20)}<div><b>${num(s.users)}</b><small>${esc(t('admin.userCount', { count: num(s.linked) }))}</small></div></div>
-      <div class="card stat">${icon('shop', 20)}<div><b>${num(s.items)}</b><small>${esc(t('admin.products'))}</small></div></div>
-      <div class="card stat">${icon('orders', 20)}<div><b>${num(s.purchases)}</b><small>${esc(t('admin.orders'))}</small></div></div>
-      <div class="card stat">${icon('coin', 20)}<div><b>${num(s.revenue)}</b><small>${esc(t('admin.coinSold', { source: s.gistEnabled ? 'Gist' : 'Local' }))}</small></div></div>`;
-    $('#admin-purchases').innerHTML = data.recentPurchases.length
-      ? data.recentPurchases.map(p => `<div class="mini-row"><span>${esc(p.itemName)} ×${p.quantity}</span><b>${num(p.totalPrice)} xu</b></div>`).join('')
-      : `<div class="empty">${esc(t('admin.noOrders'))}</div>`;
-    $('#admin-payouts').innerHTML = data.payouts.length
-      ? data.payouts.map(p => `<div class="mini-row"><span>${esc(t('admin.period', { period: p.period }))}</span><b>${num(p.total)} coin</b></div>`).join('')
-      : `<div class="empty">${esc(t('admin.noPayouts'))}</div>`;
-    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminGmail(), loadAdminBackground(), loadAdminSocial(), loadAdminLinkApi(), loadAdminWeeklyRewards()]);
-    if (state.adminTab === 'market') loadAdminMarket();
+    await loadAdminOverview();
+    loadAdminPanel(state.adminTab);
   } catch (err) { toast(err.message, 'error'); }
 }
 
-$$('.admin-tabs .tab').forEach(tab => tab.addEventListener('click', () => switchAdminTab(tab.dataset.admin)));
-
-function switchAdminTab(tabName) {
-  state.adminTab = tabName;
-  $$('.admin-tabs .tab').forEach(x => x.classList.toggle('active', x.dataset.admin === tabName));
-  $$('.admin-sub').forEach(el => el.classList.toggle('hidden', el.id !== `admin-sub-${tabName}`));
-  if (tabName === 'shop') loadAdminItems();
-  else if (tabName === 'user') { loadAdminUsers().catch(() => {}); loadAdminWeeklyRewards().catch(() => {}); }
-  else if (tabName === 'plugin') loadAdminPlugins();
-  else if (tabName === 'meows') loadMeowsCookie();
-  else if (tabName === 'google') loadAdminGmail().catch(err => toast(err.message, 'error'));
-  else if (tabName === 'market') loadAdminMarket();
-  else if (tabName === 'appearance') { loadAdminBackground(); loadAdminSocial(); loadAdminLinkApi(); }
-}
+$('#admin-refresh-overview').addEventListener('click', () => loadAdminOverview().catch(err => toast(err.message, 'error')));
 
 async function loadAdminItems() {
   const data = await api('/api/admin/items');
@@ -3342,6 +3386,25 @@ async function sendChatMessage() {
   finally { btn.disabled = false; input.focus(); }
 }
 
+// ==================== VERSION TAG (AUTO RELOAD KHI COIN ĐỔI) ====================
+let appVersionTag = null;
+
+/** Web gửi nhãn âm thầm lên server; khác nhãn hiện tại thì reload để hiện số dư mới. */
+async function checkAppVersion() {
+  if (!state.user) return;
+  try {
+    const data = await api('/api/version');
+    const version = String((data && data.version) || '0');
+    const tag = $('#app-version');
+    if (tag) tag.dataset.version = version;
+    if (appVersionTag === null) appVersionTag = version;
+    else if (version !== appVersionTag) { window.location.reload(); }
+  } catch (e) { /* âm thầm, không làm phiền user */ }
+}
+
+setInterval(checkAppVersion, 8000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });
+
 // ==================== INIT ====================
 (async function init() {
   renderIcons(document);
@@ -3353,6 +3416,7 @@ async function sendChatMessage() {
     const user = data.user || data;
     if (user) {
       await enterApp(user);
+      checkAppVersion();
       const hash = location.hash.replace('#', '');
       if (VIEW_TITLE_KEYS[hash]) switchView(hash);
     } else showAuth();

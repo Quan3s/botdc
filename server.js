@@ -165,7 +165,7 @@ function getTodayString() {
 // ==========================================
 // PHẦN 1: WEB SERVER (NHẬN XU)
 // ==========================================
-const REDEEM_ASSET_VERSION = '20261124l';
+const REDEEM_ASSET_VERSION = '20261124m';
 const BROWSER_COOKIE = 'asynctas_browser';
 
 function escapeHtml(value) {

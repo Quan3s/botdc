@@ -428,6 +428,13 @@ router.post('/api/auth/logout', ah(async (req, res) => {
     res.json({ ok: true });
 }));
 
+/** Nhãn bản cập nhật của riêng user: FE gọi âm thầm, khác nhãn thì reload để lấy số dư mới. */
+router.get('/api/version', ah(async (req, res) => {
+    if (!req.webUser) return res.status(401).json({ error: 'Bạn cần đăng nhập.' });
+    res.set('Cache-Control', 'no-store');
+    res.json({ version: await db.getCoinVersion(balanceKey(req.webUser)) });
+}));
+
 router.get('/api/me', ah(async (req, res) => {
     if (!req.webUser) return res.json({ user: null });
     const user = await publicUser(req.webUser);

@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
-<link rel="stylesheet" href="/styles.css?v=20261124l" />
+<link rel="stylesheet" href="/styles.css?v=20261124m" />
 <script>
   // Áp theme và ngôn ngữ ngay để không bị flash classic / sai ngôn ngữ.
   try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
@@ -60,7 +60,7 @@
       <button class="btn btn-primary btn-block" type="submit" data-i18n="auth.loginWithToken">Đăng nhập bằng token</button>
     </form>
 
-    <p class="auth-hint" data-i18n="auth.hint">Tên đăng nhập phải có ít nhất 1 chữ cái. Dùng lệnh /token trong Discord để lấy token cố định, sau đó đăng nhập hoặc /connect <token> để đồng bộ coin.</p>
+    <p class="auth-hint" data-i18n="auth.hint">Tên đăng nhập phải có ít nhất 1 chữ cái. Dùng lệnh /token trong Discord để lấy token cố định, sau đó đăng nhập hoặc /connect &lt;token&gt; để đồng bộ coin.</p>
   </div>
 </div>
 
@@ -85,7 +85,6 @@
       <button class="nav-item" data-view="transfer"><span class="ico" data-icon="transfer"></span><span data-i18n="nav.transfer">Chuyển tiền</span></button>
       <button class="nav-item" data-view="orders"><span class="ico" data-icon="orders"></span><span data-i18n="nav.orders">Lịch sử đơn hàng</span></button>
       <button class="nav-item" data-view="profile"><span class="ico" data-icon="profile"></span><span data-i18n="nav.profile">Hồ sơ</span></button>
-      <button class="nav-item admin-only hidden" data-view="admin"><span class="ico" data-icon="admin"></span><span data-i18n="nav.admin">Quản trị</span></button>
     </nav>
     <nav id="seller-nav" class="nav hidden">
       <button class="nav-item active" data-seller-tab="overview" data-seller-panel="overview"><span class="ico" data-icon="home"></span><span data-i18n="seller.navOverview">Tổng quan</span></button>
@@ -96,6 +95,20 @@
       <div class="seller-nav-footer">
         <div class="nav-sep"></div>
         <button class="nav-item" data-seller-tab="back" data-goto="dashboard"><span class="ico" data-icon="back"></span><span data-i18n="seller.navBack">Quay về ASYNCTAS</span></button>
+      </div>
+    </nav>
+    <nav id="admin-nav" class="nav hidden">
+      <button class="nav-item active" data-admin-tab="overview" data-admin-panel="overview"><span class="ico" data-icon="home"></span><span data-i18n="admin.navOverview">Tổng quan</span></button>
+      <button class="nav-item" data-admin-tab="users" data-admin-panel="users"><span class="ico" data-icon="users"></span><span data-i18n="admin.navUsers">Người dùng</span></button>
+      <button class="nav-item" data-admin-tab="products" data-admin-panel="products"><span class="ico" data-icon="shop"></span><span data-i18n="admin.navProducts">Sản phẩm</span></button>
+      <button class="nav-item" data-admin-tab="plugins" data-admin-panel="plugins"><span class="ico" data-icon="plugin"></span><span data-i18n="admin.navPlugins">Plugin</span></button>
+      <button class="nav-item" data-admin-tab="services" data-admin-panel="services"><span class="ico" data-icon="cookie"></span><span data-i18n="admin.navServices">Dịch vụ</span></button>
+      <button class="nav-item" data-admin-tab="google" data-admin-panel="google"><span class="ico" data-icon="checkCircle"></span><span data-i18n="admin.google">Google</span></button>
+      <button class="nav-item" data-admin-tab="market" data-admin-panel="market"><span class="ico" data-icon="store"></span><span data-i18n="admin.market">Market</span></button>
+      <button class="nav-item" data-admin-tab="appearance" data-admin-panel="appearance"><span class="ico" data-icon="image"></span><span data-i18n="admin.appearance">Giao diện</span></button>
+      <div class="seller-nav-footer">
+        <div class="nav-sep"></div>
+        <button class="nav-item" data-admin-tab="back" data-goto="dashboard"><span class="ico" data-icon="back"></span><span data-i18n="seller.navBack">Quay về ASYNCTAS</span></button>
       </div>
     </nav>
     <div class="sidebar-footer">
@@ -132,6 +145,7 @@
             <button id="avatar-profile" class="dropdown-item" type="button" role="menuitem"><span class="ico" data-icon="profile" data-size="17"></span><span data-i18n="topbar.profile">Hồ sơ</span></button>
             <button id="avatar-orders" class="dropdown-item" type="button" role="menuitem"><span class="ico" data-icon="orders" data-size="17"></span><span data-i18n="topbar.orders">Lịch sử đơn hàng</span></button>
             <button id="avatar-seller" class="dropdown-item" type="button" role="menuitem"><span class="ico" data-icon="seller" data-size="17"></span><span data-i18n="topbar.sellerRequest">Gửi yêu cầu seller</span></button>
+            <button id="avatar-admin" class="dropdown-item admin-only hidden" type="button" role="menuitem"><span class="ico" data-icon="admin" data-size="17"></span><span data-i18n="nav.admin">Quản trị</span></button>
             <div class="dropdown-sep"></div>
             <button id="avatar-logout" class="dropdown-item danger" type="button" role="menuitem"><span class="ico" data-icon="logout" data-size="17"></span><span data-i18n="topbar.logout">Đăng xuất</span></button>
           </div>
@@ -653,7 +667,7 @@
           </div>
           <div class="card">
             <div class="card-head"><h3><span class="ico" data-icon="link"></span><span data-i18n="profile.linkTitle">Liên kết Discord</span></h3></div>
-            <p class="muted" data-i18n="profile.linkDesc">Copy token và dùng lệnh /connect <token> trong Discord để đồng bộ coin.</p>
+            <p class="muted" data-i18n="profile.linkDesc">Copy token và dùng lệnh /connect &lt;token&gt; trong Discord để đồng bộ coin.</p>
             <div id="link-box" class="link-box">
               <code id="link-token">—</code>
               <button id="copy-token-btn" class="btn btn-soft"><span class="ico" data-icon="copy"></span><span data-i18n="profile.copy">Copy</span></button>
@@ -694,27 +708,48 @@
 
       <!-- ADMIN -->
       <section id="view-admin" class="view">
-        <div class="grid stats-grid" id="admin-stats"></div>
-        <div class="tabs admin-tabs">
-          <button class="tab active" data-admin="user"><span class="ico" data-icon="users"></span><span data-i18n="admin.users">Người dùng</span></button>
-          <button class="tab" data-admin="shop"><span class="ico" data-icon="shop"></span><span data-i18n="admin.products">Sản phẩm</span></button>
-          <button class="tab" data-admin="plugin"><span class="ico" data-icon="plugin"></span><span data-i18n="admin.plugin">Plugin</span></button>
-          <button class="tab" data-admin="meows"><span class="ico" data-icon="cookie"></span><span data-i18n="admin.cookie">Cookie</span></button>
-          <button class="tab" data-admin="google"><span class="ico" data-icon="checkCircle"></span><span data-i18n="admin.google">Google</span></button>
-          <button class="tab" data-admin="market"><span class="ico" data-icon="store"></span><span data-i18n="admin.market">Market</span></button>
-          <button class="tab" data-admin="appearance"><span class="ico" data-icon="image"></span><span data-i18n="admin.appearance">Giao diện</span></button>
+        <div id="admin-shell-header" class="seller-header admin-header">
+          <div class="seller-header-left">
+            <div class="seller-brand">
+              <div class="brand-icon-wrap admin-brand-icon"><span class="ico" data-icon="admin"></span></div>
+              <div class="brand-texts">
+                <span class="brand-name" data-i18n="admin.brandName">ASYNCTAS Admin Hub</span>
+                <span class="brand-sub" data-i18n="admin.brandSub">Quản trị hệ thống</span>
+              </div>
+            </div>
+          </div>
+          <div class="seller-header-right">
+            <div class="seller-user-card">
+              <div id="admin-user-avatar" class="user-avatar">A</div>
+              <div class="user-details"><span id="admin-user-name" class="user-name"></span><span class="role-badge role-admin" data-i18n="admin.roleAdmin">Quản trị viên</span></div>
+            </div>
+            <button class="market-btn admin-back-btn" data-goto="dashboard"><span data-i18n="seller.navBack">Quay về ASYNCTAS</span></button>
+          </div>
         </div>
 
-        <div id="admin-sub-user" class="admin-sub">
+        <div id="admin-dashboard-content" class="page-content">
+        <div class="tab-panel active" data-admin-panel="overview">
+          <div class="panel-header">
+            <div><h2 class="panel-title" data-i18n="admin.navOverview">Tổng quan</h2><p class="panel-description muted" data-i18n="admin.overviewSubtitle">Số liệu hệ thống và hoạt động gần đây.</p></div>
+            <button id="admin-refresh-overview" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="admin.refresh">Làm mới</span></button>
+          </div>
+          <div class="grid stats-grid" id="admin-stats"></div>
           <div class="grid two-col">
-            <div class="card">
-              <div class="card-head"><h3><span class="ico" data-icon="users"></span><span data-i18n="admin.users">Người dùng</span></h3></div>
-              <div id="admin-users" class="mini-list"></div>
-            </div>
             <div class="card">
               <div class="card-head"><h3><span class="ico" data-icon="receipt"></span><span data-i18n="admin.recentOrders">Đơn hàng gần đây</span></h3></div>
               <div id="admin-purchases" class="mini-list"></div>
             </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="gift"></span><span data-i18n="admin.weeklyRewards">Thưởng tuần</span></h3></div>
+              <div id="admin-payouts" class="mini-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-admin-panel="users">
+          <div class="card">
+            <div class="card-head"><h3><span class="ico" data-icon="users"></span><span data-i18n="admin.users">Người dùng</span></h3></div>
+            <div id="admin-users" class="mini-list"></div>
           </div>
           <div class="card">
             <div class="card-head"><h3><span class="ico" data-icon="gift"></span><span data-i18n="admin.weeklyRewards">Thưởng tuần</span></h3><button id="admin-payout-btn" class="btn btn-soft" data-i18n="admin.runPayout">Chạy trả thưởng ngay</button></div>
@@ -725,11 +760,10 @@
               <button id="admin-weekly-rewards-reset-btn" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="admin.useDefault">Dùng mặc định</span></button>
             </div>
             <div id="admin-weekly-rewards-result" class="result-box hidden"></div>
-            <div id="admin-payouts" class="mini-list"></div>
           </div>
         </div>
 
-        <div id="admin-sub-shop" class="admin-sub hidden">
+        <div class="tab-panel" data-admin-panel="products">
           <div class="panel-header">
             <div><h2 class="panel-title" data-i18n="admin.systemProducts">Sản phẩm hệ thống</h2><p class="panel-description muted" data-i18n="admin.createProductDesc">Hàng hoá lưu tự động lên GitHub Gist và tự xoá tài khoản đã bán.</p></div>
             <div class="header-actions-group"><button class="btn-primary" data-scroll-to="#admin-item-name"><span data-i18n="admin.createProduct">Tạo sản phẩm</span></button></div>
@@ -758,7 +792,7 @@
           </div>
         </div>
 
-        <div id="admin-sub-plugin" class="admin-sub hidden">
+        <div class="tab-panel" data-admin-panel="plugins">
           <div class="grid two-col">
             <div class="card">
               <div class="card-head"><h3><span class="ico" data-icon="plugin"></span><span data-i18n="admin.addPlugin">Thêm plugin</span></h3></div>
@@ -776,7 +810,7 @@
           </div>
         </div>
 
-        <div id="admin-sub-meows" class="admin-sub hidden">
+        <div class="tab-panel" data-admin-panel="services">
           <div class="grid two-col">
             <div class="card">
               <div class="card-head"><h3><span class="ico" data-icon="cookie"></span><span data-i18n="admin.cookieTitle">Cookie dịch vụ nhanh</span></h3><span id="meows-status" class="pill" data-i18n="admin.cookieStatus">Chưa kiểm tra</span></div>
@@ -807,9 +841,19 @@
               <div id="admin-status-proxy-result" class="result-box hidden"></div>
             </div>
           </div>
+          <div class="card">
+            <div class="card-head"><h3><span class="ico" data-icon="link"></span><span data-i18n="admin.linkApiTitle">API key 2ktraffic</span></h3><span class="pill" data-i18n="admin.linkApiBadge">Lưu trong cookie admin</span></div>
+            <p class="muted" data-i18n="admin.linkApiDesc">API key dùng cho dịch vụ 2ktraffic (38 xu, 4 link/ngày). Để trống rồi bấm Xóa để quay lại key mặc định.</p>
+            <label><span data-i18n="admin.linkApiKey">API key</span><input id="admin-link-api-key" type="text" placeholder="2kt_..." autocomplete="off" /></label>
+            <div class="device-actions">
+              <button id="admin-link-api-save-btn" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="admin.linkApiSave">Lưu API key</span></button>
+              <button id="admin-link-api-clear-btn" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="admin.useDefault">Dùng mặc định</span></button>
+            </div>
+            <div id="admin-link-api-result" class="result-box hidden"></div>
+          </div>
         </div>
 
-        <div id="admin-sub-google" class="admin-sub hidden">
+        <div class="tab-panel" data-admin-panel="google">
           <div class="card">
             <div class="card-head">
               <h3><span class="ico" data-icon="checkCircle"></span><span data-i18n="admin.gmailTasks">Nhiệm vụ Gmail</span></h3>
@@ -824,7 +868,7 @@
           </div>
         </div>
 
-        <div id="admin-sub-market" class="admin-sub hidden">
+        <div class="tab-panel" data-admin-panel="market">
           <div class="grid two-col">
             <div class="card">
               <div class="card-head"><h3><span class="ico" data-icon="seller"></span><span data-i18n="admin.sellerRequests">Yêu cầu seller</span></h3></div>
@@ -848,7 +892,7 @@
           </div>
         </div>
 
-        <div id="admin-sub-appearance" class="admin-sub hidden">
+        <div class="tab-panel" data-admin-panel="appearance">
           <div class="card">
             <div class="card-head"><h3><span class="ico" data-icon="image"></span><span data-i18n="admin.backgroundTitle">Ảnh nền dashboard</span></h3><span class="pill" data-i18n="admin.backgroundBadge">Áp dụng cho mọi user</span></div>
             <p class="muted" data-i18n="admin.backgroundDesc">Dán URL ảnh trực tiếp (jpg/png/webp). Để trống rồi bấm Dùng mặc định để quay lại ảnh ASYNCTAS. Không cần deploy lại.</p>
@@ -872,17 +916,7 @@
             </div>
             <div id="admin-social-result" class="result-box hidden"></div>
           </div>
-
-          <div class="card">
-            <div class="card-head"><h3><span class="ico" data-icon="link"></span><span data-i18n="admin.linkApiTitle">API key 2ktraffic</span></h3><span class="pill" data-i18n="admin.linkApiBadge">Lưu trong cookie admin</span></div>
-            <p class="muted" data-i18n="admin.linkApiDesc">API key dùng cho dịch vụ 2ktraffic (38 xu, 4 link/ngày). Để trống rồi bấm Xóa để quay lại key mặc định.</p>
-            <label><span data-i18n="admin.linkApiKey">API key</span><input id="admin-link-api-key" type="text" placeholder="2kt_..." autocomplete="off" /></label>
-            <div class="device-actions">
-              <button id="admin-link-api-save-btn" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="admin.linkApiSave">Lưu API key</span></button>
-              <button id="admin-link-api-clear-btn" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="admin.useDefault">Dùng mặc định</span></button>
-            </div>
-            <div id="admin-link-api-result" class="result-box hidden"></div>
-          </div>
+        </div>
         </div>
       </section>
     </div>
@@ -912,9 +946,10 @@
 
 <div id="toasts" class="toasts"></div>
 <div id="modal-root" class="modal-root hidden"></div>
+<span id="app-version" class="hidden" data-version="0" aria-hidden="true"></span>
 
-<script src="/icons.js?v=20261124l"></script>
-<script src="/i18n.js?v=20261124l"></script>
-<script src="/app.js?v=20261124l"></script>
+<script src="/icons.js?v=20261124m"></script>
+<script src="/i18n.js?v=20261124m"></script>
+<script src="/app.js?v=20261124m"></script>
 </body>
 </html>
