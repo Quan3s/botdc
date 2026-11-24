@@ -819,6 +819,7 @@ async function buyMeowsForUser(interaction, userId, provider) {
     if (result.account) lines.push(`📧 \`${result.account}\``);
     if (result.password) lines.push(`🔑 \`${result.password}\``);
     if (result.token) lines.push(`🎫 Token: \`${result.token}\``);
+    if (result.userId) lines.push(`🆔 User ID: \`${result.userId}\``);
     if (!result.account && !result.password) lines.push(`📄 Dữ liệu: \`\`\`${String(copyText).slice(0, 600)}\`\`\``);
     return sendAccountWithCopy(interaction, {
         header: `Mua ${MEOWS_NAMES[provider]} thành công!`,

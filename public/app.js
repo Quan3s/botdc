@@ -2061,6 +2061,8 @@ $$('[data-reg]').forEach(btn => btn.addEventListener('click', async () => {
     box.className = 'result-box';
     box.innerHTML = `
       <div>${esc(data.service.toUpperCase())} · ${esc(t('topbar.coinShort'))} 10 ${esc(t('common.yes'))}</div>
+      ${data.token ? `<div>${esc(t('device.tokenLabel'))}: <code>${esc(data.token)}</code></div>` : ''}
+      ${data.userId ? `<div>${esc(t('device.userIdLabel'))}: <code>${esc(data.userId)}</code></div>` : ''}
       <div class="accounts-box">${esc(data.copyText)}</div>
       <div class="copy-row"><button class="btn btn-soft btn-sm" id="reg-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
     box.classList.remove('hidden');
@@ -2090,6 +2092,8 @@ $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
         </div>` : `
         ${data.account ? `<div>${esc(data.account)}</div>` : ''}
         ${data.password ? `<div>${esc(data.password)}</div>` : ''}`}
+      ${data.token ? `<div>${esc(t('device.tokenLabel'))}: <code>${esc(data.token)}</code></div>` : ''}
+      ${data.userId ? `<div>${esc(t('device.userIdLabel'))}: <code>${esc(data.userId)}</code></div>` : ''}
       <div class="accounts-box">${esc(data.copyText)}</div>
       <div class="copy-row"><button class="btn btn-soft btn-sm" id="meows-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
     box.classList.remove('hidden');

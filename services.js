@@ -72,13 +72,13 @@ async function regVsphoneAccount() {
     if (!data.ok || !data.email || !data.password) {
         throw new Error(data.error || data.message || `API VSPhone trả lỗi (HTTP ${response.status})`);
     }
-    return {
+    const account = {
         account: data.email,
         password: data.password,
         token: data.token || null,
-        userId: data.userId || null,
-        copyText: `${data.email}|${data.password}`,
+        userId: data.userId || data.user_id || data.userid || null,
     };
+    return { ...account, copyText: accountCopyText(account) };
 }
 
 // ==================== MEOWS (UGPhone / VSPhone VIP) ====================
@@ -119,8 +119,8 @@ function extractMeowsInfo(node, depth = 0) {
 
     const account = pick(['account', 'email', 'username', 'user', 'login', 'phone', 'taiKhoan', 'tenTaiKhoan']);
     const password = pick(['password', 'pass', 'pwd', 'matKhau']);
-    const token = pick(['token', 'accessToken', 'access_token', 'authToken']);
-    const userId = pick(['userId', 'user_id', 'id', 'deviceId']);
+    const token = pick(['token', 'Token', 'accessToken', 'access_token', 'authToken', 'auth_token']);
+    const userId = pick(['userid', 'userID', 'userId', 'user_id', 'uid', 'id', 'deviceId']);
     let copyText = pick(['copyText', 'copy', 'text']);
 
     const content = pick(['content', 'data', 'result', 'info', 'device']);
@@ -129,8 +129,11 @@ function extractMeowsInfo(node, depth = 0) {
 
     let found = null;
     for (const nested of [content, node.data, node.result, node.info, node.device, node.response]) {
-        if (nested && typeof nested === 'object') {
-            found = extractMeowsInfo(nested, depth + 1);
+        // API có khi trả data/result dưới dạng chuỗi JSON (vd. full response Fast-buy).
+        const parsedString = typeof nested === 'string' ? parseLooseJson(nested) : null;
+        const child = parsedString && typeof parsedString === 'object' ? parsedString : nested;
+        if (child && typeof child === 'object') {
+            found = extractMeowsInfo(child, depth + 1);
             if (found) break;
         }
     }
@@ -275,6 +278,16 @@ function parseVsphoneFastResponse(raw) {
 
 function field(label, value) {
     return { label, value: value === undefined || value === null ? '' : String(value) };
+}
+
+/** Copy đầy đủ: email|mật khẩu|token|userid — không làm rơi token/user id. */
+function accountCopyText(info = {}) {
+    const account = info.account !== undefined && info.account !== null ? info.account : info.email;
+    const password = info.password !== undefined && info.password !== null ? info.password : info.pass;
+    const parts = [account, password].filter(v => v !== undefined && v !== null && String(v) !== '').map(String);
+    if (info.token !== undefined && info.token !== null && String(info.token) !== '') parts.push(`token:${info.token}`);
+    if (info.userId !== undefined && info.userId !== null && String(info.userId) !== '') parts.push(`userid:${info.userId}`);
+    return parts.join('|');
 }
 
 /** Tạo share link VSPhone qua Meows, trả đủ field của tài khoản + response getss-uid. */
@@ -429,6 +442,34 @@ async function buyMeows(provider) {
         throw new Error(`${error}${detail} [nguồn: ${result.source}]${chain}`);
     }
 
+    // VSPhone Fast trả full response có token/userid — parse riêng để không mất 2 field này.
+    if (key === 'VSVIP') {
+        const vsp = parseVsphoneFastResponse(data || raw);
+        if (vsp) {
+            const fields = [
+                field('email', vsp.email),
+                field('password', vsp.password),
+                field('token', vsp.token),
+                field('userid', vsp.userId),
+            ];
+            if (vsp.orderId) fields.unshift(field('orderId', vsp.orderId));
+            return {
+                ok: true,
+                kind: 'vsphone-vip',
+                account: vsp.email,
+                password: vsp.password,
+                token: vsp.token,
+                userId: vsp.userId,
+                orderId: vsp.orderId,
+                copyText: accountCopyText(vsp),
+                fields,
+                details: data || raw,
+                message: (data && (data.message || data.msg)) || 'Mua thành công',
+                source: result.source,
+            };
+        }
+    }
+
     // UGPhone trả Local Storage trong "Nội dung chính" — tách riêng, không đổ cả raw JSON.
     if (key === 'UG') {
         const payload = parseUgPhonePayload(data || raw);
@@ -452,13 +493,14 @@ async function buyMeows(provider) {
 
     const info = extractMeowsInfo(data) || {};
     const rawText = data ? JSON.stringify(data) : raw;
+    const hasAccount = info.account !== null || info.password !== null;
     return {
         ok: true,
         account: info.account,
         password: info.password,
         token: info.token,
         userId: info.userId,
-        copyText: info.copyText || rawText,
+        copyText: hasAccount ? accountCopyText(info) : (info.copyText || rawText),
         details: data || raw,
         message: (data && (data.message || data.msg)) || 'Mua thành công',
         source: result.source,
@@ -699,6 +741,8 @@ module.exports = {
     ugPhoneInfo,
     buyMeows,
     parseVsphoneFastResponse,
+    accountCopyText,
+    extractMeowsInfo,
     getVsphoneShareLink,
     normalizeStatusProxy,
     getCloudStatus,
