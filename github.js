@@ -7,6 +7,9 @@
  * Cần biến môi trường: GITHUB_TOKEN (fine-grained / classic có scope `gist`).
  */
 const API = 'https://api.github.com';
+let lastError = null;
+
+function getLastError() { return lastError; }
 
 function getToken() {
     return (process.env.GITHUB_TOKEN || '').trim();
@@ -41,6 +44,15 @@ async function gh(pathname, options = {}) {
                 return `${e.message || e.code || JSON.stringify(e)}${field}`;
             }).join('; ')})`
             : '';
+        lastError = {
+            at: new Date().toISOString(),
+            method: options.method || 'GET',
+            path: pathname,
+            status: res.status,
+            body: text.slice(0, 2000),
+            errors: data && data.errors ? data.errors : null,
+            message: msg,
+        };
         console.error(`[github] ${options.method || 'GET'} ${pathname} -> ${res.status} ${text.slice(0, 800)}`);
         throw new Error(`GitHub API lỗi (${res.status}): ${String(msg).slice(0, 120)}${detail}`);
     }
@@ -109,4 +121,4 @@ function parseLines(content) {
         .filter(line => line.length > 0 && !line.startsWith('#'));
 }
 
-module.exports = { hasToken, safeFilename, createGist, readGistFile, writeGistFile, deleteGist, parseLines };
+module.exports = { hasToken, getLastError, safeFilename, createGist, readGistFile, writeGistFile, deleteGist, parseLines };

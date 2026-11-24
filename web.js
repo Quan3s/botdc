@@ -1535,6 +1535,31 @@ for (const [method, route] of MARKETPLACE_ALIASES) router[method](route, forward
 // BXH tuần: count >= 5 mới được lên bảng và nhận thưởng.
 router.use(marketplace.router);
 
+// ==================== DEBUG GITHUB (cần đăng nhập) ====================
+// Tự tạo 1 gist test rồi xóa, trả nguyên response lỗi để xác định đúng nguyên nhân 422.
+router.get('/api/debug/github', requireAuth, ah(async (req, res) => {
+    const before = github.getLastError();
+    let created = null;
+    let createError = null;
+    try {
+        created = await github.createGist(
+            `asynctas-debug-${Date.now().toString(16)}.js`,
+            '// ASYNCTAS gist debug\nconsole.log("ok");\n',
+            'ASYNCTAS debug',
+        );
+    } catch (e) {
+        createError = { message: e.message, raw: github.getLastError() };
+    }
+    if (created) await github.deleteGist(created.id).catch(() => {});
+    res.json({
+        hasToken: github.hasToken(),
+        tokenPrefix: String(process.env.GITHUB_TOKEN || '').trim().slice(0, 4),
+        created,
+        createError,
+        previousError: before,
+    });
+}));
+
 // ==================== LỖI ====================
 router.use((err, req, res, next) => {
     console.error('[web] lỗi:', err.message);
