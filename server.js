@@ -165,58 +165,218 @@ function getTodayString() {
 // ==========================================
 // PHẦN 1: WEB SERVER (NHẬN XU)
 // ==========================================
-app.get('/redeem', async (req, res) => {
-    const { sid } = req.query;
-    const renderError = (msg) => res.status(403).send(`
-        <body style="background:#080d0b; color:#ff6b81; text-align:center; padding-top:100px; font-family:sans-serif;">
-            <h1>❌ LỖI TRUY CẬP</h1>
-            <p style="color:#fff">${msg}</p>
-            <a href="https://discord.com/app" style="color:#39f58a;">Quay lại Discord</a>
-        </body>
-    `);
+const REDEEM_ASSET_VERSION = '20261124f';
+const BROWSER_COOKIE = 'asynctas_browser';
 
-    if (!sid) return renderError("Bạn phải lấy link từ lệnh /getlink trên Discord.");
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function readBrowserCookie(req) {
+    const raw = req.headers.cookie || '';
+    for (const part of raw.split(';')) {
+        const [key, ...rest] = part.trim().split('=');
+        if (key === BROWSER_COOKIE) return decodeURIComponent(rest.join('='));
+    }
+    return '';
+}
+
+function setBrowserCookie(res, value) {
+    res.cookie(BROWSER_COOKIE, value, {
+        httpOnly: true, sameSite: 'lax', path: '/', maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+}
+
+function redeemWebBase(req) {
+    return (process.env.RENDER_DOMAIN || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+}
+
+async function getRedeemMeta(sid) {
+    try { return JSON.parse((await db.getKv(`redeem_meta:${sid}`)) || '{}') || {}; }
+    catch (e) { return {}; }
+}
+
+async function setRedeemMeta(sid, meta) {
+    try { await db.setKv(`redeem_meta:${sid}`, JSON.stringify(meta || {})); }
+    catch (e) { console.error('[redeem] không lưu được meta:', e.message); }
+}
+
+function redeemProviderInfo(session) {
+    const config = linkProviders.get(session && session.provider);
+    return {
+        reward: config ? config.reward : linkProviders.rewardFor(session && session.provider),
+        providerName: config ? config.name : String((session && session.provider) || 'Vượt link'),
+    };
+}
+
+function renderRedeemError(res, msg, { theme = 'bubble', webUrl = 'https://asynctas.cc.cd' } = {}) {
+    const safeTheme = ['bubble', 'classic'].includes(theme) ? theme : 'bubble';
+    return res.status(403).send(`<!DOCTYPE html>
+<html lang="vi" data-theme="${safeTheme}"><head><meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="stylesheet" href="/styles.css?v=${REDEEM_ASSET_VERSION}" /><title>ASYNCTAS — Lỗi</title></head>
+<body><div class="redeem-page"><div class="card redeem-card">
+  <div class="redeem-icon">!</div>
+  <div class="redeem-title">LỖI TRUY CẬP</div>
+  <p class="muted">${escapeHtml(msg)}</p>
+  <div class="redeem-actions">
+    <a class="btn btn-primary" href="${escapeHtml(webUrl)}">Quay lại web</a>
+    <a class="btn btn-ghost" href="https://discord.com/app">Quay lại Discord</a>
+  </div>
+</div></div></body></html>`);
+}
+
+// Trang redeem: render đúng theme đã lưu, chưa cộng xu — chờ xác minh trình duyệt.
+app.get('/redeem', async (req, res) => {
+    const sid = String(req.query.sid || '').trim();
+    const fallbackWeb = redeemWebBase(req);
+    if (!sid) return renderRedeemError(res, 'Bạn phải lấy link từ nút "Vượt link" trên web hoặc lệnh /getlink trên Discord.', { webUrl: fallbackWeb });
 
     try {
+        const sessionData = await db.getSession(sid);
+        if (!sessionData) return renderRedeemError(res, 'Link này đã được sử dụng hoặc đã hết hạn.', { webUrl: fallbackWeb });
+
+        const meta = await getRedeemMeta(sid);
+        const theme = ['bubble', 'classic'].includes(meta.theme) ? meta.theme : 'bubble';
+        const webUrl = meta.webUrl || fallbackWeb;
+        let browserId = readBrowserCookie(req);
+        if (!browserId) {
+            browserId = crypto.randomBytes(16).toString('hex');
+            setBrowserCookie(res, browserId);
+        }
+        // Link tạo từ Discord không có trình duyệt gốc: gán lần đầu tiên mở link.
+        if (!meta.browserId) {
+            meta.browserId = browserId;
+            meta.theme = theme;
+            meta.webUrl = webUrl;
+            await setRedeemMeta(sid, meta);
+        }
+
+        const { reward, providerName } = redeemProviderInfo(sessionData);
+        res.send(`<!DOCTYPE html>
+<html lang="vi" data-theme="${theme}"><head><meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ASYNCTAS — Vượt link</title>
+<link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
+<link rel="stylesheet" href="/styles.css?v=${REDEEM_ASSET_VERSION}" />
+<script>try{var th=localStorage.getItem('asynctas_theme');if(th==='bubble'||th==='classic')document.documentElement.dataset.theme=th;}catch(e){}</script>
+</head><body>
+<div class="redeem-page"><div class="card redeem-card">
+  <div class="redeem-icon">🎁</div>
+  <div class="redeem-title">${escapeHtml(providerName)}</div>
+  <p class="muted">Xác minh đúng trình duyệt đã tạo link để nhận thưởng.</p>
+  <div class="redeem-amount" id="redeem-reward">+${reward} xu</div>
+  <p class="redeem-stat">Bước 1 — Xác minh trình duyệt</p>
+  <p class="redeem-stat">Bước 2 — Nhận xu vào tài khoản</p>
+  <div class="redeem-status" id="redeem-status" aria-live="polite">Sẵn sàng xác minh…</div>
+  <div class="redeem-actions">
+    <button class="btn btn-primary" id="redeem-verify" type="button">Xác minh trình duyệt</button>
+    <button class="btn btn-soft hidden" id="redeem-claim" type="button">Nhận ${reward} xu</button>
+  </div>
+  <div class="redeem-actions">
+    <a class="btn btn-soft" href="${escapeHtml(webUrl)}">Quay lại web</a>
+    <a class="btn btn-ghost" href="https://discord.com/app">Quay lại Discord</a>
+  </div>
+</div></div>
+<script>
+(function(){
+  var sid = ${JSON.stringify(sid)};
+  var status = document.getElementById('redeem-status');
+  var verifyBtn = document.getElementById('redeem-verify');
+  var claimBtn = document.getElementById('redeem-claim');
+  function setStatus(text, kind) {
+    status.textContent = text;
+    status.className = 'redeem-status' + (kind ? ' ' + kind : '');
+  }
+  async function post(path) {
+    var r = await fetch(path, { method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sid: sid }) });
+    var d = {}; try { d = await r.json(); } catch (e) {}
+    if (!r.ok || !d.ok) throw new Error(d.error || ('Lỗi ' + r.status));
+    return d;
+  }
+  verifyBtn.addEventListener('click', async function(){
+    verifyBtn.disabled = true;
+    setStatus('Đang xác minh trình duyệt…');
+    try {
+      var d = await post('/redeem/verify');
+      setStatus('Xác minh thành công — ' + d.providerName + ' +' + d.reward + ' xu. Bấm nhận xu.', 'ok');
+      verifyBtn.classList.add('hidden');
+      claimBtn.classList.remove('hidden');
+    } catch (e) { setStatus(e.message, 'error'); }
+    finally { verifyBtn.disabled = false; }
+  });
+  claimBtn.addEventListener('click', async function(){
+    claimBtn.disabled = true;
+    setStatus('Đang cộng xu…');
+    try {
+      var d = await post('/redeem/claim');
+      document.getElementById('redeem-reward').textContent = '+' + d.reward + ' xu';
+      setStatus('Nhận thành công! Số dư: ' + d.newBalance + ' xu · Tuần này: ' + d.weeklyCount + '.', 'ok');
+      claimBtn.classList.add('hidden');
+    } catch (e) { setStatus(e.message, 'error'); }
+    finally { claimBtn.disabled = false; }
+  });
+})();
+</script>
+</body></html>`);
+    } catch (error) {
+        console.error('[redeem] lỗi render:', error);
+        res.status(500).send('Lỗi Server.');
+    }
+});
+
+// Bước 1: chỉ kiểm tra cookie trình duyệt, KHÔNG tiêu session / cộng xu.
+app.post('/redeem/verify', express.json(), async (req, res) => {
+    const sid = String((req.body && req.body.sid) || '').trim();
+    const sessionData = await db.getSession(sid).catch(() => null);
+    if (!sessionData) return res.status(403).json({ ok: false, error: 'Link này đã được sử dụng hoặc đã hết hạn.' });
+    const meta = await getRedeemMeta(sid);
+    const browserId = readBrowserCookie(req);
+    if (!meta.browserId || !browserId || meta.browserId !== browserId) {
+        return res.status(403).json({ ok: false, error: 'Trình duyệt này không khớp với trình duyệt đã tạo link. Hãy mở lại link bằng đúng trình duyệt đã bấm "Vượt link".' });
+    }
+    const { reward, providerName } = redeemProviderInfo(sessionData);
+    return res.json({ ok: true, reward, providerName });
+});
+
+// Bước 2: verify lại rồi mới tiêu session và cộng xu.
+app.post('/redeem/claim', express.json(), async (req, res) => {
+    const sid = String((req.body && req.body.sid) || '').trim();
+    const meta = await getRedeemMeta(sid);
+    const browserId = readBrowserCookie(req);
+    if (!meta.browserId || !browserId || meta.browserId !== browserId) {
+        return res.status(403).json({ ok: false, error: 'Xác minh trình duyệt thất bại. Vui lòng tải lại trang và thử lại.' });
+    }
+    try {
         const sessionData = await db.getAndDeleteSession(sid);
-        if (!sessionData) return renderError("Link này đã được sử dụng hoặc đã hết hạn.");
+        if (!sessionData) return res.status(403).json({ ok: false, error: 'Link này đã được sử dụng hoặc đã hết hạn.' });
 
         const { user_id, provider } = sessionData;
-        const providerConfig = linkProviders.get(provider);
-        const reward = providerConfig ? providerConfig.reward : linkProviders.rewardFor(provider);
+        const { reward, providerName } = redeemProviderInfo(sessionData);
         const newBalance = await db.updateCoins(user_id, reward);
         let weeklyCount = 0;
         let period = null;
         try {
             period = await weekly.getLinkPeriod();
             weeklyCount = await db.incrementLinkCount(user_id, period);
-            // Ghi thêm lên Gist để 7 ngày vượt link không mất khi deploy/reset local DB.
             await gistStore.recordLink(user_id, provider, period);
         } catch (e) {
             console.error('[WEB] không cập nhật được BXH vượt link:', e.message);
         }
+        await setRedeemMeta(sid, { ...meta, claimed: true });
 
         hook('bot:link:redeemed', {
-            sid, userKey: user_id, provider,
-            providerName: providerConfig ? providerConfig.name : provider,
+            sid, userKey: user_id, provider, providerName,
             reward, newBalance, weeklyCount, period,
         });
         console.log(`[WEB] User ${user_id} vượt link ${provider}. +${reward} xu. Số dư: ${newBalance} | tuần này: ${weeklyCount}`);
-
-        res.send(`
-            <body style="background:#080d0b; color:#fff; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; margin:0;">
-                <div style="background:#101a14; padding:30px; border-radius:16px; border:1px solid #39f58a; text-align:center; max-width:400px; width:100%;">
-                    <h2 style="color:#39f58a;">✅ VƯỢT LINK THÀNH CÔNG!</h2>
-                    <p style="font-size:16px; margin-bottom:20px;">Bạn đã nhận được <b style="color:#ffc107;">+${reward} xu</b>.</p>
-                    <p style="color:#91a096; font-size:14px; margin-bottom:6px;">Số dư hiện tại: <b style="color:#39f58a;">${newBalance} xu</b></p>
-                    <p style="color:#91a096; font-size:14px; margin-bottom:20px;">Vượt link tuần này: <b style="color:#ffc107;">${weeklyCount}</b></p>
-                    <a href="https://discord.com/app" style="background:#39f58a; color:#000; text-decoration:none; padding:10px 20px; border-radius:8px; font-weight:bold; display:inline-block;">Quay lại Discord</a>
-                </div>
-            </body>
-        `);
+        return res.json({ ok: true, reward, newBalance, weeklyCount, providerName, webUrl: meta.webUrl || redeemWebBase(req) });
     } catch (error) {
-        console.error(error);
-        res.status(500).send("Lỗi Server.");
+        console.error('[redeem] lỗi nhận xu:', error);
+        return res.status(500).json({ ok: false, error: 'Lỗi Server khi nhận xu.' });
     }
 });
 
@@ -1085,11 +1245,20 @@ client.on('interactionCreate', async interaction => {
             const base = (process.env.RENDER_DOMAIN || `http://localhost:${PORT}`).replace(/\/$/, '');
             const targetUrl = `${base}/redeem?sid=${sessionId}`;
 
+            // Link từ Discord chưa có trình duyệt gốc: lưu theme setting, để trang redeem gán trình duyệt lần đầu mở.
+            let botTheme = 'bubble';
+            try {
+                const webUser = await db.getWebUserByDiscordId(userId);
+                if (webUser && (await db.getKv(`theme:${webUser.id}`)) === 'classic') botTheme = 'classic';
+            } catch (e) { /* giữ bubble mặc định */ }
+            await db.setKv(`redeem_meta:${sessionId}`, JSON.stringify({ browserId: null, theme: botTheme, webUrl: base }));
+
             let finalUrl;
             try {
                 finalUrl = await linkProviders.shorten(provider.id, targetUrl);
             } catch (e) {
                 await db.getAndDeleteSession(sessionId).catch(() => {});
+                await db.setKv(`redeem_meta:${sessionId}`, '').catch(() => {});
                 throw e;
             }
 

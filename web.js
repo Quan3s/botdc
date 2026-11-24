@@ -965,11 +965,24 @@ router.post('/api/tasks/link', requireAuth, ah(async (req, res) => {
     const base = (process.env.RENDER_DOMAIN || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     const targetUrl = `${base}/redeem?sid=${sid}`;
 
+    // Gắn trình duyệt tạo link vào cookie httpOnly + lưu theme đang dùng cho trang redeem.
+    let browserId = String(req.get('x-device-id') || (req.body && req.body.browserId) || '').trim();
+    if (!browserId) browserId = crypto.randomBytes(16).toString('hex');
+    res.cookie('asynctas_browser', browserId, {
+        httpOnly: true, sameSite: 'lax', path: '/', maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+    let theme = String((req.body && req.body.theme) || '').toLowerCase();
+    if (!['bubble', 'classic'].includes(theme)) {
+        theme = (await db.getKv(`theme:${req.webUser.id}`)) === 'classic' ? 'classic' : 'bubble';
+    }
+    await db.setKv(`redeem_meta:${sid}`, JSON.stringify({ browserId, theme, webUrl: base }));
+
     let finalUrl;
     try {
         finalUrl = await linkProviders.shorten(provider.id, targetUrl);
     } catch (e) {
         await db.getAndDeleteSession(sid).catch(() => {});
+        await db.setKv(`redeem_meta:${sid}`, '').catch(() => {});
         return res.status(400).json({ error: e.message });
     }
 

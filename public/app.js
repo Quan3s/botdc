@@ -2240,7 +2240,14 @@ if (taskGetBtn) taskGetBtn.addEventListener('click', async e => {
   const box = $('#task-result');
   try {
     const select = $('#task-provider');
-    const data = await api('/api/tasks/link', { method: 'POST', body: JSON.stringify({ provider: select ? select.value : 'link4m' }) });
+    const data = await api('/api/tasks/link', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: select ? select.value : 'link4m',
+        theme: document.documentElement.dataset.theme === 'classic' ? 'classic' : 'bubble',
+        browserId: getDeviceId(),
+      }),
+    });
     if (box) {
       box.className = 'result-box';
       box.innerHTML = `${icon('check', 15)} ${esc(t('tasks.created', { reward: num(data.reward), remaining: num(data.remaining) }))}<br>

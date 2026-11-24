@@ -253,6 +253,13 @@ module.exports = {
     },
 
     // ==================== SESSION VƯỢT LINK ====================
+    /** Đọc session mà không xóa — dùng cho bước xác minh trình duyệt trước khi nhận xu. */
+    async getSession(sid) {
+        if (USE_LOCAL) return findOne('sessions', { id: String(sid) }) || null;
+        const res = await supabaseFetch(`sessions?id=eq.${enc(sid)}`);
+        return res[0] || null;
+    },
+
     async getAndDeleteSession(sid) {
         if (USE_LOCAL) {
             const row = findOne('sessions', { id: String(sid) });
