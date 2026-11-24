@@ -60,7 +60,10 @@ async function takeStock(item, quantity) {
         if (current.length < qty) throw new Error(`Kho chỉ còn ${current.length} tài khoản.`);
         const accounts = current.slice(0, qty);
         const remaining = current.slice(qty);
-        await github.writeGistFile(item.gist_id, item.gist_filename, remaining.join('\n'));
+        // GitHub trả 422 missing_field nếu ghi nội dung rỗng. Lưu marker "# HẾT HÀNG"
+        // (parseLines bỏ qua dòng # nên vẫn đọc ra 0 tài khoản).
+        const nextContent = remaining.length ? remaining.join('\n') : '# HẾT HÀNG\n';
+        await github.writeGistFile(item.gist_id, item.gist_filename, nextContent);
         return { accounts, remaining: remaining.length, stockFields: { stock: remaining.length } };
     }
 
@@ -68,7 +71,11 @@ async function takeStock(item, quantity) {
     if (current.length < qty) throw new Error(`Kho chỉ còn ${current.length} tài khoản.`);
     const accounts = current.slice(0, qty);
     const remaining = current.slice(qty);
-    return { accounts, remaining: remaining.length, stockFields: { stock: remaining.length, stock_content: remaining.join('\n') } };
+    return {
+        accounts,
+        remaining: remaining.length,
+        stockFields: { stock: remaining.length, stock_content: remaining.length ? remaining.join('\n') : '# HẾT HÀNG\n' },
+    };
 }
 
 /** Hoàn kho khi giao dịch thất bại giữa chừng (best-effort). */

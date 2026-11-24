@@ -104,9 +104,12 @@ async function readGistFile(gistId, filename) {
 }
 
 async function writeGistFile(gistId, filename, content) {
+    // GitHub từ chối PATCH khi content rỗng (422 missing_field). Dùng marker comment.
+    const raw = String(content == null ? '' : content);
+    const body = raw.trim() ? raw : '# HẾT HÀNG\n';
     await gh(`/gists/${gistId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ files: { [filename]: { content: content || '' } } }),
+        body: JSON.stringify({ files: { [filename]: { content: body } } }),
     });
 }
 
