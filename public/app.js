@@ -531,6 +531,7 @@ window.addEventListener('asynctas:languagechange', () => {
 const VIEW_TITLE_KEYS = {
   dashboard: 'nav.dashboard', shop: 'nav.shop', 'user-shop': 'nav.userShop',
   buydevice: 'nav.buydevice', cloudstatus: 'nav.cloudstatus', tasks: 'nav.tasks',
+  google: 'nav.google',
   giftcode: 'nav.giftcode', leaderboard: 'nav.leaderboard', transfer: 'nav.transfer',
   orders: 'nav.orders', seller: 'nav.seller', profile: 'nav.profile',
   admin: 'nav.admin', messages: 'chat.title',
@@ -632,6 +633,7 @@ function loadView(view) {
   else if (view === 'seller') loadSeller();
   else if (view === 'cloudstatus') loadCloudStatus();
   else if (view === 'tasks') loadTasks();
+  else if (view === 'google') loadGoogle();
   else if (view === 'giftcode') $('#giftcode-input').focus();
   else if (view === 'leaderboard') loadLeaderboard();
   else if (view === 'transfer') loadTransfers();
@@ -2135,6 +2137,13 @@ async function loadTasks() {
       const labels = Array.from({ length: 10 }, (_, i) => `Top ${i + 1}`);
       rewardList.innerHTML = (data.rewards || []).map((r, i) => `<li><span>${labels[i] || `#${i + 1}`}</span><b>+${num(r)} coin</b></li>`).join('');
     }
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+/** Mục "Tạo tài khoản Google" — tách riêng khỏi "Vượt link". */
+async function loadGoogle() {
+  try {
+    const data = await api('/api/tasks');
     renderGmailTasks(data.gmail || {}, data.gmailTop || []);
   } catch (err) { toast(err.message, 'error'); }
 }
@@ -2189,7 +2198,7 @@ if (gmailTaskBtn) gmailTaskBtn.addEventListener('click', async e => {
       setText(box, t('gmail.submitted', { email: data.task.email, reward: num(data.reward) }));
       box.classList.remove('hidden');
     }
-    await Promise.all([loadTasks(), refreshUser()]);
+    await Promise.all([loadGoogle(), refreshUser()]);
   } catch (err) {
     if (box) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
   } finally { btn.disabled = false; }

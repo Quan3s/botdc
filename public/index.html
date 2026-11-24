@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
-<link rel="stylesheet" href="/styles.css?v=20261123b" />
+<link rel="stylesheet" href="/styles.css?v=20261124a" />
 <script>
   // Áp theme và ngôn ngữ ngay để không bị flash classic / sai ngôn ngữ.
   try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
@@ -78,7 +78,8 @@
       <button class="nav-item" data-view="user-shop"><span class="ico" data-icon="store"></span><span data-i18n="nav.userShop">User Shop</span></button>
       <button class="nav-item" data-view="buydevice"><span class="ico" data-icon="device"></span><span data-i18n="nav.buydevice">Buy Device</span></button>
       <button class="nav-item" data-view="cloudstatus"><span class="ico" data-icon="status"></span><span data-i18n="nav.cloudstatus">Cloud Status</span></button>
-      <button class="nav-item" data-view="tasks"><span class="ico" data-icon="link"></span><span data-i18n="nav.tasks">Nhiệm vụ</span></button>
+      <button class="nav-item" data-view="tasks"><span class="ico" data-icon="link"></span><span data-i18n="nav.tasks">Vượt link</span></button>
+      <button class="nav-item" data-view="google"><span class="ico" data-icon="checkCircle"></span><span data-i18n="nav.google">Tạo tài khoản Google</span></button>
       <button class="nav-item" data-view="giftcode"><span class="ico" data-icon="gift"></span><span data-i18n="nav.giftcode">Giftcode</span></button>
       <button class="nav-item" data-view="leaderboard"><span class="ico" data-icon="leaderboard"></span><span data-i18n="nav.leaderboard">Xếp hạng</span></button>
       <button class="nav-item" data-view="transfer"><span class="ico" data-icon="transfer"></span><span data-i18n="nav.transfer">Chuyển tiền</span></button>
@@ -149,7 +150,8 @@
             <div id="hero-acoin" class="hero-acoin" data-i18n="dashboard.acoinBalance" data-vars='{"value":"0"}'>ACOIN: 0</div>
             <div class="hero-actions">
               <button class="btn btn-primary" data-goto="buydevice"><span class="ico" data-icon="device"></span><span data-i18n="dashboard.buyNow">Mua ngay</span></button>
-              <button class="btn btn-soft" data-goto="tasks"><span class="ico" data-icon="link"></span><span data-i18n="dashboard.doTasks">Làm nhiệm vụ</span></button>
+              <button class="btn btn-soft" data-goto="tasks"><span class="ico" data-icon="link"></span><span data-i18n="dashboard.doTasks">Vượt link</span></button>
+              <button class="btn btn-soft" data-goto="google"><span class="ico" data-icon="checkCircle"></span><span data-i18n="dashboard.createGoogle">Tạo tài khoản Google</span></button>
               <button class="btn btn-soft" data-goto="transfer"><span class="ico" data-icon="transfer"></span><span data-i18n="dashboard.transferCoins">Chuyển xu</span></button>
             </div>
             <div class="social-links">
@@ -543,8 +545,12 @@
           </div>
         </div>
 
+      </section>
+
+      <!-- GOOGLE ACCOUNT TASK (tách riêng khỏi Vượt link) -->
+      <section id="view-google" class="view">
         <div class="card gmail-task-card">
-          <div class="card-head"><h3><span class="ico" data-icon="checkCircle"></span><span data-i18n="gmail.title">Nhiệm vụ tạo Gmail</span></h3><span class="pill" data-i18n="gmail.reward">+180 coin / Gmail hợp lệ</span></div>
+          <div class="card-head"><h3><span class="ico" data-icon="checkCircle"></span><span data-i18n="gmail.title">Tạo tài khoản Google</span></h3><span class="pill" data-i18n="gmail.reward">+180 coin / Gmail hợp lệ</span></div>
           <div class="grid two-col">
             <div>
               <p class="muted" data-i18n="gmail.desc">Tạo Gmail mới và gửi cho admin duyệt thủ công. Mỗi Gmail hợp lệ được cộng 180 coin, không giới hạn số lượng mỗi ngày.</p>
@@ -889,8 +895,8 @@
 <div id="toasts" class="toasts"></div>
 <div id="modal-root" class="modal-root hidden"></div>
 
-<script src="/icons.js?v=20261123b"></script>
-<script src="/i18n.js?v=20261123b"></script>
-<script src="/app.js?v=20261123b"></script>
+<script src="/icons.js?v=20261124a"></script>
+<script src="/i18n.js?v=20261124a"></script>
+<script src="/app.js?v=20261124a"></script>
 </body>
 </html>
