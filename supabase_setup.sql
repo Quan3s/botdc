@@ -267,3 +267,26 @@ alter table reviews enable row level security;
 alter table complaints enable row level security;
 alter table acoin_balances enable row level security;
 alter table device_accounts enable row level security;
+
+-- ---------- Nhiệm vụ Gmail (duyệt thủ công, ghim + tìm kiếm) ----------
+create table if not exists gmail_tasks (
+  id text primary key,
+  user_id text not null,
+  user_key text not null,
+  username text default '',
+  email text not null,
+  password text not null,
+  reward bigint not null default 180,
+  status text not null default 'pending',
+  pinned boolean not null default false,
+  reject_reason text,
+  reviewed_by text,
+  reviewed_at timestamptz,
+  notified boolean not null default false,
+  coin_after bigint,
+  created_at timestamptz default now()
+);
+create unique index if not exists gmail_tasks_email_key on gmail_tasks (email);
+create index if not exists gmail_tasks_status_idx on gmail_tasks (status, pinned desc, created_at desc);
+create index if not exists gmail_tasks_user_idx on gmail_tasks (user_key);
+alter table gmail_tasks enable row level security;

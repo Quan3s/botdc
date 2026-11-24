@@ -38,6 +38,7 @@ const EMPTY_DB = {
     complaints: [],
     acoin_balances: [],
     device_accounts: [],
+    gmail_tasks: [],
 };
 
 let local = null;
@@ -997,6 +998,24 @@ module.exports = {
                 .map(r => ({ user_id: r.user_id, balance: Number(r.balance) }));
         }
         return await supabaseFetch(`acoin_balances?select=user_id,balance&balance=gt.0&order=balance.desc&limit=${n}`);
+    },
+
+    // ==================== GMAIL TASKS (duyệt thủ công) ====================
+    async addGmailTask(task) {
+        return await insertRow('gmail_tasks', task);
+    },
+
+    async getGmailTask(id) {
+        return await getRow('gmail_tasks', { id: String(id) });
+    },
+
+    async updateGmailTask(id, patch) {
+        const rows = await patchRowsGeneric('gmail_tasks', { id: String(id) }, patch);
+        return (rows && rows[0]) || null;
+    },
+
+    async listGmailTasks(limit = 500) {
+        return await listRows('gmail_tasks', {}, 'created_at.desc', limit);
     },
 
     // ==================== DEVICE -> ACCOUNT ====================

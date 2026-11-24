@@ -17,6 +17,7 @@ const weekly = require('./weekly');
 const pluginEngine = require('./plugin-engine');
 const linkProviders = require('./link-providers');
 const marketplace = require('./marketplace');
+const gmailTasks = require('./gmail-tasks');
 const { getTodayString, generateUniqueLinkToken, sha256, randomId, hashPassword, verifyPassword } = require('./utils');
 
 const router = express.Router();
@@ -921,12 +922,15 @@ router.get('/api/tasks', requireAuth, ah(async (req, res) => {
             ready: linkProviders.ready(p.id),
         };
     });
+    const gmail = await gmailTasks.summary(req.webUser.id);
     res.json({
         reward: linkProviders.rewardFor('link4m'), // giữ field cũ cho client cũ
         dailyMax: linkProviders.dailyMaxFor('link4m'),
         providers,
         daily,
         weeklyCount,
+        gmail,
+        gmailTop: await decorate(await gmailTasks.leaderboard(10), 'count'),
         period,
         star,
         rewards: weekly.REWARDS,
@@ -977,6 +981,20 @@ router.post('/api/tasks/link', requireAuth, ah(async (req, res) => {
         reward: provider.reward,
         remaining: provider.dailyMax - count - 1,
     });
+}));
+
+// Nhiệm vụ tạo Gmail — gửi bài, chờ admin duyệt thủ công.
+router.post('/api/tasks/gmail', requireAuth, ah(async (req, res) => {
+    const key = balanceKey(req.webUser);
+    if (busyUsers.has(`gmail:${key}`)) return res.status(409).json({ error: 'Bạn đang gửi Gmail, thử lại sau giây lát.' });
+    busyUsers.add(`gmail:${key}`);
+    try {
+        const task = await gmailTasks.submit(req.webUser, req.body.account);
+        hook('web:gmail:submit', { userKey: key, email: task.email });
+        res.json({ ok: true, task, reward: gmailTasks.REWARD, message: 'Đã gửi Gmail, chờ admin duyệt.' });
+    } finally {
+        busyUsers.delete(`gmail:${key}`);
+    }
 }));
 
 // ==================== BẢNG XẾP HẠNG ====================
@@ -1056,6 +1074,16 @@ router.get('/api/leaderboard/links/week', requireAuth, ah(async (req, res) => {
 router.get('/api/leaderboard/links/all', requireAuth, ah(async (req, res) => {
     const top = await db.getAllTimeLinkLeaderboard(10);
     res.json({ leaderboard: await decorate(top, 'count'), rewards: null });
+}));
+
+/** BXH Gmail đã duyệt: mỗi Gmail hợp lệ = 1 điểm (180 coin). */
+router.get('/api/leaderboard/gmail', requireAuth, ah(async (req, res) => {
+    const top = await gmailTasks.leaderboard(10);
+    res.json({
+        leaderboard: await decorate(top, 'count'),
+        reward: gmailTasks.REWARD,
+        rewards: null,
+    });
 }));
 
 // ==================== ADMIN ====================
@@ -1211,6 +1239,37 @@ router.post('/api/admin/coins', requireAdmin, ah(async (req, res) => {
     // Đọc lại từ nguồn dữ liệu để số trả về (dùng để hiển thị/toast) khớp số đã lưu.
     const newBalance = await read(key);
     res.json({ ok: true, currency, current, newBalance });
+}));
+
+// ==================== ADMIN: NHIỆM VỤ GMAIL ====================
+router.get('/api/admin/gmail', requireAdmin, ah(async (req, res) => {
+    const tasks = await gmailTasks.listAdmin();
+    res.json({
+        tasks,
+        reward: gmailTasks.REWARD,
+        password: gmailTasks.PASSWORD,
+        pending: tasks.filter(t => t.status === 'pending').length,
+        approved: tasks.filter(t => t.status === 'approved').length,
+        rejected: tasks.filter(t => t.status === 'rejected').length,
+    });
+}));
+
+router.post('/api/admin/gmail/:id/approve', requireAdmin, ah(async (req, res) => {
+    const task = await gmailTasks.approve(req.params.id, req.webUser.discord_id || req.webUser.id);
+    hook('web:gmail:approve', { email: task.email, userKey: task.userKey, reward: task.reward });
+    res.json({ ok: true, task });
+}));
+
+router.post('/api/admin/gmail/:id/reject', requireAdmin, ah(async (req, res) => {
+    const task = await gmailTasks.reject(req.params.id, req.webUser.discord_id || req.webUser.id, req.body.reason);
+    hook('web:gmail:reject', { email: task.email, userKey: task.userKey, reason: task.rejectReason });
+    res.json({ ok: true, task });
+}));
+
+router.post('/api/admin/gmail/:id/pin', requireAdmin, ah(async (req, res) => {
+    const pinned = Boolean(req.body.pinned);
+    const task = await gmailTasks.setPinned(req.params.id, pinned);
+    res.json({ ok: true, task });
 }));
 
 router.get('/api/admin/purchases', requireAdmin, ah(async (req, res) => {

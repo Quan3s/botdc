@@ -241,6 +241,7 @@ async function getUnreadCount(userId, partnerId = null) {
 /** Tên hiển thị an toàn cho user (không trả dữ liệu nhạy cảm). */
 async function displayName(userId) {
     if (!userId) return 'Người dùng';
+    if (String(userId) === 'system') return 'Hệ thống';
     const user = await safe(() => db.getWebUserById(String(userId)), null);
     if (user && user.username) return user.username;
     const short = String(userId).slice(0, 8);

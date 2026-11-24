@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
-<link rel="stylesheet" href="/styles.css?v=20261123a" />
+<link rel="stylesheet" href="/styles.css?v=20261123b" />
 <script>
   // Áp theme và ngôn ngữ ngay để không bị flash classic / sai ngôn ngữ.
   try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
@@ -542,6 +542,38 @@
             <div id="task-period" class="period-box" data-i18n="tasks.period" data-vars='{"period":"—"}'>Kỳ hiện tại: —</div>
           </div>
         </div>
+
+        <div class="card gmail-task-card">
+          <div class="card-head"><h3><span class="ico" data-icon="checkCircle"></span><span data-i18n="gmail.title">Nhiệm vụ tạo Gmail</span></h3><span class="pill" data-i18n="gmail.reward">+180 coin / Gmail hợp lệ</span></div>
+          <div class="grid two-col">
+            <div>
+              <p class="muted" data-i18n="gmail.desc">Tạo Gmail mới và gửi cho admin duyệt thủ công. Mỗi Gmail hợp lệ được cộng 180 coin, không giới hạn số lượng mỗi ngày.</p>
+              <h4 class="gmail-rules-title" data-i18n="gmail.rulesTitle">Yêu cầu tài khoản Gmail</h4>
+              <ul class="gmail-rules">
+                <li data-i18n="gmail.rule1">Tài khoản Gmail mới tạo, chưa qua dịch vụ.</li>
+                <li data-i18n="gmail.rule2">Không được chứa dấu chấm . trong phần tên Gmail (ví dụ: abc.def@gmail.com là KHÔNG HỢP LỆ).</li>
+                <li data-i18n="gmail.rule3">Tên tiếng Việt không dấu (VD: Phung Thanh Do, Quang Den,...).</li>
+                <li data-i18n="gmail.rule4">Mail không dính số điện thoại và phải xóa khỏi thiết bị ngay sau khi tạo.</li>
+                <li data-i18n="gmail.rule5">Mật khẩu bắt buộc đặt là: Domixi3667khoga@</li>
+                <li data-i18n="gmail.rule6">Lưu ý từ Admin: Gmail tạo xong phải xóa khỏi thiết bị trong cài đặt điện thoại ngay, không được đổi mật khẩu. Nếu mail nào lỗi sẽ không được duyệt, thời gian duyệt không cố định phụ thuộc vào đối tác.</li>
+                <li data-i18n="gmail.rule7">Mỗi Gmail hợp lệ được duyệt: 180 coin</li>
+                <li data-i18n="gmail.rule8">Gmail sẽ được cung cấp cho bên khác, nếu sử dụng thành công sẽ được duyệt.</li>
+                <li data-i18n="gmail.rule9">Không gửi spam cùng 1 tài khoản Google nhiều lần, nếu gửi spam sẽ bị ban acc vĩnh viễn!</li>
+              </ul>
+            </div>
+            <div>
+              <label><span data-i18n="gmail.inputLabel">Gmail|mật khẩu</span>
+                <input id="gmail-task-input" data-i18n-placeholder="gmail.placeholder" placeholder="abcdxyz@gmail.com|Domixi3667khoga@" autocomplete="off" />
+              </label>
+              <button id="gmail-task-submit" class="btn btn-primary btn-block"><span class="ico" data-icon="send"></span><span data-i18n="gmail.submit">Gửi duyệt</span></button>
+              <div id="gmail-task-result" class="result-box hidden"></div>
+              <div class="card-subhead"><b data-i18n="gmail.historyTitle">Gmail đã gửi</b><span id="gmail-task-count" class="pill">—</span></div>
+              <div id="gmail-task-history" class="gmail-history"></div>
+              <div class="card-subhead"><b data-i18n="gmail.topTitle">Bảng xếp hạng Gmail</b></div>
+              <div id="gmail-task-top" class="lb-list gmail-top"></div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- GIFTCODE -->
@@ -570,6 +602,7 @@
         <div class="tabs">
           <button class="tab active" data-lb="coins"><span class="ico" data-icon="coin"></span><span data-i18n="lb.coins">Coin</span></button>
           <button class="tab" data-lb="acoin"><span class="ico" data-icon="acoin"></span><span data-i18n="lb.acoin">ACOIN</span></button>
+          <button class="tab" data-lb="gmail"><span class="ico" data-icon="checkCircle"></span><span data-i18n="lb.gmail">Gmail</span></button>
           <button class="tab" data-lb="week"><span class="ico" data-icon="link"></span><span data-i18n="lb.week">Vượt link 7 ngày (có thưởng)</span></button>
           <button class="tab" data-lb="all"><span class="ico" data-icon="leaderboard"></span><span data-i18n="lb.all">Vượt link tổng (không thưởng)</span></button>
         </div>
@@ -661,6 +694,7 @@
           <button class="tab" data-admin="shop"><span class="ico" data-icon="shop"></span><span data-i18n="admin.products">Sản phẩm</span></button>
           <button class="tab" data-admin="plugin"><span class="ico" data-icon="plugin"></span><span data-i18n="admin.plugin">Plugin</span></button>
           <button class="tab" data-admin="meows"><span class="ico" data-icon="cookie"></span><span data-i18n="admin.cookie">Cookie</span></button>
+          <button class="tab" data-admin="google"><span class="ico" data-icon="checkCircle"></span><span data-i18n="admin.google">Google</span></button>
           <button class="tab" data-admin="market"><span class="ico" data-icon="store"></span><span data-i18n="admin.market">Market</span></button>
           <button class="tab" data-admin="appearance"><span class="ico" data-icon="image"></span><span data-i18n="admin.appearance">Giao diện</span></button>
         </div>
@@ -762,6 +796,21 @@
           </div>
         </div>
 
+        <div id="admin-sub-google" class="admin-sub hidden">
+          <div class="card">
+            <div class="card-head">
+              <h3><span class="ico" data-icon="checkCircle"></span><span data-i18n="admin.gmailTasks">Nhiệm vụ Gmail</span></h3>
+              <span id="admin-gmail-stats" class="pill">—</span>
+              <button id="admin-gmail-refresh" class="btn btn-ghost btn-sm" data-i18n="admin.refresh">Làm mới</button>
+            </div>
+            <p class="muted" data-i18n="admin.gmailDesc">Duyệt thủ công: mỗi Gmail hợp lệ cộng 180 coin, không giới hạn/ngày. Từ chối sẽ gửi tin nhắn hệ thống kèm Gmail cho user.</p>
+            <label class="gmail-search-wrap"><span data-i18n="admin.search">Tìm kiếm</span>
+              <input id="admin-gmail-search" data-i18n-placeholder="admin.gmailSearchPlaceholder" placeholder="Tìm theo email hoặc username..." autocomplete="off" />
+            </label>
+            <div id="admin-gmail-list" class="gmail-admin-list"></div>
+          </div>
+        </div>
+
         <div id="admin-sub-market" class="admin-sub hidden">
           <div class="grid two-col">
             <div class="card">
@@ -840,8 +889,8 @@
 <div id="toasts" class="toasts"></div>
 <div id="modal-root" class="modal-root hidden"></div>
 
-<script src="/icons.js?v=20261123a"></script>
-<script src="/i18n.js?v=20261123a"></script>
-<script src="/app.js?v=20261123a"></script>
+<script src="/icons.js?v=20261123b"></script>
+<script src="/i18n.js?v=20261123b"></script>
+<script src="/app.js?v=20261123b"></script>
 </body>
 </html>

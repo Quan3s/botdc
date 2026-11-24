@@ -2135,8 +2135,65 @@ async function loadTasks() {
       const labels = Array.from({ length: 10 }, (_, i) => `Top ${i + 1}`);
       rewardList.innerHTML = (data.rewards || []).map((r, i) => `<li><span>${labels[i] || `#${i + 1}`}</span><b>+${num(r)} coin</b></li>`).join('');
     }
+    renderGmailTasks(data.gmail || {}, data.gmailTop || []);
   } catch (err) { toast(err.message, 'error'); }
 }
+
+function gmailStatusKey(status) {
+  return status === 'approved' ? 'gmail.statusApproved' : status === 'rejected' ? 'gmail.statusRejected' : 'gmail.statusPending';
+}
+
+function renderGmailTasks(gmail, top) {
+  const count = $('#gmail-task-count');
+  if (count) {
+    setText(count, t('gmail.countPill', {
+      pending: num(gmail.pending || 0), approved: num(gmail.approved || 0), rejected: num(gmail.rejected || 0),
+    }));
+  }
+  const history = $('#gmail-task-history');
+  if (history) {
+    const rows = gmail.submissions || [];
+    history.innerHTML = rows.length ? rows.map(task => `
+      <div class="gmail-history-row">
+        <div><b>${esc(task.email)}</b><small class="muted">${esc(String(task.createdAt || '').slice(0, 10))}</small></div>
+        <span class="gmail-status ${esc(task.status)}">${esc(t(gmailStatusKey(task.status)))}</span>
+        ${task.rejectReason ? `<small class="gmail-reject-note">${esc(task.rejectReason)}</small>` : ''}
+      </div>`).join('') : `<div class="empty">${esc(t('gmail.noSubmissions'))}</div>`;
+  }
+  const topBox = $('#gmail-task-top');
+  if (topBox) {
+    if (!top || !top.length) topBox.innerHTML = `<div class="empty">${esc(t('lb.empty'))}</div>`;
+    else topBox.innerHTML = top.map(r => `
+      <div class="lb-row ${r.rank <= 3 ? `top${r.rank}` : ''}">
+        <span class="lb-rank">${num(r.rank)}</span>
+        <span class="lb-name">${esc(r.display)}${r.isAdmin ? adminCrown() : ''}</span>
+        <span class="lb-value">${num(r.value)} ${esc(t('lb.gmailUnit'))}</span>
+      </div>`).join('');
+    renderIcons(topBox);
+  }
+}
+
+const gmailTaskBtn = $('#gmail-task-submit');
+if (gmailTaskBtn) gmailTaskBtn.addEventListener('click', async e => {
+  const btn = e.currentTarget;
+  const box = $('#gmail-task-result');
+  const input = $('#gmail-task-input');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/tasks/gmail', {
+      method: 'POST', body: JSON.stringify({ account: input ? input.value : '' }),
+    });
+    if (input) input.value = '';
+    if (box) {
+      box.className = 'result-box';
+      setText(box, t('gmail.submitted', { email: data.task.email, reward: num(data.reward) }));
+      box.classList.remove('hidden');
+    }
+    await Promise.all([loadTasks(), refreshUser()]);
+  } catch (err) {
+    if (box) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
+  } finally { btn.disabled = false; }
+});
 
 const taskGetBtn = $('#task-get-btn');
 if (taskGetBtn) taskGetBtn.addEventListener('click', async e => {
@@ -2234,6 +2291,13 @@ async function loadLeaderboard() {
   try {
     if (state.lbTab === 'coins') { const data = await api('/api/leaderboard/coins'); renderLb(root, data.leaderboard, t('lb.coins')); return; }
     if (state.lbTab === 'acoin') { const data = await api('/api/leaderboard/acoin'); renderLb(root, data.leaderboard, t('lb.acoinUnit')); return; }
+    if (state.lbTab === 'gmail') {
+      const data = await api('/api/leaderboard/gmail');
+      setText(note, t('lb.gmailNote', { reward: num(data.reward || 180) }));
+      note.classList.remove('hidden');
+      renderLb(root, data.leaderboard, t('lb.gmailUnit'));
+      return;
+    }
     if (state.lbTab === 'week') {
       const data = await api('/api/leaderboard/links/week');
       setText(note, t('tasks.weekPeriod', { period: data.period || '—' }));
@@ -2341,7 +2405,7 @@ async function loadAdmin() {
     $('#admin-payouts').innerHTML = data.payouts.length
       ? data.payouts.map(p => `<div class="mini-row"><span>${esc(t('admin.period', { period: p.period }))}</span><b>${num(p.total)} coin</b></div>`).join('')
       : `<div class="empty">${esc(t('admin.noPayouts'))}</div>`;
-    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminBackground(), loadAdminSocial()]);
+    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminGmail(), loadAdminBackground(), loadAdminSocial()]);
     if (state.adminTab === 'market') loadAdminMarket();
   } catch (err) { toast(err.message, 'error'); }
 }
@@ -2356,6 +2420,7 @@ function switchAdminTab(tabName) {
   else if (tabName === 'user') loadAdminUsers().catch(() => {});
   else if (tabName === 'plugin') loadAdminPlugins();
   else if (tabName === 'meows') loadMeowsCookie();
+  else if (tabName === 'google') loadAdminGmail().catch(err => toast(err.message, 'error'));
   else if (tabName === 'market') loadAdminMarket();
   else if (tabName === 'appearance') { loadAdminBackground(); loadAdminSocial(); }
 }
@@ -2406,6 +2471,140 @@ async function loadAdminUsers() {
     </div>`).join('') : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
   $$('[data-adjust]').forEach(b => b.addEventListener('click', () => coinsModal(b.dataset.target, b.dataset.adjust)));
 }
+
+let adminGmailCache = [];
+
+function gmailAdminStatus(task) {
+  return t(gmailStatusKey(task.status));
+}
+
+async function loadAdminGmail() {
+  const list = $('#admin-gmail-list');
+  if (!list) return;
+  list.innerHTML = `<div class="empty">${esc(t('common.loading'))}</div>`;
+  const data = await api('/api/admin/gmail');
+  adminGmailCache = data.tasks || [];
+  setText('#admin-gmail-stats', t('admin.gmailStats', {
+    pending: num(data.pending || 0), approved: num(data.approved || 0), rejected: num(data.rejected || 0),
+  }));
+  renderAdminGmail();
+}
+
+function renderAdminGmail() {
+  const list = $('#admin-gmail-list');
+  if (!list) return;
+  const q = String(($('#admin-gmail-search') || {}).value || '').trim().toLowerCase();
+  const tasks = adminGmailCache.filter(task =>
+    !q || String(task.email || '').toLowerCase().includes(q) || String(task.username || '').toLowerCase().includes(q));
+  if (!tasks.length) {
+    list.innerHTML = `<div class="empty">${esc(q ? t('admin.gmailNoMatch') : t('admin.gmailEmpty'))}</div>`;
+    return;
+  }
+  list.innerHTML = tasks.map(task => `
+    <div class="gmail-admin-row${task.pinned ? ' pinned' : ''}">
+      <div class="gmail-admin-main">
+        <div class="gmail-admin-title">
+          <b>${esc(task.email)}</b>
+          ${task.pinned ? `<span class="gmail-pin-badge">${icon('star-filled', 12)}</span>` : ''}
+          <span class="gmail-status ${esc(task.status)}">${esc(gmailAdminStatus(task))}</span>
+        </div>
+        <small class="muted">${esc(task.username || '—')} · ${esc(String(task.createdAt || '').slice(0, 16).replace('T', ' '))}</small>
+        ${task.rejectReason ? `<small class="gmail-reject-note">${esc(task.rejectReason)}</small>` : ''}
+      </div>
+      <div class="gmail-admin-actions">
+        <button class="btn-icon-action" data-gmail-copy="${esc(task.id)}" title="${esc(t('gmail.copy'))}"><span class="ico">${icon('copy', 15)}</span></button>
+        <button class="btn-icon-action${task.pinned ? ' active' : ''}" data-gmail-pin="${esc(task.id)}" title="${esc(t(task.pinned ? 'gmail.unpin' : 'gmail.pin'))}"><span class="ico">${icon(task.pinned ? 'star-filled' : 'star', 15)}</span></button>
+        ${task.status === 'pending' ? `
+          <button class="btn btn-soft btn-sm" data-gmail-approve="${esc(task.id)}">${esc(t('gmail.approve'))}</button>
+          <button class="btn btn-ghost btn-sm" data-gmail-reject="${esc(task.id)}">${esc(t('gmail.reject'))}</button>` : ''}
+      </div>
+    </div>`).join('');
+  renderIcons(list);
+}
+
+function gmailApproveModal(task) {
+  openModal({
+    title: t('gmail.approveTitle'),
+    body: `<p class="muted">${esc(t('gmail.approveConfirm', { email: task.email, reward: num(task.reward || 180) }))}</p>`,
+    actions: [
+      { label: t('auth.cancel'), onClick: closeModal },
+      {
+        label: t('gmail.approve'), className: 'btn-primary', onClick: async btn => {
+          btn.disabled = true;
+          try {
+            await api(`/api/admin/gmail/${task.id}/approve`, { method: 'POST' });
+            closeModal();
+            toast(t('gmail.approvedToast', { email: task.email, reward: num(task.reward || 180) }));
+            await Promise.all([loadAdminGmail(), loadAdminUsers()]);
+          } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
+        },
+      },
+    ],
+  });
+}
+
+function gmailRejectModal(task) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <p class="muted">${esc(t('gmail.rejectConfirm', { email: task.email }))}</p>
+    <label>${esc(t('gmail.rejectReason'))}<textarea id="gmail-reject-reason" rows="4" placeholder="${esc(t('gmail.rejectReasonPlaceholder'))}"></textarea></label>`;
+  openModal({
+    title: t('gmail.rejectTitle'),
+    body: wrap,
+    actions: [
+      { label: t('auth.cancel'), onClick: closeModal },
+      {
+        label: t('gmail.reject'), className: 'btn-danger', onClick: async btn => {
+          btn.disabled = true;
+          try {
+            await api(`/api/admin/gmail/${task.id}/reject`, {
+              method: 'POST',
+              body: JSON.stringify({ reason: wrap.querySelector('#gmail-reject-reason').value }),
+            });
+            closeModal();
+            toast(t('gmail.rejectedToast', { email: task.email }));
+            await loadAdminGmail();
+          } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
+        },
+      },
+    ],
+  });
+}
+
+$('#admin-gmail-refresh')?.addEventListener('click', () => loadAdminGmail().catch(err => toast(err.message, 'error')));
+$('#admin-gmail-search')?.addEventListener('input', renderAdminGmail);
+$('#admin-gmail-list')?.addEventListener('click', async e => {
+  const copyBtn = e.target.closest('[data-gmail-copy]');
+  if (copyBtn) {
+    const task = adminGmailCache.find(t => t.id === copyBtn.dataset.gmailCopy);
+    if (task) copyText(`${task.email}|${task.password || ''}`);
+    return;
+  }
+  const pinBtn = e.target.closest('[data-gmail-pin]');
+  if (pinBtn) {
+    const task = adminGmailCache.find(t => t.id === pinBtn.dataset.gmailPin);
+    if (!task) return;
+    pinBtn.disabled = true;
+    try {
+      await api(`/api/admin/gmail/${task.id}/pin`, {
+        method: 'POST', body: JSON.stringify({ pinned: !task.pinned }),
+      });
+      await loadAdminGmail();
+    } catch (err) { pinBtn.disabled = false; toast(err.message, 'error'); }
+    return;
+  }
+  const approveBtn = e.target.closest('[data-gmail-approve]');
+  if (approveBtn) {
+    const task = adminGmailCache.find(t => t.id === approveBtn.dataset.gmailApprove);
+    if (task) gmailApproveModal(task);
+    return;
+  }
+  const rejectBtn = e.target.closest('[data-gmail-reject]');
+  if (rejectBtn) {
+    const task = adminGmailCache.find(t => t.id === rejectBtn.dataset.gmailReject);
+    if (task) gmailRejectModal(task);
+  }
+});
 
 async function loadAdminExchangeRate() {
   try {
