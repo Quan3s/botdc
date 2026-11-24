@@ -2038,9 +2038,13 @@ $('#cloud-buy-btn').addEventListener('click', async e => {
         </div>
         <div class="accounts-box">${esc(data.copyText)}</div>
         ${data.rawResponse ? `<div class="muted" style="margin-top:10px">${esc(t('device.fullResponse'))}</div><div class="accounts-box">${esc(data.rawResponse)}</div>` : ''}
-        <div class="copy-row"><button class="btn btn-soft btn-sm" id="getss-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
+        <div class="copy-row">
+          ${data.account && data.password ? `<button class="btn btn-soft btn-sm" id="getss-copy-pass">${icon('copy', 14)}<span>${esc(t('device.copyPass'))}</span></button>` : ''}
+          <button class="btn btn-soft btn-sm" id="getss-copy">${icon('copy', 14)}<span>${esc(t('device.copyFull'))}</span></button>
+        </div>`;
       box.classList.remove('hidden');
       $('#getss-copy').addEventListener('click', ev => copyText(data.copyText, ev.currentTarget));
+      $('#getss-copy-pass')?.addEventListener('click', ev => copyText(`${data.account}|${data.password}`, ev.currentTarget));
       return;
     }
     const data = await api('/api/device/buycloud', {
