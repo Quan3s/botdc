@@ -35,9 +35,14 @@ async function gh(pathname, options = {}) {
     if (!res.ok) {
         const msg = (data && (data.message || data.error)) || text.slice(0, 200) || res.statusText;
         const detail = data && Array.isArray(data.errors) && data.errors.length
-            ? ` (${data.errors.map(e => (typeof e === 'string' ? e : (e.message || e.code || JSON.stringify(e)))).join('; ')})`
+            ? ` (${data.errors.map(e => {
+                if (typeof e === 'string') return e;
+                const field = e.field ? `:${e.field}` : '';
+                return `${e.message || e.code || JSON.stringify(e)}${field}`;
+            }).join('; ')})`
             : '';
-        throw new Error(`GitHub API lỗi (${res.status}): ${msg}${detail}`);
+        console.error(`[github] ${options.method || 'GET'} ${pathname} -> ${res.status} ${text.slice(0, 800)}`);
+        throw new Error(`GitHub API lỗi (${res.status}): ${String(msg).slice(0, 120)}${detail}`);
     }
     return data;
 }
@@ -52,15 +57,25 @@ function safeFilename(name) {
 }
 
 async function createGist(filename, content, description) {
-    const data = await gh('/gists', {
-        method: 'POST',
-        body: JSON.stringify({
-            description: description || 'ASYNCTAS shop stock',
-            public: false,
-            files: { [filename]: { content: content || '' } },
-        }),
-    });
-    return { id: data.id, url: data.html_url, filename };
+    const name = String(filename || '').trim() || 'asynctas.js';
+    // GitHub trả 422 `missing_field: files` nếu content rỗng/whitespace — luôn có nội dung tối thiểu.
+    const rawBody = String(content == null ? '' : content);
+    const body = rawBody.trim() ? rawBody : `// ASYNCTAS ${description || 'gist'}\n`;
+    const attempts = [
+        { description: description || 'ASYNCTAS shop stock', public: false, files: { [name]: { content: body } } },
+        { public: false, files: { 'asynctas.js': { content: body } } },
+    ];
+    let lastError = null;
+    for (const payload of attempts) {
+        try {
+            const data = await gh('/gists', { method: 'POST', body: JSON.stringify(payload) });
+            return { id: data.id, url: data.html_url, filename: Object.keys(payload.files)[0] };
+        } catch (e) {
+            lastError = e;
+            if (!/422|403|401/.test(e.message)) break;
+        }
+    }
+    throw lastError;
 }
 
 /** Đọc nội dung 1 file trong gist (xử lý cả trường hợp bị truncate). */

@@ -257,8 +257,9 @@ async function buildUgInjectSnippet(ug) {
         readSocial('youtube_url', 'YOUTUBE_URL', 'https://youtube.com'),
         readSocial('discord_url', 'DISCORD_URL', 'https://discord.com'),
     ]);
+    const dataJson = (ug.copyText && String(ug.copyText).trim()) ? ug.copyText : '{}';
     const content = [
-        `const data = ${ug.copyText};`,
+        `const data = ${dataJson};`,
         '',
         '// Xóa toàn bộ localStorage hiện tại',
         'localStorage.clear();',
@@ -284,13 +285,14 @@ async function buildUgInjectSnippet(ug) {
     let error = null;
     try {
         const gist = await github.createGist(filename, content, 'ASYNCTAS UGPhone localStorage import');
-        rawUrl = `${String(gist.url || '').replace('https://gist.github.com/', 'https://gist.githubusercontent.com/').replace(/\/$/, '')}/raw/${filename}`;
+        const gistFile = gist.filename || filename;
+        rawUrl = `${String(gist.url || '').replace('https://gist.github.com/', 'https://gist.githubusercontent.com/').replace(/\/$/, '')}/raw/${gistFile}`;
     } catch (e) {
         error = e.message;
         // Thử lại lần 2 với tên file/description đơn giản (GitHub đôi khi trả 422 Validation Failed).
         try {
             const gist = await github.createGist('asynctas-ugphone.js', content, 'ASYNCTAS UGPhone');
-            rawUrl = `${String(gist.url || '').replace('https://gist.github.com/', 'https://gist.githubusercontent.com/').replace(/\/$/, '')}/raw/asynctas-ugphone.js`;
+            rawUrl = `${String(gist.url || '').replace('https://gist.github.com/', 'https://gist.githubusercontent.com/').replace(/\/$/, '')}/raw/${gist.filename || 'asynctas-ugphone.js'}`;
             error = null;
         } catch (e2) {
             error = `${error} | retry: ${e2.message}`;
