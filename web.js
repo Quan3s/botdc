@@ -806,6 +806,7 @@ router.post('/api/device/meows', requireAuth, ah(async (req, res) => {
             injectSnippet: result.injectSnippet || null,
             injectRawUrl: result.injectRawUrl || null,
             injectError: result.injectError || null,
+            injectFallback: !!result.injectFallback,
             youtubeUrl: result.youtubeUrl || null,
             discordUrl: result.discordUrl || null,
             details: result.details,

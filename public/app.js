@@ -2105,6 +2105,7 @@ $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
       ${data.userId ? `<div>${esc(t('device.userIdLabel'))}: <code>${esc(data.userId)}</code></div>` : ''}
       <div class="accounts-box">${esc(data.copyText)}</div>
       ${data.kind === 'ugphone' ? `
+        ${data.injectFallback && data.injectError ? `<div class="result-box error">${esc(t('device.injectError', { error: data.injectError }))}</div>` : ''}
         ${data.injectSnippet ? `
           <div class="ug-script">
             <b>${esc(t('device.ugScriptTitle'))}</b>

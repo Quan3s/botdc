@@ -34,7 +34,10 @@ async function gh(pathname, options = {}) {
     try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
     if (!res.ok) {
         const msg = (data && (data.message || data.error)) || text.slice(0, 200) || res.statusText;
-        throw new Error(`GitHub API lỗi (${res.status}): ${msg}`);
+        const detail = data && Array.isArray(data.errors) && data.errors.length
+            ? ` (${data.errors.map(e => (typeof e === 'string' ? e : (e.message || e.code || JSON.stringify(e)))).join('; ')})`
+            : '';
+        throw new Error(`GitHub API lỗi (${res.status}): ${msg}${detail}`);
     }
     return data;
 }

@@ -278,18 +278,43 @@ async function buildUgInjectSnippet(ug) {
         ');',
     ].join('\n');
 
+    // Mỗi lần mua tạo 1 gist secret mới chứa đúng script của lần đó.
+    const filename = `asynctas-ugphone-${crypto.randomBytes(6).toString('hex')}.js`;
+    let rawUrl = null;
+    let error = null;
     try {
-        const gist = await github.createGist('asynctas-ugphone.js', content, 'ASYNCTAS UGPhone localStorage import');
-        const rawUrl = `${String(gist.url || '').replace('https://gist.github.com/', 'https://gist.githubusercontent.com/').replace(/\/$/, '')}/raw`;
+        const gist = await github.createGist(filename, content, 'ASYNCTAS UGPhone localStorage import');
+        rawUrl = `${String(gist.url || '').replace('https://gist.github.com/', 'https://gist.githubusercontent.com/').replace(/\/$/, '')}/raw/${filename}`;
+    } catch (e) {
+        error = e.message;
+        // Thử lại lần 2 với tên file/description đơn giản (GitHub đôi khi trả 422 Validation Failed).
+        try {
+            const gist = await github.createGist('asynctas-ugphone.js', content, 'ASYNCTAS UGPhone');
+            rawUrl = `${String(gist.url || '').replace('https://gist.github.com/', 'https://gist.githubusercontent.com/').replace(/\/$/, '')}/raw/asynctas-ugphone.js`;
+            error = null;
+        } catch (e2) {
+            error = `${error} | retry: ${e2.message}`;
+        }
+    }
+
+    if (rawUrl) {
         return {
             snippet: `fetch(atob('${Buffer.from(rawUrl).toString('base64')}')).then(r => r.text()).then(eval);`,
             rawUrl,
             youtubeUrl,
             discordUrl,
         };
-    } catch (e) {
-        return { snippet: null, error: e.message, youtubeUrl, discordUrl };
     }
+
+    // Vẫn trả script để có nút Copy ngay cả khi GitHub đang lỗi.
+    return {
+        snippet: `eval(atob('${Buffer.from(content).toString('base64')}'));`,
+        rawUrl: null,
+        error,
+        fallback: true,
+        youtubeUrl,
+        discordUrl,
+    };
 }
 
 /** Nhận chuỗi đã copy: email|mật khẩu|token:...|userid:... */
@@ -541,28 +566,31 @@ async function buyMeows(provider) {
     // UGPhone trả Local Storage trong "Nội dung chính" — tách riêng, không đổ cả raw JSON.
     if (key === 'UG') {
         const payload = parseUgPhonePayload(data || raw);
-        if (payload) {
-            const ug = ugPhoneInfo(payload);
-            const inject = await buildUgInjectSnippet(ug);
-            return {
-                ok: true,
-                kind: 'ugphone',
-                account: ug.id,
-                password: ug.token,
-                token: ug.token,
-                userId: ug.id,
-                copyText: ug.copyText,
-                fields: ug.fields,
-                injectSnippet: inject.snippet,
-                injectRawUrl: inject.rawUrl || null,
-                injectError: inject.error || null,
-                youtubeUrl: inject.youtubeUrl,
-                discordUrl: inject.discordUrl,
-                details: payload,
-                message: (data && (data.message || data.msg)) || 'Mua thành công',
-                source: result.source,
-            };
-        }
+        const ug = payload ? ugPhoneInfo(payload) : null;
+        // Dù API đổi format vẫn trả kind=ugphone + script để FE luôn có nút Copy.
+        const copyText = ug
+            ? ug.copyText
+            : (data ? JSON.stringify(data, null, 2) : String(raw || ''));
+        const inject = await buildUgInjectSnippet({ copyText });
+        return {
+            ok: true,
+            kind: 'ugphone',
+            account: ug ? ug.id : null,
+            password: ug ? ug.token : null,
+            token: ug ? ug.token : null,
+            userId: ug ? ug.id : null,
+            copyText,
+            fields: ug ? ug.fields : [],
+            injectSnippet: inject.snippet,
+            injectRawUrl: inject.rawUrl || null,
+            injectError: inject.error || (payload ? null : 'Không tách được Local Storage UGPhone từ response'),
+            injectFallback: !!inject.fallback,
+            youtubeUrl: inject.youtubeUrl,
+            discordUrl: inject.discordUrl,
+            details: payload || data || raw,
+            message: (data && (data.message || data.msg)) || 'Mua thành công',
+            source: result.source,
+        };
     }
 
     const info = extractMeowsInfo(data) || {};

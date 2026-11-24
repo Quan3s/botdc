@@ -165,7 +165,7 @@ function getTodayString() {
 // ==========================================
 // PHẦN 1: WEB SERVER (NHẬN XU)
 // ==========================================
-const REDEEM_ASSET_VERSION = '20261124f';
+const REDEEM_ASSET_VERSION = '20261124g';
 const BROWSER_COOKIE = 'asynctas_browser';
 
 function escapeHtml(value) {
@@ -1000,11 +1000,15 @@ async function buyMeowsForUser(interaction, userId, provider) {
         ? { text: `${result.account}|${result.password}`, label: 'Copy email|pass' }
         : null;
     if (result.injectSnippet) {
-        lines.push(`🧩 Script giải UGPhone: \`\`\`${result.injectSnippet}\`\`\``);
-        if (result.injectRawUrl) lines.push(`🔗 Gist: ${result.injectRawUrl}`);
+        // Fallback tự chứa base64 rất dài: không đưa vào nội dung Discord (giới hạn 2000 ký tự).
+        if (!result.injectFallback) {
+            lines.push(`🧩 Script giải UGPhone: \`\`\`${result.injectSnippet}\`\`\``);
+            if (result.injectRawUrl) lines.push(`🔗 Gist: ${result.injectRawUrl}`);
+        }
         extraCopy = { text: result.injectSnippet, label: 'Copy script giải' };
-    } else if (result.injectError) {
-        lines.push(`⚠️ Chưa tạo được script giải: ${result.injectError}`);
+    }
+    if (result.injectError) {
+        lines.push(`⚠️ Script giải (dự phòng): ${String(result.injectError).slice(0, 120)}`);
     }
     return sendAccountWithCopy(interaction, {
         header: `Mua ${MEOWS_NAMES[provider]} thành công!`,
