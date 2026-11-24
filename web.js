@@ -57,24 +57,42 @@ function envAdminIds() {
     return (process.env.ADMIN_DISCORD_ID || '').split(',').map(s => s.trim()).filter(Boolean);
 }
 
+/** IP admin (tuỳ chọn) hoàn toàn không bị rate limit: ADMIN_IP_WHITELIST=1.2.3.4,5.6.7.8 */
+function isWhitelistedAdminIp(req) {
+    const list = (process.env.ADMIN_IP_WHITELIST || '').split(',').map(s => s.trim()).filter(Boolean);
+    const ip = String(req.ip || '');
+    const forwarded = String(req.get('x-forwarded-for') || '').split(',')[0].trim();
+    return list.includes(ip) || (!!forwarded && list.includes(forwarded));
+}
+
 async function isDiscordAdmin(discordId) {
     if (!discordId) return false;
     if (envAdminIds().includes(String(discordId))) return true;
     try { return await db.isAdmin(discordId); } catch (e) { return false; }
 }
 
+async function isAdminUser(user) {
+    if (!user) return false;
+    return isDiscordAdmin(user.discord_id);
+}
+
 function balanceKey(user) {
     return user.discord_id ? String(user.discord_id) : `web_${user.id}`;
 }
 
-/** 1 device/browser chỉ gắn với 1 tài khoản. Trả false nếu device đã gắn user khác. */
-async function bindDevice(req, res, userId) {
+/** 1 device/browser chỉ gắn với 1 tài khoản. Admin được phép chiếm lại device đang test. */
+async function bindDevice(req, res, userId, allowRebind = false) {
     const deviceId = String(req.body.deviceId || req.get('x-device-id') || '').trim();
     if (!deviceId || typeof db.getDeviceAccount !== 'function') return true;
     const existing = await db.getDeviceAccount(deviceId);
     if (existing && String(existing.user_id) !== String(userId)) {
-        res.status(409).json({ error: 'Thiết bị này đã gắn với tài khoản khác. Hãy dùng tài khoản đó hoặc thiết bị khác.' });
-        return false;
+        if (!allowRebind) {
+            res.status(409).json({ error: 'Thiết bị này đã gắn với tài khoản khác. Hãy dùng tài khoản đó hoặc thiết bị khác.' });
+            return false;
+        }
+        // Admin đăng nhập từ device đang gắn tài khoản test -> chuyển quyền sở hữu device.
+        await db.bindDeviceAccount(deviceId, userId);
+        return true;
     }
     if (!existing && typeof db.bindDeviceAccount === 'function') {
         await db.bindDeviceAccount(deviceId, userId);
@@ -175,7 +193,9 @@ async function refreshSessionUser(req) {
 
 // rate limit đơn giản trong bộ nhớ
 const rateBuckets = new Map();
-function rateLimit(key, max, windowMs) {
+function rateLimit(key, max, windowMs, bypass = false) {
+    // Admin không bị giới hạn bởi IP/device — kể cả khi đang test bằng tài khoản khác.
+    if (bypass) return true;
     const now = Date.now();
     const bucket = rateBuckets.get(key);
     if (!bucket || now > bucket.reset) {
@@ -283,7 +303,9 @@ async function discordUsername(id) {
 // ==================== AUTH ====================
 router.post('/api/auth/register', ah(async (req, res) => {
     const ip = req.ip || 'unknown';
-    if (!rateLimit(`reg:${ip}`, 10, 60 * 60 * 1000)) return res.status(429).json({ error: 'Quá nhiều lần thử, vui lòng đợi.' });
+    if (!rateLimit(`reg:${ip}`, 10, 60 * 60 * 1000, isWhitelistedAdminIp(req))) {
+        return res.status(429).json({ error: 'Quá nhiều lần thử, vui lòng đợi.' });
+    }
 
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
@@ -319,11 +341,14 @@ router.post('/api/auth/register', ah(async (req, res) => {
 
 router.post('/api/auth/login', ah(async (req, res) => {
     const ip = req.ip || 'unknown';
-    if (!rateLimit(`login:${ip}`, 20, 15 * 60 * 1000)) return res.status(429).json({ error: 'Quá nhiều lần thử, vui lòng đợi.' });
-
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
     const user = await db.getWebUserByUsername(username);
+    // Admin không bị chặn bởi số lần thử theo IP hay theo device đã gắn tài khoản test.
+    const adminBypass = (await isAdminUser(user)) || isWhitelistedAdminIp(req);
+    if (!rateLimit(`login:${ip}`, 20, 15 * 60 * 1000, adminBypass)) {
+        return res.status(429).json({ error: 'Quá nhiều lần thử, vui lòng đợi.' });
+    }
     if (!user || !verifyPassword(password, user.password_hash)) {
         return res.status(401).json({ error: 'Sai tên đăng nhập hoặc mật khẩu.' });
     }
@@ -334,7 +359,7 @@ router.post('/api/auth/login', ah(async (req, res) => {
             currentUsername: user.username,
         });
     }
-    if (!(await bindDevice(req, res, user.id))) return;
+    if (!(await bindDevice(req, res, user.id, adminBypass))) return;
     await createSession(req, res, user.id);
     hook('web:user:login', { id: user.id, username: user.username, method: 'password', ip: req.ip });
     res.json({ user: await publicUser(user) });
@@ -370,7 +395,10 @@ router.post('/api/auth/claim-username', ah(async (req, res) => {
 // Đăng nhập bằng token Discord (token cố định = link_token trên web)
 router.post('/api/auth/discord-token', ah(async (req, res) => {
     const ip = req.ip || 'unknown';
-    if (!rateLimit(`tok:${ip}`, 20, 15 * 60 * 1000)) return res.status(429).json({ error: 'Quá nhiều lần thử, vui lòng đợi.' });
+    const adminBypass = isWhitelistedAdminIp(req);
+    if (!rateLimit(`tok:${ip}`, 20, 15 * 60 * 1000, adminBypass)) {
+        return res.status(429).json({ error: 'Quá nhiều lần thử, vui lòng đợi.' });
+    }
 
     const token = String(req.body.token || '').trim();
     if (!/^[A-Za-z0-9]{64}$/.test(token)) {
@@ -386,7 +414,8 @@ router.post('/api/auth/discord-token', ah(async (req, res) => {
             token,
         });
     }
-    if (!(await bindDevice(req, res, user.id))) return;
+    const tokenAdmin = (await isAdminUser(user)) || adminBypass;
+    if (!(await bindDevice(req, res, user.id, tokenAdmin))) return;
     await createSession(req, res, user.id);
     hook('web:user:login', { id: user.id, username: user.username, method: 'discord-token', discordId: user.discord_id || null });
     res.json({ user: await publicUser(user) });
