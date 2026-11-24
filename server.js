@@ -707,21 +707,31 @@ function buildRegPanel(ownerId) {
     return { embeds: [main, ugEmbed, vsEmbed], components: [row] };
 }
 
-// Lưu tài khoản tạm vào KV để nút "Copy" gửi lại đúng định dạng account|password
-async function sendAccountWithCopy(interaction, { header, copyText, lines }) {
-    const copyId = crypto.randomBytes(8).toString('hex');
-    try {
-        await db.setKv(`copyacc:${copyId}`, JSON.stringify({ text: copyText, exp: Date.now() + 24 * 60 * 60 * 1000 }));
-    } catch (e) {
-        console.error('[copy] không lưu được dữ liệu copy:', e.message);
+// Lưu tài khoản tạm vào KV để nút "Copy" gửi lại đúng nội dung (có thể thêm nút copy phụ).
+async function sendAccountWithCopy(interaction, { header, copyText, lines, extraCopy = null, copyLabel = 'Copy acc|pass' }) {
+    const save = async (text) => {
+        const copyId = crypto.randomBytes(8).toString('hex');
+        try {
+            await db.setKv(`copyacc:${copyId}`, JSON.stringify({ text, exp: Date.now() + 24 * 60 * 60 * 1000 }));
+        } catch (e) {
+            console.error('[copy] không lưu được dữ liệu copy:', e.message);
+        }
+        return copyId;
+    };
+    const buttons = [];
+    if (extraCopy && extraCopy.text) {
+        buttons.push(new ButtonBuilder()
+            .setCustomId(`copy:${await save(extraCopy.text)}`)
+            .setLabel(extraCopy.label || 'Copy email|pass')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📋'));
     }
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(`copy:${copyId}`)
-            .setLabel('Copy acc|pass')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('📋')
-    );
+    buttons.push(new ButtonBuilder()
+        .setCustomId(`copy:${await save(copyText)}`)
+        .setLabel(copyLabel)
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📋'));
+    const row = new ActionRowBuilder().addComponents(...buttons);
     return interaction.editReply({ content: [`✅ ${header}`, ...lines].join('\n'), components: [row] });
 }
 
@@ -791,6 +801,10 @@ async function regVsphone(interaction, userId) {
         header: `Tạo VSPhone thành công! (Đã trừ ${REG_COST} xu)`,
         copyText: result.copyText,
         lines,
+        extraCopy: result.account && result.password
+            ? { text: `${result.account}|${result.password}`, label: 'Copy email|pass' }
+            : null,
+        copyLabel: 'Copy đầy đủ',
     });
 }
 
@@ -821,10 +835,23 @@ async function buyMeowsForUser(interaction, userId, provider) {
     if (result.token) lines.push(`🎫 Token: \`${result.token}\``);
     if (result.userId) lines.push(`🆔 User ID: \`${result.userId}\``);
     if (!result.account && !result.password) lines.push(`📄 Dữ liệu: \`\`\`${String(copyText).slice(0, 600)}\`\`\``);
+
+    let extraCopy = result.account && result.password
+        ? { text: `${result.account}|${result.password}`, label: 'Copy email|pass' }
+        : null;
+    if (result.injectSnippet) {
+        lines.push(`🧩 Script giải UGPhone: \`\`\`${result.injectSnippet}\`\`\``);
+        if (result.injectRawUrl) lines.push(`🔗 Gist: ${result.injectRawUrl}`);
+        extraCopy = { text: result.injectSnippet, label: 'Copy script giải' };
+    } else if (result.injectError) {
+        lines.push(`⚠️ Chưa tạo được script giải: ${result.injectError}`);
+    }
     return sendAccountWithCopy(interaction, {
         header: `Mua ${MEOWS_NAMES[provider]} thành công!`,
         copyText,
         lines,
+        extraCopy,
+        copyLabel: extraCopy ? 'Copy đầy đủ' : 'Copy acc|pass',
     });
 }
 

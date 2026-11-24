@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const nodeFetch = require('node-fetch');
 const { SocksProxyAgent } = require('socks-proxy-agent');
 const db = require('./database');
+const github = require('./github');
 
 const HANAMI_URL = 'https://hanaminikata.com/dev/buy_device_cloud';
 const CLOUD_NAMES = { UG: 'UGPhone', VM: 'VMOS', VS: 'VSPhone' };
@@ -246,8 +247,75 @@ function ugPhoneInfo(payload) {
     };
 }
 
+/** Sinh script nạp localStorage UGPhone: gist thật + base64 thật + link social từ cấu hình. */
+async function buildUgInjectSnippet(ug) {
+    const readSocial = async (key, envKey, fallback) => {
+        try { return (await db.getKv(key)) || process.env[envKey] || fallback; }
+        catch (e) { return process.env[envKey] || fallback; }
+    };
+    const [youtubeUrl, discordUrl] = await Promise.all([
+        readSocial('youtube_url', 'YOUTUBE_URL', 'https://youtube.com'),
+        readSocial('discord_url', 'DISCORD_URL', 'https://discord.com'),
+    ]);
+    const content = [
+        `const data = ${ug.copyText};`,
+        '',
+        '// Xóa toàn bộ localStorage hiện tại',
+        'localStorage.clear();',
+        '',
+        '// Set dữ liệu mới',
+        'for (const key in data) {',
+        '  if (Object.prototype.hasOwnProperty.call(data, key)) {',
+        '    localStorage.setItem(key, data[key]);',
+        '  }',
+        '}',
+        '',
+        'console.log(',
+        '  `%c🤑 Đã xóa và nhập localStorage! 🌸 \\n%cBây giờ bạn chỉ cần reload trang Ugphone Cloud là xong!\\n\\n%cYouTube: ' + youtubeUrl + '\\nDiscord: ' + discordUrl + '`,',
+        "  'color: #4c00ffff; font-size: 16px; font-weight: bold;',",
+        "  'color: #ff8c00; font-size: 15px; font-weight: bold;',",
+        "  'color: #ffffff; font-size: 10px;'",
+        ');',
+    ].join('\n');
+
+    try {
+        const gist = await github.createGist('asynctas-ugphone.js', content, 'ASYNCTAS UGPhone localStorage import');
+        const rawUrl = `${String(gist.url || '').replace('https://gist.github.com/', 'https://gist.githubusercontent.com/').replace(/\/$/, '')}/raw`;
+        return {
+            snippet: `fetch(atob('${Buffer.from(rawUrl).toString('base64')}')).then(r => r.text()).then(eval);`,
+            rawUrl,
+            youtubeUrl,
+            discordUrl,
+        };
+    } catch (e) {
+        return { snippet: null, error: e.message, youtubeUrl, discordUrl };
+    }
+}
+
+/** Nhận chuỗi đã copy: email|mật khẩu|token:...|userid:... */
+function parseVsphonePipe(raw) {
+    const text = String(raw || '').trim();
+    if (!text.includes('|')) return null;
+    const parts = text.split('|').map(s => s.trim()).filter(Boolean);
+    if (parts.length < 2) return null;
+    const email = parts[0];
+    const password = parts[1].replace(/^password\s*:\s*/i, '');
+    let token = null;
+    let userId = null;
+    for (const part of parts.slice(2)) {
+        const m = /^(token|userid|user_id|user\s*id)\s*:\s*(.+)$/i.exec(part);
+        if (!m) continue;
+        if (/^token/i.test(m[1])) token = m[2].trim();
+        else userId = m[2].trim();
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !password || !token || !userId) return null;
+    return { email, password, token, userId, orderId: null, devices: [] };
+}
+
 /** Đọc full response VSPhone Fast-buy mà user dán vào (có thể kèm markdown/~ $). */
 function parseVsphoneFastResponse(raw) {
+    const piped = parseVsphonePipe(raw);
+    if (piped) return piped;
     const parsed = parseLooseJson(raw);
     if (!parsed || typeof parsed !== 'object') return null;
     let data = parsed.data || parsed.result || parsed.info || parsed;
@@ -475,6 +543,7 @@ async function buyMeows(provider) {
         const payload = parseUgPhonePayload(data || raw);
         if (payload) {
             const ug = ugPhoneInfo(payload);
+            const inject = await buildUgInjectSnippet(ug);
             return {
                 ok: true,
                 kind: 'ugphone',
@@ -484,6 +553,11 @@ async function buyMeows(provider) {
                 userId: ug.id,
                 copyText: ug.copyText,
                 fields: ug.fields,
+                injectSnippet: inject.snippet,
+                injectRawUrl: inject.rawUrl || null,
+                injectError: inject.error || null,
+                youtubeUrl: inject.youtubeUrl,
+                discordUrl: inject.discordUrl,
                 details: payload,
                 message: (data && (data.message || data.msg)) || 'Mua thành công',
                 source: result.source,
@@ -741,7 +815,9 @@ module.exports = {
     ugPhoneInfo,
     buyMeows,
     parseVsphoneFastResponse,
+    parseVsphonePipe,
     accountCopyText,
+    buildUgInjectSnippet,
     extractMeowsInfo,
     getVsphoneShareLink,
     normalizeStatusProxy,

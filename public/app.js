@@ -2064,9 +2064,13 @@ $$('[data-reg]').forEach(btn => btn.addEventListener('click', async () => {
       ${data.token ? `<div>${esc(t('device.tokenLabel'))}: <code>${esc(data.token)}</code></div>` : ''}
       ${data.userId ? `<div>${esc(t('device.userIdLabel'))}: <code>${esc(data.userId)}</code></div>` : ''}
       <div class="accounts-box">${esc(data.copyText)}</div>
-      <div class="copy-row"><button class="btn btn-soft btn-sm" id="reg-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
+      <div class="copy-row">
+        ${data.service === 'vsphone' && data.account && data.password ? `<button class="btn btn-soft btn-sm" id="reg-copy-pass">${icon('copy', 14)}<span>${esc(t('device.copyPass'))}</span></button>` : ''}
+        <button class="btn btn-soft btn-sm" id="reg-copy">${icon('copy', 14)}<span>${esc(t(data.service === 'vsphone' ? 'device.copyFull' : 'shop.copyAll'))}</span></button>
+      </div>`;
     box.classList.remove('hidden');
     $('#reg-copy').addEventListener('click', ev => copyText(data.copyText, ev.currentTarget));
+    $('#reg-copy-pass')?.addEventListener('click', ev => copyText(`${data.account}|${data.password}`, ev.currentTarget));
     await refreshUser();
   } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
   finally { btn.disabled = false; }
@@ -2082,6 +2086,7 @@ $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
   try {
     const data = await api('/api/device/meows', { method: 'POST', body: JSON.stringify({ provider }) });
     box.className = 'result-box';
+    const isVip = provider === 'VSVIP';
     const ugFields = data.kind === 'ugphone' && Array.isArray(data.fields) ? data.fields : [];
     box.innerHTML = `
       <div>${esc(name)} · ${esc(t('device.newBalance', { amount: num(data.newBalance) }))}</div>
@@ -2095,9 +2100,25 @@ $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
       ${data.token ? `<div>${esc(t('device.tokenLabel'))}: <code>${esc(data.token)}</code></div>` : ''}
       ${data.userId ? `<div>${esc(t('device.userIdLabel'))}: <code>${esc(data.userId)}</code></div>` : ''}
       <div class="accounts-box">${esc(data.copyText)}</div>
-      <div class="copy-row"><button class="btn btn-soft btn-sm" id="meows-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
+      ${data.kind === 'ugphone' ? `
+        ${data.injectSnippet ? `
+          <div class="ug-script">
+            <b>${esc(t('device.ugScriptTitle'))}</b>
+            <pre class="ug-script-code">${esc(data.injectSnippet)}</pre>
+            <div class="ug-social">
+              <a href="${esc(data.youtubeUrl || 'https://youtube.com')}" target="_blank" rel="noopener">YouTube</a>
+              <a href="${esc(data.discordUrl || 'https://discord.com')}" target="_blank" rel="noopener">Discord</a>
+            </div>
+            <div class="copy-row"><button class="btn btn-soft btn-sm" id="meows-copy-script">${icon('copy', 14)}<span>${esc(t('device.copyScript'))}</span></button></div>
+          </div>` : data.injectError ? `<div class="result-box error">${esc(t('device.injectError', { error: data.injectError }))}</div>` : ''}` : ''}
+      <div class="copy-row">
+        ${isVip && data.account && data.password ? `<button class="btn btn-soft btn-sm" id="meows-copy-pass">${icon('copy', 14)}<span>${esc(t('device.copyPass'))}</span></button>` : ''}
+        <button class="btn btn-soft btn-sm" id="meows-copy">${icon('copy', 14)}<span>${esc(t(isVip ? 'device.copyFull' : 'shop.copyAll'))}</span></button>
+      </div>`;
     box.classList.remove('hidden');
     $('#meows-copy').addEventListener('click', ev => copyText(data.copyText, ev.currentTarget));
+    $('#meows-copy-pass')?.addEventListener('click', ev => copyText(`${data.account}|${data.password}`, ev.currentTarget));
+    $('#meows-copy-script')?.addEventListener('click', ev => copyText(data.injectSnippet, ev.currentTarget));
     await refreshUser();
   } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
   finally { btn.disabled = false; }

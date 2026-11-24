@@ -375,6 +375,12 @@ textarea { resize: vertical; }
 .ug-field > span { color: var(--muted); }
 .ug-field code { color: #b9ffd8; white-space: pre-wrap; word-break: break-all; }
 .ug-field code.ug-long { max-height: 64px; overflow: auto; }
+.ug-script { margin-top: 12px; padding: 11px 13px; border: 1px solid var(--border-strong); border-radius: 11px; background: rgba(57,245,138,.05); }
+.ug-script > b { color: var(--accent); }
+.ug-script-code { margin: 8px 0; padding: 9px 11px; background: rgba(0,0,0,.4); border: 1px solid var(--border); border-radius: 9px; font-family: ui-monospace, monospace; font-size: 12px; color: #b9ffd8; white-space: pre-wrap; word-break: break-all; }
+.ug-social { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; }
+.ug-social a { color: #7fd8ff; text-decoration: underline; }
+[data-theme="bubble"] .ug-script { background: rgba(255,255,255,.06); }
 .share-link { margin-bottom: 10px; padding: 9px 11px; border: 1px solid rgba(0,176,244,.45); border-radius: 9px; background: rgba(0,176,244,.08); word-break: break-all; }
 .share-link a { color: #7fd8ff; text-decoration: underline; }
 [data-theme="bubble"] .share-link { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.22); }
