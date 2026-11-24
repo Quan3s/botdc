@@ -64,7 +64,12 @@ async function takeStock(item, quantity) {
         // (parseLines bỏ qua dòng # nên vẫn đọc ra 0 tài khoản).
         const nextContent = remaining.length ? remaining.join('\n') : '# HẾT HÀNG\n';
         await github.writeGistFile(item.gist_id, item.gist_filename, nextContent);
-        return { accounts, remaining: remaining.length, stockFields: { stock: remaining.length } };
+        // User Shop đọc tồn từ line_count, Shop hệ thống đọc từ stock -> cập nhật cả hai.
+        return {
+            accounts,
+            remaining: remaining.length,
+            stockFields: { stock: remaining.length, line_count: remaining.length },
+        };
     }
 
     const current = linesFromText(item.stock_content || '');
@@ -74,7 +79,11 @@ async function takeStock(item, quantity) {
     return {
         accounts,
         remaining: remaining.length,
-        stockFields: { stock: remaining.length, stock_content: remaining.length ? remaining.join('\n') : '# HẾT HÀNG\n' },
+        stockFields: {
+            stock: remaining.length,
+            line_count: remaining.length,
+            stock_content: remaining.length ? remaining.join('\n') : '# HẾT HÀNG\n',
+        },
     };
 }
 

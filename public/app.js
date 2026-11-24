@@ -1130,11 +1130,12 @@ function buyUserShopProduct(productId) {
           const quantity = Math.max(1, Number(wrap.querySelector('#us-qty').value) || 1);
           btn.disabled = true;
           try {
-            await api(`/api/user-shop/${encodeURIComponent(d.shop.id)}/buy`, {
+            const bought = await api(`/api/user-shop/${encodeURIComponent(d.shop.id)}/buy`, {
               method: 'POST', body: JSON.stringify({ productId, quantity }),
             });
             closeModal();
             toast(t('userShop.buySuccess'));
+            showAccountsModal(product.name, (bought.order && bought.order.accounts) || []);
             await Promise.all([refreshUser(), loadOrders()]);
             openUserShop(d.shop.id);
           } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
@@ -1214,13 +1215,18 @@ async function handleOrderAction(action, id) {
     return;
   }
   if (action === 'view') {
+    const accounts = order.accounts || [];
     openModal({
       title: t('orders.viewTitle'),
       body: `<pre class="accounts-box">${esc(t('orders.viewBody', {
         id, item: order.itemName || '—', shop: order.shopName || '—', qty: num(order.quantity),
         total: priceLabel(order.total, order.currency), status: statusLabel(order.status),
-      }))}</pre>`,
-      actions: [{ label: t('shop.close'), className: 'btn-primary', onClick: closeModal }],
+      }))}</pre>
+      ${accounts.length ? `<div class="accounts-box">${esc(accounts.join('\n'))}</div>` : ''}`,
+      actions: [
+        ...(accounts.length ? [{ label: t('shop.copyAll'), onClick: btn => copyText(accounts.join('\n'), btn) }] : []),
+        { label: t('shop.close'), className: 'btn-primary', onClick: closeModal },
+      ],
     });
     api(`/api/orders/${encodeURIComponent(id)}/view`, { method: 'POST' }).catch(() => {});
     return;

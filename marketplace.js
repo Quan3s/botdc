@@ -289,6 +289,13 @@ function publicOrder(order, forBuyer = false) {
     return out;
 }
 
+/** Tồn thực tế: ưu tiên số nhỏ hơn giữa stock và line_count để sửa dữ liệu cũ bị lệch. */
+function effectiveStock(item) {
+    const values = [Number(item && item.stock), Number(item && item.line_count)]
+        .filter(Number.isFinite).map(v => Math.max(0, v));
+    return values.length ? Math.min(...values) : 0;
+}
+
 function publicProduct(item) {
     return {
         id: item.id,
@@ -297,7 +304,7 @@ function publicProduct(item) {
         price: Number(item.price_value === undefined ? item.price : item.price_value) || 0,
         currency: item.currency === 'acoin' ? 'acoin' : 'coin',
         priceText: item.currency === 'acoin' ? `$${Number(item.price_value === undefined ? item.price : item.price_value)}` : String(Number(item.price_value === undefined ? item.price : item.price_value)),
-        stock: Number(item.line_count === undefined ? item.stock : item.line_count) || 0,
+        stock: effectiveStock(item),
         active: item.active !== false,
         logoUrl: item.logo_url || '',
         maxLines: Math.min(2000, Math.max(1, parseInt(item.max_lines, 10) || 2000)),
@@ -509,7 +516,7 @@ router.get('/api/seller/dashboard', requireAuth, requireSeller, ah(async (req, r
     const activeProducts = products.filter(p => p.active !== false);
 
     const stats = {
-        accountsImported: products.reduce((s, p) => s + (Number(p.line_count === undefined ? p.stock : p.line_count) || 0), 0),
+        accountsImported: products.reduce((s, p) => s + effectiveStock(p), 0),
         shops: shops.length,
         activeShops: shops.length,
         pendingCoin: net(heldOrders),
@@ -638,11 +645,11 @@ router.post('/api/seller/product/:id/accounts', requireAuth, requireSeller, ah(a
     const added = github.parseLines(accountsText);
     if (!added.length) return res.status(400).json({ error: 'Danh sách tài khoản trống.' });
     const maxLines = Math.min(2000, Math.max(1, parseInt(item.max_lines, 10) || 2000));
-    const currentStock = Number(item.line_count === undefined ? item.stock : item.line_count) || 0;
+    const currentStock = effectiveStock(item);
     if (currentStock + added.length > maxLines) return res.status(400).json({ error: `Tối đa ${maxLines} tài khoản cho mỗi sản phẩm.` });
 
     const updatedStock = await shop.addStock(item, accountsText);
-    const patch = { stock: updatedStock.stock };
+    const patch = { stock: updatedStock.stock, line_count: updatedStock.stock };
     if (updatedStock.stock_content !== undefined) patch.stock_content = updatedStock.stock_content;
     if (updatedStock.gist_id) { patch.gist_id = updatedStock.gist_id; patch.gist_filename = updatedStock.gist_filename; }
     const row = await db.updateShopItem(item.id, patch);
@@ -864,7 +871,7 @@ router.post('/api/user-shop/:id/buy', requireAuth, ah(async (req, res) => {
     }
     const quantity = toInt(req.body.quantity, 1);
     if (quantity < 1 || quantity > 50) return res.status(400).json({ error: 'Số lượng từ 1-50.' });
-    const stock = Number(product.line_count === undefined ? product.stock : product.line_count) || 0;
+    const stock = effectiveStock(product);
     if (stock < quantity) return res.status(400).json({ error: `Kho chỉ còn ${stock} sản phẩm.` });
     const total = (Number(product.price_value === undefined ? product.price : product.price_value) || 0) * quantity;
     if (total <= 0) return res.status(400).json({ error: 'Giá sản phẩm không hợp lệ.' });
