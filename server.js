@@ -505,10 +505,10 @@ client.once('ready', async () => {
         new SlashCommandBuilder().setName('wallpaper').setDescription('(Admin) Đổi ảnh nền web')
             .addStringOption(o => o.setName('url').setDescription('URL ảnh http(s), để trống để xem hiện tại').setRequired(false))
             .addBooleanOption(o => o.setName('xoa').setDescription('Đặt lại ảnh nền mặc định').setRequired(false)),
-        new SlashCommandBuilder().setName('proxy').setDescription('(Admin) Xem / đổi proxy trạng thái Meows')
+        new SlashCommandBuilder().setName('proxy').setDescription('(Admin) Xem / đổi proxy trạng thái cloud')
             .addStringOption(o => o.setName('proxy').setDescription('URL proxy mới, để trống để xem hiện tại').setRequired(false))
             .addBooleanOption(o => o.setName('xoa').setDescription('Xoá proxy đang dùng').setRequired(false)),
-        new SlashCommandBuilder().setName('cookie').setDescription('(Admin) Cập nhật cookie Meows dùng cho mua máy')
+        new SlashCommandBuilder().setName('cookie').setDescription('(Admin) Cập nhật cookie mua nhanh dùng cho mua máy')
             .addStringOption(o => o.setName('cookie').setDescription('Cookie mới (không hiện lại nội dung)').setRequired(false))
             .addBooleanOption(o => o.setName('xoa').setDescription('Xoá cookie hiện tại').setRequired(false)),
         new SlashCommandBuilder().setName('reg').setDescription('Tạo tài khoản cloud nhanh (Panel chọn dịch vụ)'),
@@ -520,7 +520,13 @@ client.once('ready', async () => {
                 .addChoices({ name: 'UGPhone', value: 'UG' }, { name: 'VMOS', value: 'VM' }, { name: 'VSPhone', value: 'VS' }))
             .addStringOption(o => o.setName('server').setDescription('Khu vực (bắt buộc với UGPhone)').setRequired(false)
                 .addChoices({ name: 'Singapore', value: 'SG' }, { name: 'Hong Kong', value: 'HK' }, { name: 'Japan', value: 'JP' }, { name: 'Germany', value: 'DE' }, { name: 'US', value: 'US' })),
-        new SlashCommandBuilder().setName('meows').setDescription('Mua nhanh UGPhone (49 xu) hoặc VSPhone VIP (15 xu)')
+        new SlashCommandBuilder().setName('asynctas').setDescription('Mua nhanh UGPhone (49 xu) hoặc VSPhone VIP (15 xu)')
+            .addStringOption(o => o.setName('provider').setDescription('Chọn dịch vụ').setRequired(true)
+                .addChoices(
+                    { name: 'UGPhone — 49 xu', value: 'UG' },
+                    { name: 'VSPhone VIP — 15 xu', value: 'VSVIP' }
+                )),
+        new SlashCommandBuilder().setName('meows').setDescription('(Lệnh cũ) Mua nhanh UGPhone (49 xu) hoặc VSPhone VIP (15 xu)')
             .addStringOption(o => o.setName('provider').setDescription('Chọn dịch vụ').setRequired(true)
                 .addChoices(
                     { name: 'UGPhone — 49 xu', value: 'UG' },
@@ -664,7 +670,7 @@ function buildRegPanel(ownerId) {
             '• VMOS Free — 0 xu (1 link/ngày)',
             `• VSPhone — ${vsReady ? `${REG_COST} xu` : 'Sắp có'}`,
             '',
-            '**Mua nhanh Meows**',
+            '**Mua nhanh ASYNCTAS**',
             `• UGPhone — ${MEOWS_COSTS.UG} xu`,
             `• VSPhone VIP — ${MEOWS_COSTS.VSVIP} xu`,
             '',
@@ -788,7 +794,7 @@ async function regVsphone(interaction, userId) {
     });
 }
 
-/** Dùng chung cho /meows và các nút mua nhanh trong /reg. Giả định busyUsers đã được giữ bởi caller. */
+/** Dùng chung cho /asynctas và các nút mua nhanh trong /reg. Giả định busyUsers đã được giữ bởi caller. */
 async function buyMeowsForUser(interaction, userId, provider) {
     const cost = MEOWS_COSTS[provider];
     if (!cost) return interaction.editReply({ content: '❌ Dịch vụ không hợp lệ.' });
@@ -1342,13 +1348,13 @@ client.on('interactionCreate', async interaction => {
             const raw = reset ? '' : interaction.options.getString('cookie');
             if (raw === null && !reset) {
                 const configured = !!(await services.getMeowsCookie());
-                return interaction.editReply({ content: `🍪 Cookie Meows: ${configured ? 'đã cấu hình' : 'chưa cấu hình'}.` });
+                return interaction.editReply({ content: `🍪 Cookie mua nhanh ASYNCTAS: ${configured ? 'đã cấu hình' : 'chưa cấu hình'}.` });
             }
             const cookie = reset ? '' : services.normalizeMeowsCookie(raw || '');
             await db.setKv(services.MEOWS_COOKIE_KEY, cookie);
             await db.setKv('meows_cookie_updated_at', new Date().toISOString());
             hook('bot:admin:cookie', { by: userId, configured: !!cookie });
-            return interaction.editReply({ content: cookie ? '✅ Đã cập nhật cookie Meows.' : '✅ Đã xoá cookie Meows.' });
+            return interaction.editReply({ content: cookie ? '✅ Đã cập nhật cookie ASYNCTAS.' : '✅ Đã xoá cookie ASYNCTAS.' });
         } catch (e) {
             return interaction.editReply({ content: `❌ Lỗi cài đặt: ${e.message}`.slice(0, 1900) });
         }
@@ -1381,8 +1387,8 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // LỆNH /meows — mua UGPhone / VSPhone VIP qua API Meows
-    if (interaction.commandName === 'meows') {
+    // LỆNH /asynctas (alias cũ: /meows) — mua UGPhone / VSPhone VIP.
+    if (interaction.commandName === 'asynctas' || interaction.commandName === 'meows') {
         const provider = String(interaction.options.getString('provider') || '').toUpperCase();
         const cost = MEOWS_COSTS[provider];
         if (!cost) return interaction.reply({ content: '❌ Dịch vụ không hợp lệ.', flags: MessageFlags.Ephemeral });
@@ -1395,7 +1401,7 @@ client.on('interactionCreate', async interaction => {
         try {
             return await buyMeowsForUser(interaction, userId, provider);
         } catch (error) {
-            console.error(`[meows:${provider}] lỗi:`, error);
+            console.error(`[asynctas:${provider}] lỗi:`, error);
             return interaction.editReply({ content: `❌ ${error.message}`.slice(0, 1900) });
         } finally {
             busyUsers.delete(userId);

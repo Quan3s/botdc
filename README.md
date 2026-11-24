@@ -6,18 +6,18 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 ## Tính năng
 
 ### Bot Discord
-- `/reg` — panel chọn dịch vụ: VMOS (10 xu), VSPhone (10 xu), **UGPhone (49 xu)** và **VSPhone VIP (15 xu)**. Hai dịch vụ Meows dùng chung luồng với `/meows`.
+- `/reg` — panel chọn dịch vụ: VMOS (10 xu), VSPhone (10 xu), **UGPhone (49 xu)** và **VSPhone VIP (15 xu)**. Hai dịch vụ mua nhanh dùng chung luồng với `/asynctas` (`/meows` là lệnh cũ, vẫn hoạt động).
 - `/buycloud` — mua máy cloud qua Hanami (UGPhone / VMOS / VSPhone).
 - `/getlink` — nhận link nhiệm vụ: **Link4M / LayMa +50 xu** (2 lượt/ngày), **bbmkts +25 xu** (1 lượt/ngày).
 - `/tasks` — xem tiến độ từng dịch vụ hôm nay (cùng dữ liệu `GET /api/tasks`).
 - `/vmosfree` — lấy 1 tài khoản VMOS free mỗi ngày (cần đã vượt ≥ 1 link).
 - `/cloudstatus` / `/cloudphone_status` — xem trạng thái VMOS Cloud / VSPhone (cùng nguồn với web). `/cloudphone_status lam_moi:true` bỏ cache như nút Làm mới trên web.
 - `/theme`, `/username`, `/history`, `/buy`, `/leaderboard` — đồng bộ các chức năng web (giao diện, tên tài khoản, lịch sử mua/chuyển, mua shop, BXH) lên Discord.
-- `/wallpaper`, `/proxy`, `/cookie` — (Admin) đổi ảnh nền, proxy trạng thái và cookie Meows ngay trong Discord.
+- `/wallpaper`, `/proxy`, `/cookie` — (Admin) đổi ảnh nền, proxy trạng thái và cookie dịch vụ mua nhanh ngay trong Discord.
 - `/shop` — xem danh sách sản phẩm, giá, logo và tồn kho.
 - `/connect <token>` — liên kết tài khoản web với Discord để **cộng dồn coin** (coin web + coin Discord).
 - `/token` — lấy **token cố định** của tài khoản (bằng `web_users.link_token`); dùng để đăng nhập web hoặc `/connect`.
-- `/meows` — mua nhanh **UGPhone (49 xu)** hoặc **VSPhone VIP (15 xu)**.
+- `/asynctas` — mua nhanh **UGPhone (49 xu)** hoặc **VSPhone VIP (15 xu)** (alias cũ: `/meows`).
 - `/plugin ten:lenh` — gọi lệnh do plugin đăng ký.
 - `/vi`, `/daily`, `/code`, `/pay`, `/star`, `/sdone`, `/adcoin`, `/gen`, `/op`, `/unop`, `/clear`.
 - `/seller` — gửi yêu cầu làm seller (`request`); admin duyệt (`trust`, chỉ định `user` hoặc `id`) và xem danh sách (`list`).
@@ -121,13 +121,13 @@ Admin được xác định bởi `ADMIN_DISCORD_ID` (owner) hoặc bảng `admi
 ### Cookie dịch vụ nhanh
 Vào **Quản trị → Cookie**, dán cookie lấy từ trang cung cấp dịch vụ (có thể dán cả chuỗi `.COOKIESECURITY=...` hoặc cả header `Cookie: ...`).
 Server tự lưu vào bảng `kv` (key `meows_cookie`) dạng `.COOKIESECURITY=<cookie>`; **không cần tạo bảng mới**.
-Cookie hết hạn chỉ cần cập nhật ở đây, không deploy lại. Dùng cho `/meows` và mục **Buy Device → Mua nhanh**.
+Cookie hết hạn chỉ cần cập nhật ở đây, không deploy lại. Dùng cho `/asynctas` và mục **Buy Device → Mua nhanh**.
 
 ### Proxy API (Render / WARP / Worker) — dùng chung
-IP Render bị Meows/Cloudflare chặn (`403 - Just a moment...`), nhưng **IP Cloudflare (WARP / Worker)** thì dùng được. Proxy này áp dụng cho:
+IP Render bị nhà cung cấp/Cloudflare chặn (`403 - Just a moment...`), nhưng **IP Cloudflare (WARP / Worker)** thì dùng được. Proxy này áp dụng cho:
 
 - **Cloud Status**
-- **Mua nhanh** Meows (UGPhone 49 xu / VSPhone VIP 15 xu)
+- **Mua nhanh** ASYNCTAS (UGPhone 49 xu / VSPhone VIP 15 xu)
 - **Mua UGPhone** qua Hanami (`Buy Device` / lệnh `reg`)
 
 **Render không cài được `warp-cli`** (cần `NET_ADMIN` + `/dev/net/tun`), nhưng **chạy được WARP userspace bằng `wireproxy` ngay trong Render** — xem mục **C** bên dưới (không cần VPS). Cloudflare Worker vẫn là phương án dự phòng.
@@ -199,7 +199,7 @@ Script sẽ **health check qua chính SOCKS5** trước khi bật proxy:
 
 Muốn tự đăng ký WARP ngay trên Render (không cần secret) thì thêm `WGCF_AUTO_REGISTER=1` — nhưng mỗi deploy sẽ ra identity mới, không khuyến khích.
 
-**Cách ly**: `wireproxy` là userspace, **không sửa routing table**. Nên chỉ request nào dùng `SocksProxyAgent` mới đi WARP — ở đây là Meows (status + mua nhanh). Discord gateway, Supabase, web UI, gift code... vẫn đi IP Render bình thường. Hanami mặc định **không** đi WARP; bật nếu cần: `HANAMI_USE_PROXY=1`.
+**Cách ly**: `wireproxy` là userspace, **không sửa routing table**. Nên chỉ request nào dùng `SocksProxyAgent` mới đi WARP — ở đây là luồng mua nhanh (status + mua nhanh). Discord gateway, Supabase, web UI, gift code... vẫn đi IP Render bình thường. Hanami mặc định **không** đi WARP; bật nếu cần: `HANAMI_USE_PROXY=1`.
 
 Ưu tiên env: `MEOWS_API_PROXY` → `MEOWS_STATUS_PROXY` → ô trong DB → gọi trực tiếp.
 

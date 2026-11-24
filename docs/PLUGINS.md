@@ -395,7 +395,7 @@ Không có event nào nhận raw `interaction`, `req` hoặc token/cookie trong 
 - `fetch` trong sandbox không bị whitelist domain; plugin có thể gọi HTTP ngoài. Chỉ cài plugin từ nguồn tin cậy.
 - Route plugin là **public** nếu không tự kiểm tra `req.webUser` / `api.bot.isAdmin`.
 - Chỉ admin mới được cài/sửa/xoá plugin qua API `requireAdmin`.
-- Cookie Meows, token Discord, PAT GitHub không được đưa vào event payload và không nên ghi log.
+- Cookie dịch vụ mua nhanh, token Discord, PAT GitHub không được đưa vào event payload và không nên ghi log.
 
 ---
 

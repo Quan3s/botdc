@@ -653,7 +653,7 @@ async function getCloudStatus({ force = false } = {}) {
             const reason = lastError
                 ? lastError.message
                 : (result && result.parsed && (result.parsed.message || result.parsed.error)) || 'API không trả dữ liệu';
-            errors.push(`Meows: ${reason}`);
+            errors.push(`ASYNCTAS: ${reason}`);
             meows = {
                 vmos: { status: 'offline', message: reason, lastBuyAt: null },
                 vsphone: { status: 'offline', message: reason, lastBuyAt: null },
