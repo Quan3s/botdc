@@ -968,7 +968,7 @@ router.get('/api/tasks', requireAuth, ah(async (req, res) => {
         gmailTop: await decorate(await gmailTasks.leaderboard(10), 'count'),
         period,
         star,
-        rewards: weekly.REWARDS,
+        rewards: await weekly.getRewards(),
         link4mReady: linkProviders.ready('link4m'),
         twoktrafficReady: linkProviders.ready('2ktraffic', req),
         bbmktsReady: linkProviders.ready('bbmkts'),
@@ -1108,14 +1108,14 @@ function weeklyQualified(rows) {
 router.get('/api/leaderboard/links', requireAuth, ah(async (req, res) => {
     const period = await weekly.getLinkPeriod();
     const top = weeklyQualified(await weekly.mergedLeaderboard(period, 100));
-    res.json({ leaderboard: await decorate(top.slice(0, 10), 'count'), period, rewards: weekly.REWARDS });
+    res.json({ leaderboard: await decorate(top.slice(0, 10), 'count'), period, rewards: await weekly.getRewards() });
 }));
 
 // Bảng vượt link 7 ngày (có thưởng, reset sau mỗi kỳ thanh toán)
 router.get('/api/leaderboard/links/week', requireAuth, ah(async (req, res) => {
     const period = await weekly.getLinkPeriod();
     const top = weeklyQualified(await weekly.mergedLeaderboard(period, 100));
-    res.json({ leaderboard: await decorate(top.slice(0, 10), 'count'), period, rewards: weekly.REWARDS });
+    res.json({ leaderboard: await decorate(top.slice(0, 10), 'count'), period, rewards: await weekly.getRewards() });
 }));
 
 // Bảng vượt link tổng (không có thưởng)
@@ -1343,6 +1343,28 @@ router.post('/api/admin/payout', requireAdmin, ah(async (req, res) => {
     const result = await weekly.runWeeklyPayout({ force: true });
     hook('web:admin:payout', { by: req.webUser.id, result });
     res.json({ ok: true, result });
+}));
+
+// Admin chỉnh mức thưởng tuần (lưu KV, có hiệu lực kỳ trả thưởng sau).
+router.get('/api/admin/weekly-rewards', requireAdmin, ah(async (req, res) => {
+    res.json({
+        rewards: await weekly.getRewards(),
+        defaults: weekly.DEFAULT_REWARDS,
+        minLinks: weekly.MIN_WEEKLY_LINKS,
+    });
+}));
+
+router.post('/api/admin/weekly-rewards', requireAdmin, ah(async (req, res) => {
+    let rewards;
+    try { rewards = await weekly.setRewards(req.body.rewards); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+    hook('web:admin:weekly-rewards', { by: req.webUser.id, rewards });
+    res.json({ ok: true, rewards, defaults: weekly.DEFAULT_REWARDS });
+}));
+
+router.delete('/api/admin/weekly-rewards', requireAdmin, ah(async (req, res) => {
+    const rewards = await weekly.resetRewards();
+    res.json({ ok: true, rewards, defaults: weekly.DEFAULT_REWARDS });
 }));
 
 // ==================== ADMIN: GIAO DIỆN ====================

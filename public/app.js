@@ -2457,7 +2457,7 @@ async function loadAdmin() {
     $('#admin-payouts').innerHTML = data.payouts.length
       ? data.payouts.map(p => `<div class="mini-row"><span>${esc(t('admin.period', { period: p.period }))}</span><b>${num(p.total)} coin</b></div>`).join('')
       : `<div class="empty">${esc(t('admin.noPayouts'))}</div>`;
-    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminGmail(), loadAdminBackground(), loadAdminSocial(), loadAdminLinkApi()]);
+    await Promise.all([loadAdminItems(), loadAdminUsers(), loadAdminPlugins(), loadMeowsCookie(), loadAdminGmail(), loadAdminBackground(), loadAdminSocial(), loadAdminLinkApi(), loadAdminWeeklyRewards()]);
     if (state.adminTab === 'market') loadAdminMarket();
   } catch (err) { toast(err.message, 'error'); }
 }
@@ -2469,7 +2469,7 @@ function switchAdminTab(tabName) {
   $$('.admin-tabs .tab').forEach(x => x.classList.toggle('active', x.dataset.admin === tabName));
   $$('.admin-sub').forEach(el => el.classList.toggle('hidden', el.id !== `admin-sub-${tabName}`));
   if (tabName === 'shop') loadAdminItems();
-  else if (tabName === 'user') loadAdminUsers().catch(() => {});
+  else if (tabName === 'user') { loadAdminUsers().catch(() => {}); loadAdminWeeklyRewards().catch(() => {}); }
   else if (tabName === 'plugin') loadAdminPlugins();
   else if (tabName === 'meows') loadMeowsCookie();
   else if (tabName === 'google') loadAdminGmail().catch(err => toast(err.message, 'error'));
@@ -2522,6 +2522,15 @@ async function loadAdminUsers() {
       </span>
     </div>`).join('') : `<div class="empty">${esc(t('admin.noPending'))}</div>`;
   $$('[data-adjust]').forEach(b => b.addEventListener('click', () => coinsModal(b.dataset.target, b.dataset.adjust)));
+}
+
+async function loadAdminWeeklyRewards() {
+  const input = $('#admin-weekly-rewards');
+  if (!input) return;
+  const data = await api('/api/admin/weekly-rewards');
+  input.value = (data.rewards || []).join(', ');
+  input.placeholder = (data.defaults || []).join(', ');
+  input.title = `Tối thiểu ${num(data.minLinks)} link để lên BXH.`;
 }
 
 let adminGmailCache = [];
@@ -3027,6 +3036,32 @@ $('#admin-create-btn').addEventListener('click', async e => {
 });
 
 $('#admin-refresh').addEventListener('click', loadAdminItems);
+$('#admin-weekly-rewards-save-btn').addEventListener('click', async () => {
+  const box = $('#admin-weekly-rewards-result');
+  try {
+    const data = await api('/api/admin/weekly-rewards', {
+      method: 'POST', body: JSON.stringify({ rewards: $('#admin-weekly-rewards').value }),
+    });
+    await loadAdminWeeklyRewards();
+    box.className = 'result-box';
+    setText(box, `${t('admin.weeklyRewardsSaved')} ${(data.rewards || []).join(', ')}`);
+    box.classList.remove('hidden');
+    toast(t('admin.weeklyRewardsSaved'));
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
+});
+
+$('#admin-weekly-rewards-reset-btn').addEventListener('click', async () => {
+  const box = $('#admin-weekly-rewards-result');
+  try {
+    await api('/api/admin/weekly-rewards', { method: 'DELETE' });
+    await loadAdminWeeklyRewards();
+    box.className = 'result-box';
+    setText(box, t('admin.weeklyRewardsReset'));
+    box.classList.remove('hidden');
+    toast(t('admin.weeklyRewardsReset'));
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
+});
+
 $('#admin-payout-btn').addEventListener('click', async e => {
   e.currentTarget.disabled = true;
   try {

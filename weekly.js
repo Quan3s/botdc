@@ -1,11 +1,13 @@
 /**
  * Thưởng bảng xếp hạng "vượt link" hàng tuần.
  *
- * Giải thưởng:
+ * Giải thưởng mặc định:
  *   Top 1     : 300 coin
  *   Top 2     : 150 coin
  *   Top 3     :  75 coin
  *   Top 4-10  :  40 coin
+ * Admin có thể đổi danh sách này qua /api/admin/weekly-rewards; lưu trong KV
+ * nên giữ nguyên qua các lần deploy.
  *
  * Tự động chạy vào Chủ nhật hằng tuần (giờ VN). Sau khi trả thưởng, kỳ mới
  * được bắt đầu (bộ đếm vượt link reset theo kỳ).
@@ -15,11 +17,64 @@ const db = require('./database');
 const gistStore = require('./gist-store');
 const { vnNow, getTodayString } = require('./utils');
 
-const REWARDS = [300, 150, 75, 40, 40, 40, 40, 40, 40, 40];
+const DEFAULT_REWARDS = [300, 150, 75, 40, 40, 40, 40, 40, 40, 40];
+/** Mảng legacy vẫn được giữ đồng bộ để plugin/client cũ đọc được. */
+const REWARDS = DEFAULT_REWARDS.slice();
+const REWARDS_KEY = 'weekly_rewards';
+let rewardsCache = null;
 /** Tối thiểu 5 link trong kỳ mới được lên BXH tuần / nhận thưởng. */
 const MIN_WEEKLY_LINKS = 5;
 const PERIOD_KEY = 'link_period_start';
 const LAST_PAYOUT_KEY = 'link_last_payout';
+
+/** Chấp nhận mảng số hoặc chuỗi "300, 150, 75". */
+function normalizeRewards(input) {
+    const raw = Array.isArray(input)
+        ? input
+        : String(input == null ? '' : input).split(/[\s,;|]+/).filter(Boolean);
+    if (!raw.length || raw.length > 50) throw new Error('Nhập từ 1 đến 50 mức thưởng.');
+    const values = raw.map(v => {
+        const n = Number(String(v).trim());
+        if (!Number.isInteger(n) || n < 0 || n > 1000000) {
+            throw new Error('Mức thưởng phải là số nguyên từ 0 đến 1.000.000.');
+        }
+        return n;
+    });
+    return values;
+}
+
+function applyRewards(values) {
+    rewardsCache = values.slice();
+    REWARDS.splice(0, REWARDS.length, ...values);
+    return rewardsCache.slice();
+}
+
+/** Đọc thưởng từ KV (cache trong bộ nhớ). Fallback về mặc định khi lỗi. */
+async function getRewards() {
+    if (rewardsCache) return rewardsCache.slice();
+    let values = DEFAULT_REWARDS.slice();
+    try {
+        const stored = await db.getKv(REWARDS_KEY);
+        if (stored) {
+            try { values = normalizeRewards(JSON.parse(stored)); }
+            catch (e1) {
+                try { values = normalizeRewards(stored); }
+                catch (e2) { values = DEFAULT_REWARDS.slice(); }
+            }
+        }
+    } catch (e) { /* giữ mặc định */ }
+    return applyRewards(values);
+}
+
+async function setRewards(input) {
+    const values = normalizeRewards(input);
+    await db.setKv(REWARDS_KEY, JSON.stringify(values));
+    return applyRewards(values);
+}
+
+async function resetRewards() {
+    return setRewards(DEFAULT_REWARDS);
+}
 
 async function getLinkPeriod() {
     const stored = await db.getKv(PERIOD_KEY);
@@ -96,10 +151,11 @@ async function runWeeklyPayout({ force = false } = {}) {
     const period = await getLinkPeriod();
     const top = (await mergedLeaderboard(period, 10, MIN_WEEKLY_LINKS))
         .filter(row => Number(row.count) >= MIN_WEEKLY_LINKS);
+    const rewards = await getRewards();
     const details = [];
 
     for (let i = 0; i < top.length; i++) {
-        const reward = REWARDS[i] || 0;
+        const reward = rewards[i] || 0;
         if (reward <= 0) continue;
         let userId = top[i].user_id;
         // Nếu user đã liên kết Discord thì cộng vào coin Discord (key = discord id)
@@ -128,6 +184,7 @@ async function runWeeklyPayout({ force = false } = {}) {
 }
 
 module.exports = {
-    REWARDS, MIN_WEEKLY_LINKS, getLinkPeriod, runWeeklyPayout, isSundayVn,
-    mergedLeaderboard, userLinkCount,
+    REWARDS, DEFAULT_REWARDS, REWARDS_KEY, MIN_WEEKLY_LINKS,
+    getRewards, setRewards, resetRewards, normalizeRewards,
+    getLinkPeriod, runWeeklyPayout, isSundayVn, mergedLeaderboard, userLinkCount,
 };

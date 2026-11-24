@@ -470,7 +470,7 @@ async function loadPlugin(row) {
         // --- Link / BXH / thưởng ---
         link: {
             period: () => weekly.getLinkPeriod(),
-            rewards: weekly.REWARDS,
+            rewards: () => weekly.getRewards(),
             providers: linkProviders.PROVIDERS,
             get: (id) => linkProviders.get(id),
             reward: (id) => linkProviders.rewardFor(id),
