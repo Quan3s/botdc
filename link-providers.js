@@ -11,12 +11,12 @@ const PROVIDERS = {
         dailyMax: 2,
         color: 0xffc107,
     },
-    layma: {
-        id: 'layma',
-        name: 'LayMa',
+    '2ktraffic': {
+        id: '2ktraffic',
+        name: '2ktraffic',
         reward: 50,
         dailyMax: 2,
-        color: 0x8b5cf6,
+        color: 0xf97316,
     },
     bbmkts: {
         id: 'bbmkts',
@@ -26,6 +26,20 @@ const PROVIDERS = {
         color: 0x22c55e,
     },
 };
+
+// Cookie httpOnly do admin đặt qua /api/admin/link-api-key; env là dự phòng.
+const API_KEY_COOKIE = 'asynctas_2k_key';
+const DEFAULT_2K_KEY = '2kt_4f97b69261c932afa33d194e2431f9db12c39cd98f606370';
+
+function cookieValue(req, name) {
+    const raw = req && req.headers && req.headers.cookie;
+    if (!raw) return '';
+    for (const part of String(raw).split(';')) {
+        const [key, ...rest] = part.trim().split('=');
+        if (key === name) return decodeURIComponent(rest.join('='));
+    }
+    return '';
+}
 
 function get(id) {
     return PROVIDERS[String(id || '').toLowerCase()] || null;
@@ -41,21 +55,25 @@ function dailyMaxFor(id) {
     return p ? p.dailyMax : 2;
 }
 
-function tokenFor(id) {
-    if (String(id) === 'bbmkts') {
-        return process.env.BBMKTS_API_TOKEN || process.env.VUOTNHANH_API_TOKEN || '';
+function tokenFor(id, req) {
+    switch (String(id)) {
+        case 'bbmkts':
+            return process.env.BBMKTS_API_TOKEN || process.env.VUOTNHANH_API_TOKEN || '';
+        case 'link4m':
+            return process.env.LINK4M_API_KEY || '';
+        case '2ktraffic':
+            return cookieValue(req, API_KEY_COOKIE) || process.env.TWOKTRAFFIC_API_KEY || DEFAULT_2K_KEY;
+        default:
+            return '';
     }
-    if (String(id) === 'link4m') return process.env.LINK4M_API_KEY || '';
-    if (String(id) === 'layma') return process.env.LAYMA_TOKEN || '';
-    return '';
 }
 
-function ready(id) {
-    return !!tokenFor(id);
+function ready(id, req) {
+    return !!tokenFor(id, req);
 }
 
 /** Rút gọn targetUrl. Ném lỗi nếu provider chưa cấu hình hoặc API trả về rỗng. */
-async function shorten(id, longUrl) {
+async function shorten(id, longUrl, req) {
     const provider = get(id);
     if (!provider) throw new Error('Dịch vụ không hợp lệ.');
     const target = String(longUrl || '');
@@ -96,20 +114,30 @@ async function shorten(id, longUrl) {
         throw new Error('Lỗi từ Link4M.');
     }
 
-    const token = tokenFor('layma');
-    if (!token) throw new Error('LayMa chưa được cấu hình (LAYMA_TOKEN).');
-    const apiUrl = `https://api.layma.net/api/admin/shortlink/quicklink?tokenUser=${encodeURIComponent(token)}&format=json&url=${encodeURIComponent(target)}`;
-    const res = await fetch(apiUrl, { signal: AbortSignal.timeout(15000) });
-    const data = await res.json();
-    if (data.success === true && data.html) return data.html;
-    throw new Error('Lỗi từ LayMa.');
+    // 2ktraffic: GET /api/quicklink/api -> { status, shortenedUrl, slug, destination }
+    const token = tokenFor('2ktraffic', req);
+    if (!token) throw new Error('2ktraffic chưa được cấu hình (cookie admin hoặc TWOKTRAFFIC_API_KEY).');
+    const apiUrl = `https://2ktraffic.com/api/quicklink/api?api=${encodeURIComponent(token)}&url=${encodeURIComponent(target)}`;
+    const res = await fetch(apiUrl, {
+        headers: { 'User-Agent': 'ASYNCTAS-link', Accept: 'application/json' },
+        signal: AbortSignal.timeout(15000),
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (e) { /* xử lý bên dưới */ }
+    if (!res.ok) throw new Error(`Lỗi từ 2ktraffic (${res.status}).`);
+    if (data && data.status === 'success' && data.shortenedUrl) return String(data.shortenedUrl);
+    const reason = data && (data.message || data.error || data.status) ? (data.message || data.error || data.status) : text.slice(0, 120);
+    throw new Error(`Lỗi từ 2ktraffic: ${reason}`);
 }
 
 module.exports = {
     PROVIDERS,
+    API_KEY_COOKIE,
     get,
     rewardFor,
     dailyMaxFor,
+    tokenFor,
     ready,
     shorten,
 };
