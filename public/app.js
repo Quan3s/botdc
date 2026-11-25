@@ -3386,19 +3386,40 @@ async function sendChatMessage() {
   finally { btn.disabled = false; input.focus(); }
 }
 
-// ==================== VERSION TAG (AUTO RELOAD KHI COIN ĐỔI) ====================
+// ==================== VERSION TAG (SYNC COIN KHÔNG RELOAD) ====================
 let appVersionTag = null;
+let versionSyncing = false;
 
-/** Web gửi nhãn âm thầm lên server; khác nhãn hiện tại thì reload để hiện số dư mới. */
+/** Hiệu ứng ngắn để user thấy số dư vừa đổi mà không cần reload trang. */
+function pulseBalance() {
+  const nodes = [$('#top-balance'), $('#hero-balance'), $('#profile-balance')].filter(Boolean);
+  nodes.forEach(el => { el.classList.remove('coin-updated'); void el.offsetWidth; el.classList.add('coin-updated'); });
+  setTimeout(() => nodes.forEach(el => el.classList.remove('coin-updated')), 900);
+}
+
+/** Kéo user mới nhất vào state + DOM; đang ở dashboard thì làm mới luôn số liệu trang chủ. */
+async function syncBalanceFromServer() {
+  if (state.view === 'dashboard') await refreshDashboard();
+  else await refreshUser();
+  pulseBalance();
+}
+
+/** Web gửi nhãn âm thầm lên server; khác nhãn thì cập nhật số dư tại chỗ. */
 async function checkAppVersion() {
-  if (!state.user) return;
+  if (!state.user || versionSyncing) return;
   try {
     const data = await api('/api/version');
     const version = String((data && data.version) || '0');
     const tag = $('#app-version');
     if (tag) tag.dataset.version = version;
     if (appVersionTag === null) appVersionTag = version;
-    else if (version !== appVersionTag) { window.location.reload(); }
+    else if (version !== appVersionTag) {
+      versionSyncing = true;
+      try {
+        await syncBalanceFromServer();
+        appVersionTag = version;
+      } finally { versionSyncing = false; }
+    }
   } catch (e) { /* âm thầm, không làm phiền user */ }
 }
 

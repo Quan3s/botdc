@@ -279,6 +279,13 @@ textarea { resize: vertical; }
 .hero-text h3 { font-size: 14px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
 .hero-balance { font-size: 46px; font-weight: 800; color: var(--accent); line-height: 1.1; text-shadow: 0 0 34px rgba(57,245,138,0.4); }
 .hero-balance small { font-size: 18px; color: var(--muted); }
+
+/* Nháy nhẹ khi coin đổi âm thầm từ server, không reload trang. */
+@keyframes coinUpdatedPulse {
+  0% { color: var(--gold); text-shadow: 0 0 18px rgba(255,193,7,.75); transform: scale(1.08); }
+  100% { color: inherit; text-shadow: none; transform: none; }
+}
+.coin-updated { animation: coinUpdatedPulse .9s ease; display: inline-block; }
 .hero-actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
 .hero-text { position: relative; z-index: 1; }
 .hero-orb {
