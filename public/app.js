@@ -34,6 +34,13 @@ const DEVICE_LOGOS = {
   ugphone: 'https://img.utdstc.com/icon/48f/fcd/48ffcdcfb167f38e517727e184da795d34418c94094af934298aacc64fceddb6:600',
 };
 
+// Logo nhà cung cấp link (API cũng trả p.logo, dùng fallback nếu thiếu).
+const LINK_PROVIDER_LOGOS = {
+  link4m: 'https://www.google.com/s2/favicons?domain=link4m.com&sz=128',
+  layma: 'https://layma.net/assets/favicon.ico',
+  bbmkts: 'https://bbmkts.com/images/iconbb.png',
+};
+
 // ==================== HELPERS ====================
 function esc(value) {
   return String(value == null ? '' : value)
@@ -527,7 +534,6 @@ function loadAdminPanel(name) {
   else if (name === 'plugins') loadAdminPlugins().catch(() => {});
   else if (name === 'services') {
     loadMeowsCookie().catch(() => {});
-    loadAdminLinkApi().catch(() => {});
   } else if (name === 'google') loadAdminGmail().catch(err => toast(err.message, 'error'));
   else if (name === 'market') loadAdminMarket().catch(() => {});
   else if (name === 'appearance') {
@@ -2212,25 +2218,53 @@ $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
   finally { btn.disabled = false; }
 }));
 
+/** Khung chọn provider giống card shop: có logo, thưởng, giới hạn và trạng thái sẵn sàng. */
+function renderProviderCards(providers, daily) {
+  const grid = $('#task-provider-grid');
+  const input = $('#task-provider');
+  if (!grid || !providers.length) return;
+  const chosen = providers.some(p => p.id === (input && input.value)) ? input.value : providers[0].id;
+  if (input) input.value = chosen;
+  grid.innerHTML = providers.map(p => {
+    const used = Number(p.used || daily[p.id] || 0);
+    const left = Math.max(0, Number(p.dailyMax) - used);
+    const logo = p.logo || LINK_PROVIDER_LOGOS[p.id];
+    const logoHtml = logo
+      ? `<img class="product-logo provider-logo-img" src="${esc(logo)}" alt="${esc(p.name)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'product-logo placeholder',innerHTML:window.icons.icon('link',42)}))" />`
+      : `<div class="product-logo placeholder">${icon('link', 42)}</div>`;
+    return `
+      <button type="button" class="product shop-card provider-card${p.id === chosen ? ' selected' : ''}" data-provider="${esc(p.id)}" aria-pressed="${p.id === chosen}">
+        ${logoHtml}
+        <div class="product-body">
+          <h4>${esc(p.name)}</h4>
+          <p>${esc(t('tasks.rewardPerLink', { reward: num(p.reward) }))}</p>
+          <div class="product-foot">
+            <span class="price">+${num(p.reward)} ${esc(t('topbar.coinShort'))}</span>
+            <span class="stock-badge">${num(used)}/${num(p.dailyMax)}</span>
+          </div>
+          <span class="pill provider-status">${esc(t(p.ready === false ? 'tasks.providerNotReady' : 'tasks.providerReady'))}</span>
+          <span class="pill">${esc(t('tasks.remaining', { count: num(left) }))}</span>
+        </div>
+      </button>`;
+  }).join('');
+  renderIcons(grid);
+  $$('[data-provider]', grid).forEach(card => card.addEventListener('click', () => {
+    if (input) input.value = card.dataset.provider;
+    $$('.provider-card', grid).forEach(el => {
+      const active = el === card;
+      el.classList.toggle('selected', active);
+      el.setAttribute('aria-pressed', String(active));
+    });
+    if (typeof applyTranslations === 'function') applyTranslations(grid);
+  }));
+}
+
 async function loadTasks() {
   try {
     const data = await api('/api/tasks');
     const providers = data.providers || [];
     const daily = data.daily || {};
-    const select = $('#task-provider');
-    if (select) {
-      const selected = select.value;
-      if (providers.length) {
-        select.innerHTML = providers.map(p => {
-          const used = Number(p.used || daily[p.id] || 0);
-          const label = `${p.name} — ${p.reward} xu (${used}/${p.dailyMax})`;
-          return `<option value="${esc(p.id)}"${p.id === selected ? ' selected' : ''}>${esc(label)}</option>`;
-        }).join('');
-      }
-    }
-    if (providers.length) {
-      setText('#task-hint', providers.map(p => `${p.name}: ${p.reward} xu (${p.dailyMax}/day)`).join('. ') + '.');
-    }
+    renderProviderCards(providers, daily);
     const dailyBox = $('#task-daily');
     if (dailyBox) {
       dailyBox.innerHTML = providers.map(p => {
@@ -2816,14 +2850,6 @@ async function loadAdminSocial() {
   $('#admin-discord-url').placeholder = data.defaultDiscordUrl;
 }
 
-async function loadAdminLinkApi() {
-  const data = await api('/api/admin/link-api-key');
-  const input = $('#admin-link-api-key');
-  input.value = data.fromCookie ? (data.apiKey || '') : '';
-  input.placeholder = data.masked || '2kt_...';
-  input.title = data.masked ? ` Đang dùng: ${data.masked}` : '';
-}
-
 function applySocialLinks(youtubeUrl, discordUrl) {
   if (!state.user) return;
   state.user.youtubeUrl = youtubeUrl;
@@ -2852,30 +2878,6 @@ $('#admin-social-default-btn').addEventListener('click', async () => {
     await loadAdminSocial();
     toast(t('admin.socialDefault'));
   } catch (err) { toast(err.message, 'error'); }
-});
-
-$('#admin-link-api-save-btn').addEventListener('click', async () => {
-  const box = $('#admin-link-api-result');
-  try {
-    const apiKey = $('#admin-link-api-key').value.trim();
-    const data = await api('/api/admin/link-api-key', { method: 'POST', body: JSON.stringify({ apiKey }) });
-    await loadAdminLinkApi();
-    box.className = 'result-box';
-    setText(box, `${t('admin.linkApiSaved')} (${data.masked})`);
-    box.classList.remove('hidden');
-  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
-});
-
-$('#admin-link-api-clear-btn').addEventListener('click', async () => {
-  const box = $('#admin-link-api-result');
-  try {
-    await api('/api/admin/link-api-key', { method: 'DELETE' });
-    await loadAdminLinkApi();
-    box.className = 'result-box';
-    setText(box, t('admin.linkApiDefault'));
-    box.classList.remove('hidden');
-    toast(t('admin.linkApiDefault'));
-  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
 });
 
 $('#admin-background-save-btn').addEventListener('click', async () => {

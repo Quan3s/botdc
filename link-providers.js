@@ -10,13 +10,15 @@ const PROVIDERS = {
         reward: 50,
         dailyMax: 2,
         color: 0xffc107,
+        logo: 'https://www.google.com/s2/favicons?domain=link4m.com&sz=128',
     },
-    '2ktraffic': {
-        id: '2ktraffic',
-        name: '2ktraffic',
-        reward: 38,
-        dailyMax: 4,
-        color: 0xf97316,
+    layma: {
+        id: 'layma',
+        name: 'LayMa',
+        reward: 50,
+        dailyMax: 2,
+        color: 0x8b5cf6,
+        logo: 'https://layma.net/assets/favicon.ico',
     },
     bbmkts: {
         id: 'bbmkts',
@@ -24,22 +26,9 @@ const PROVIDERS = {
         reward: 25,
         dailyMax: 1,
         color: 0x22c55e,
+        logo: 'https://bbmkts.com/images/iconbb.png',
     },
 };
-
-// Cookie httpOnly do admin đặt qua /api/admin/link-api-key; env là dự phòng.
-const API_KEY_COOKIE = 'asynctas_2k_key';
-const DEFAULT_2K_KEY = '2kt_4f97b69261c932afa33d194e2431f9db12c39cd98f606370';
-
-function cookieValue(req, name) {
-    const raw = req && req.headers && req.headers.cookie;
-    if (!raw) return '';
-    for (const part of String(raw).split(';')) {
-        const [key, ...rest] = part.trim().split('=');
-        if (key === name) return decodeURIComponent(rest.join('='));
-    }
-    return '';
-}
 
 function get(id) {
     return PROVIDERS[String(id || '').toLowerCase()] || null;
@@ -55,25 +44,33 @@ function dailyMaxFor(id) {
     return p ? p.dailyMax : 2;
 }
 
-function tokenFor(id, req) {
+function tokenFor(id) {
     switch (String(id)) {
         case 'bbmkts':
             return process.env.BBMKTS_API_TOKEN || process.env.VUOTNHANH_API_TOKEN || '';
         case 'link4m':
             return process.env.LINK4M_API_KEY || '';
-        case '2ktraffic':
-            return cookieValue(req, API_KEY_COOKIE) || process.env.TWOKTRAFFIC_API_KEY || DEFAULT_2K_KEY;
+        case 'layma':
+            return process.env.LAYMA_TOKEN || '';
         default:
             return '';
     }
 }
 
-function ready(id, req) {
-    return !!tokenFor(id, req);
+function ready(id) {
+    return !!tokenFor(id);
+}
+
+/** Đọc message lỗi từ response provider (nếu có) để FE biết lý do thật. */
+function reasonOf(raw, data) {
+    if (data && (data.message || data.error || data.status)) {
+        return String(data.message || data.error || data.status);
+    }
+    return String(raw || '').slice(0, 120);
 }
 
 /** Rút gọn targetUrl. Ném lỗi nếu provider chưa cấu hình hoặc API trả về rỗng. */
-async function shorten(id, longUrl, req) {
+async function shorten(id, longUrl) {
     const provider = get(id);
     if (!provider) throw new Error('Dịch vụ không hợp lệ.');
     const target = String(longUrl || '');
@@ -88,7 +85,7 @@ async function shorten(id, longUrl, req) {
             signal: AbortSignal.timeout(15000),
         });
         const raw = (await res.text()).trim();
-        if (!res.ok || !raw) throw new Error('Lỗi từ bbmkts.');
+        if (!res.ok || !raw) throw new Error(`Lỗi từ bbmkts (${res.status}): ${reasonOf(raw)}`);
 
         // API có thể trả TEXT hoặc JSON tuỳ bản; hỗ trợ cả hai.
         try {
@@ -96,9 +93,12 @@ async function shorten(id, longUrl, req) {
             if (data.status === 'success' && data.bbmktsUrl && /^https?:\/\//i.test(String(data.bbmktsUrl))) {
                 return String(data.bbmktsUrl);
             }
-        } catch (e) { /* giữ nguyên raw */ }
+            throw new Error(`Lỗi từ bbmkts: ${reasonOf(raw, data)}`);
+        } catch (e) {
+            if (/^Lỗi từ bbmkts:/.test(e.message)) throw e;
+        }
         if (/^https?:\/\//i.test(raw)) return raw;
-        throw new Error('Lỗi từ bbmkts.');
+        throw new Error(`Lỗi từ bbmkts: ${reasonOf(raw)}`);
     }
 
     if (provider.id === 'link4m') {
@@ -109,34 +109,29 @@ async function shorten(id, longUrl, req) {
             headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
             signal: AbortSignal.timeout(15000),
         });
-        const data = await res.json();
-        if (data.status === 'success' && data.shortenedUrl) return data.shortenedUrl;
-        throw new Error('Lỗi từ Link4M.');
+        const raw = await res.text();
+        let data = null;
+        try { data = JSON.parse(raw); } catch (e) { /* xử lý bên dưới */ }
+        if (!res.ok) throw new Error(`Lỗi từ Link4M (${res.status}): ${reasonOf(raw, data)}`);
+        if (data && data.status === 'success' && data.shortenedUrl) return data.shortenedUrl;
+        throw new Error(`Lỗi từ Link4M: ${reasonOf(raw, data)}`);
     }
 
-    // 2ktraffic: GET /api/quicklink/api -> { status, shortenedUrl, slug, destination }
-    const token = tokenFor('2ktraffic', req);
-    if (!token) throw new Error('2ktraffic chưa được cấu hình (cookie admin hoặc TWOKTRAFFIC_API_KEY).');
-    const apiUrl = `https://2ktraffic.com/api/quicklink/api?api=${encodeURIComponent(token)}&url=${encodeURIComponent(target)}`;
-    const res = await fetch(apiUrl, {
-        headers: { 'User-Agent': 'ASYNCTAS-link', Accept: 'application/json' },
-        signal: AbortSignal.timeout(15000),
-    });
-    const text = await res.text();
+    // LayMa: GET quicklink?tokenUser=...&format=json -> { success, html }
+    const token = tokenFor('layma');
+    if (!token) throw new Error('LayMa chưa được cấu hình (LAYMA_TOKEN).');
+    const apiUrl = `https://api.layma.net/api/admin/shortlink/quicklink?tokenUser=${encodeURIComponent(token)}&format=json&url=${encodeURIComponent(target)}`;
+    const res = await fetch(apiUrl, { signal: AbortSignal.timeout(15000) });
+    const raw = await res.text();
     let data = null;
-    try { data = JSON.parse(text); } catch (e) { /* xử lý bên dưới */ }
-    const reason = data && (data.message || data.error || data.status)
-        ? (data.message || data.error || data.status)
-        : text.slice(0, 120);
-    // 401/403 thường là key sai hoặc nguồn chưa được duyệt: phải đưa lý do provider lên FE.
-    if (!res.ok) throw new Error(`Lỗi từ 2ktraffic (${res.status}): ${reason}`);
-    if (data && data.status === 'success' && data.shortenedUrl) return String(data.shortenedUrl);
-    throw new Error(`Lỗi từ 2ktraffic: ${reason}`);
+    try { data = JSON.parse(raw); } catch (e) { /* xử lý bên dưới */ }
+    if (!res.ok) throw new Error(`Lỗi từ LayMa (${res.status}): ${reasonOf(raw, data)}`);
+    if (data && data.success === true && data.html) return data.html;
+    throw new Error(`Lỗi từ LayMa: ${reasonOf(raw, data)}`);
 }
 
 module.exports = {
     PROVIDERS,
-    API_KEY_COOKIE,
     get,
     rewardFor,
     dailyMaxFor,

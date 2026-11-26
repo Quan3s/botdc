@@ -1029,7 +1029,7 @@ router.get('/api/tasks', requireAuth, ah(async (req, res) => {
         star,
         rewards: await weekly.getRewards(),
         link4mReady: linkProviders.ready('link4m'),
-        twoktrafficReady: linkProviders.ready('2ktraffic', req),
+        laymaReady: linkProviders.ready('layma'),
         bbmktsReady: linkProviders.ready('bbmkts'),
         date: today,
         dailyClaimed: dailyClaimed > 0,
@@ -1481,32 +1481,6 @@ router.delete('/api/admin/social-links', requireAdmin, ah(async (req, res) => {
     await db.setKv('youtube_url', '');
     await db.setKv('discord_url', '');
     res.json({ ok: true, youtubeUrl: DEFAULT_YOUTUBE_URL, discordUrl: DEFAULT_DISCORD_URL });
-}));
-
-// ==================== ADMIN: API KEY 2KTRAFFIC (cookie httpOnly) ====================
-router.get('/api/admin/link-api-key', requireAdmin, ah(async (req, res) => {
-    const current = linkProviders.tokenFor('2ktraffic', req) || '';
-    res.json({
-        provider: '2ktraffic',
-        apiKey: current,
-        masked: current ? `${current.slice(0, 8)}...${current.slice(-4)}` : '',
-        fromCookie: String(req.headers.cookie || '').includes(`${linkProviders.API_KEY_COOKIE}=`),
-    });
-}));
-
-router.post('/api/admin/link-api-key', requireAdmin, ah(async (req, res) => {
-    const apiKey = String(req.body.apiKey || '').trim();
-    if (!apiKey) return res.status(400).json({ error: 'Nhập API key.' });
-    res.cookie(linkProviders.API_KEY_COOKIE, apiKey, {
-        httpOnly: true, sameSite: 'lax', path: '/', maxAge: 365 * 24 * 60 * 60 * 1000,
-    });
-    hook('web:admin:link-api-key', { provider: '2ktraffic', by: req.webUser.id });
-    res.json({ ok: true, provider: '2ktraffic', masked: `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` });
-}));
-
-router.delete('/api/admin/link-api-key', requireAdmin, ah(async (req, res) => {
-    res.clearCookie(linkProviders.API_KEY_COOKIE, { path: '/' });
-    res.json({ ok: true });
 }));
 
 // ==================== ADMIN: MEOWS COOKIE ====================

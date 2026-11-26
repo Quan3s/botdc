@@ -172,7 +172,7 @@ async function todayFreeLinkCount(userId, today) {
 // ==========================================
 // PHẦN 1: WEB SERVER (NHẬN XU)
 // ==========================================
-const REDEEM_ASSET_VERSION = '20261124o';
+const REDEEM_ASSET_VERSION = '20261124p';
 const BROWSER_COOKIE = 'asynctas_browser';
 
 function escapeHtml(value) {
@@ -640,10 +640,10 @@ client.once('ready', async () => {
     resetHeartbeat(); // bắt đầu watchdog ngay khi bot sẵn sàng
     hook('bot:ready', { botId: client.user.id, username: client.user.username, at: new Date().toISOString() });
     const commands = [
-        new SlashCommandBuilder().setName('getlink').setDescription('Lấy link nhận xu (Link4M 50 xu, 2ktraffic 38 xu, bbmkts 25 xu)')
+        new SlashCommandBuilder().setName('getlink').setDescription('Lấy link nhận xu (Link4M 50 xu, LayMa 50 xu, bbmkts 25 xu)')
             .addStringOption(opt => opt.setName('provider').setDescription('Chọn dịch vụ rút gọn link').addChoices(
                 { name: 'Link4M — 50 xu', value: 'link4m' },
-                { name: '2ktraffic — 38 xu (4 link/ngày)', value: '2ktraffic' },
+                { name: 'LayMa — 50 xu', value: 'layma' },
                 { name: 'bbmkts — 25 xu', value: 'bbmkts' }
             ).setRequired(false)),
         new SlashCommandBuilder().setName('tasks').setDescription('Xem tiến độ nhiệm vụ vượt link hôm nay'),

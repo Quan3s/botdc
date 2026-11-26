@@ -102,7 +102,7 @@ function publicEnv(name) {
         GITHUB_READY: !!process.env.GITHUB_TOKEN,
         HANAMI_READY: !!process.env.HANAMI_TOKEN,
         LINK4M_READY: !!process.env.LINK4M_API_KEY,
-        TWOKTRAFFIC_READY: true, // apikey lưu trong cookie admin / env TWOKTRAFFIC_API_KEY / default
+        LAYMA_READY: !!process.env.LAYMA_TOKEN,
         BBMKTS_READY: !!(process.env.BBMKTS_API_TOKEN || process.env.VUOTNHANH_API_TOKEN),
         MEOWS_PROXY_READY: !!process.env.MEOWS_API_PROXY,
     };
