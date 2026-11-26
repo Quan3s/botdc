@@ -333,26 +333,28 @@ textarea { resize: vertical; }
 .stock-badge { font-size: 11.5px; color: var(--muted); background: rgba(255,255,255,0.05); padding: 4px 9px; border-radius: 999px; }
 
 /* ============ LINK PROVIDER CARDS (dạng card shop) ============ */
-.provider-title { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 2px 0 8px; }
-.provider-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
-.provider-card { padding: 0; border-width: 2px; cursor: pointer; outline: none; }
-.provider-card .product-logo { height: 56px; object-fit: contain; padding: 8px; }
-.provider-card .product-body { padding: 10px; gap: 5px; }
-.provider-card .product-body h4 { font-size: 13px; }
-.provider-card .product-body p { flex: none; font-size: 10.5px; }
-.provider-card .product-foot { margin-top: 2px; }
-.provider-card .price { font-size: 12.5px; }
-.provider-card .stock-badge { font-size: 10px; padding: 3px 7px; }
-.provider-card .pill { align-self: flex-start; font-size: 9.5px; }
+.provider-title { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 2px 0 6px; }
+.provider-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.provider-card { padding: 0; border-width: 1px; cursor: pointer; outline: none; }
+.provider-card .product-logo { height: 40px; object-fit: contain; padding: 6px; }
+.provider-card .product-body { padding: 7px 8px; gap: 3px; }
+.provider-card .product-body h4 { font-size: 11.5px; line-height: 1.2; }
+.provider-card .product-body p { flex: none; font-size: 9.5px; line-height: 1.25; }
+.provider-card .product-foot { margin-top: 1px; }
+.provider-card .price { font-size: 11px; }
+.provider-card .stock-badge { font-size: 9px; padding: 2px 6px; }
+.provider-card .pill { align-self: flex-start; font-size: 8.5px; padding: 2px 6px; }
 .provider-card .provider-status { color: var(--accent); }
-.provider-card .provider-get { margin-top: 4px; font-size: 11.5px; padding: 6px 9px; }
+.provider-card .provider-get { margin-top: 2px; font-size: 10px; padding: 4px 6px; min-height: 26px; border-radius: 7px; }
 .provider-card:focus-visible { border-color: var(--accent); }
-.provider-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(57,245,138,.14), 0 12px 28px rgba(0,0,0,.35); }
+.provider-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(57,245,138,.14), 0 8px 20px rgba(0,0,0,.3); }
 .provider-card.selected .provider-status { color: var(--accent); }
 @media (max-width: 520px) {
-  .provider-grid { gap: 8px; }
-  .provider-card .product-logo { height: 48px; }
-  .provider-card .product-body { padding: 8px; }
+  .provider-grid { gap: 6px; }
+  .provider-card .product-logo { height: 34px; }
+  .provider-card .product-body { padding: 6px; }
+  .provider-card .product-body h4 { font-size: 11px; }
+  .provider-card .provider-get { font-size: 9.5px; padding: 3px 5px; }
 }
 
 .recent-list, .purchase-list, .mini-list { display: flex; flex-direction: column; gap: 10px; }
