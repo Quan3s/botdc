@@ -27,6 +27,29 @@ const shop = require('./shop');
 const linkProviders = require('./link-providers');
 const utils = require('./utils');
 
+/** Tổng link trong ngày, cộng mọi provider — plugin daily dùng chung rule quà free. */
+async function todayFreeLinkCount(key, today) {
+    const ids = Object.keys(linkProviders.PROVIDERS);
+    const counts = await Promise.all(ids.map(id => db.checkDailyLimit(key, id, today)));
+    return counts.reduce((sum, count) => sum + (Number(count) || 0), 0);
+}
+
+/** VMOS/VSPhone free: 1 trong 2 mỗi ngày, đều cần vượt lại link trong ngày. */
+async function claimFreeDeviceForPlugin(key, type) {
+    const today = utils.getTodayString();
+    const isVsphone = type === 'vsphone';
+    const [vmosClaimed, vsphoneClaimed, links] = await Promise.all([
+        db.checkDailyLimit(key, 'vmos_free', today),
+        db.checkDailyLimit(key, 'vsphone_free', today),
+        todayFreeLinkCount(key, today),
+    ]);
+    if (vmosClaimed > 0 || vsphoneClaimed > 0) throw new Error('Hôm nay đã lấy quà free rồi (VMOS hoặc VSPhone).');
+    if (links < 1) throw new Error('Cần vượt ít nhất 1 link hôm nay.');
+    const acc = isVsphone ? await services.regVsphoneAccount() : await services.regVmosAccount();
+    await db.increaseDailyLimit(key, isVsphone ? 'vsphone_free' : 'vmos_free', today);
+    return { ...acc, date: today, linkCount: links };
+}
+
 const CORE_VERSION = '1.0.0';
 const CALL_TIMEOUT_MS = 10000;
 
@@ -490,12 +513,20 @@ async function loadPlugin(row) {
             today: () => utils.getTodayString(),
             status: async (key) => {
                 const today = utils.getTodayString();
-                const [claimed, freeVmosClaimed, links] = await Promise.all([
+                const [claimed, freeVmosClaimed, freeVsphoneClaimed, links] = await Promise.all([
                     db.checkDailyLimit(key, 'daily', today),
                     db.checkDailyLimit(key, 'vmos_free', today),
-                    db.getAllTimeLinkCount(key),
+                    db.checkDailyLimit(key, 'vsphone_free', today),
+                    todayFreeLinkCount(key, today),
                 ]);
-                return { date: today, claimed: claimed > 0, freeVmosClaimed: freeVmosClaimed > 0, linkCount: links };
+                return {
+                    date: today,
+                    claimed: claimed > 0,
+                    freeVmosClaimed: freeVmosClaimed > 0,
+                    freeVsphoneClaimed: freeVsphoneClaimed > 0,
+                    freeDeviceClaimed: freeVmosClaimed > 0 || freeVsphoneClaimed > 0,
+                    linkCount: links,
+                };
             },
             claim: async (key) => {
                 const today = utils.getTodayString();
@@ -504,18 +535,8 @@ async function loadPlugin(row) {
                 await db.increaseDailyLimit(key, 'daily', today);
                 return { reward, balance: await db.updateCoins(key, reward), date: today };
             },
-            claimVmos: async (key) => {
-                const today = utils.getTodayString();
-                const [claimed, links] = await Promise.all([
-                    db.checkDailyLimit(key, 'vmos_free', today),
-                    db.getAllTimeLinkCount(key),
-                ]);
-                if (claimed > 0) throw new Error('Hôm nay đã lấy VMOS free rồi.');
-                if (links < 1) throw new Error('Cần vượt ít nhất 1 link.');
-                const acc = await services.regVmosAccount();
-                await db.increaseDailyLimit(key, 'vmos_free', today);
-                return { ...acc, date: today };
-            },
+            claimVmos: async (key) => claimFreeDeviceForPlugin(key, 'vmos'),
+            claimVsphone: async (key) => claimFreeDeviceForPlugin(key, 'vsphone'),
         },
 
         // --- tiện ích ---

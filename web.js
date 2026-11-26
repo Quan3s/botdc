@@ -40,6 +40,34 @@ function hook(event, payload = {}) {
     pluginEngine.emit(event, payload);
 }
 
+/** Tổng link user đã vượt trong ngày (cộng mọi provider), dùng cho quà free. */
+async function todayLinkCount(key, today) {
+    const ids = Object.keys(linkProviders.PROVIDERS);
+    const counts = await Promise.all(ids.map(id => db.checkDailyLimit(key, id, today)));
+    return counts.reduce((sum, count) => sum + (Number(count) || 0), 0);
+}
+
+/**
+ * Quà free hôm nay: VMOS thường hoặc VSPhone thường (không phải VIP).
+ * Mỗi ngày phải vượt lại ít nhất 1 link, và chỉ lấy được 1 trong 2.
+ */
+async function claimFreeDevice(key, today, type) {
+    const [vmosClaimed, vsphoneClaimed, linkCount] = await Promise.all([
+        db.checkDailyLimit(key, 'vmos_free', today),
+        db.checkDailyLimit(key, 'vsphone_free', today),
+        todayLinkCount(key, today),
+    ]);
+    if (vmosClaimed > 0 || vsphoneClaimed > 0) {
+        throw new Error('Hôm nay bạn đã lấy quà free rồi (VMOS hoặc VSPhone). Quay lại sau 0h giờ VN nhé!');
+    }
+    if (linkCount < 1) {
+        throw new Error('Bạn cần vượt ít nhất 1 link hôm nay để mở quà free.');
+    }
+    const result = type === 'vsphone' ? await services.regVsphoneAccount() : await services.regVmosAccount();
+    await db.increaseDailyLimit(key, type === 'vsphone' ? 'vsphone_free' : 'vmos_free', today);
+    return { result, linkCount };
+}
+
 function parseCookies(header) {
     const out = {};
     if (!header) return out;
@@ -910,31 +938,53 @@ router.post('/api/daily/claim', requireAuth, ah(async (req, res) => {
     }
 }));
 
-/** 1 VMOS mới mỗi ngày, không trừ xu. Điều kiện: đã vượt ít nhất 1 link (mọi kỳ). */
+/** 1 VMOS mới mỗi ngày, không trừ xu. Điều kiện: vượt ít nhất 1 link trong ngày. */
 router.post('/api/device/vmos-free', requireAuth, ah(async (req, res) => {
     const key = balanceKey(req.webUser);
     if (busyUsers.has(key)) return res.status(409).json({ error: 'Bạn đang có thao tác khác, thử lại sau.' });
     const today = getTodayString();
     busyUsers.add(key);
     try {
-        const [claimed, linkCount] = await Promise.all([
-            db.checkDailyLimit(key, 'vmos_free', today),
-            db.getAllTimeLinkCount(key),
-        ]);
-        if (claimed > 0) return res.status(400).json({ error: 'Hôm nay bạn đã lấy VMOS free rồi. Quay lại sau 0h giờ VN nhé!' });
-        if (linkCount < 1) return res.status(400).json({ error: 'Bạn cần vượt ít nhất 1 link để mở quà VMOS free.' });
-
-        const result = await services.regVmosAccount();
-        await db.increaseDailyLimit(key, 'vmos_free', today);
+        const { result, linkCount } = await claimFreeDevice(key, today, 'vmos');
         hook('web:device:vmos-free', { userKey: key, linkCount, date: today });
         res.json({
             ok: true,
+            service: 'vmos',
             account: result.account,
             password: result.password,
             copyText: result.copyText,
             linkCount,
             date: today,
         });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    } finally {
+        busyUsers.delete(key);
+    }
+}));
+
+/** 1 VSPhone thường mới mỗi ngày (không phải VIP), không trừ xu. Chọn 1 trong 2 với VMOS. */
+router.post('/api/device/vsphone-free', requireAuth, ah(async (req, res) => {
+    const key = balanceKey(req.webUser);
+    if (busyUsers.has(key)) return res.status(409).json({ error: 'Bạn đang có thao tác khác, thử lại sau.' });
+    const today = getTodayString();
+    busyUsers.add(key);
+    try {
+        const { result, linkCount } = await claimFreeDevice(key, today, 'vsphone');
+        hook('web:device:vsphone-free', { userKey: key, linkCount, date: today });
+        res.json({
+            ok: true,
+            service: 'vsphone',
+            account: result.account,
+            password: result.password,
+            token: result.token || null,
+            userId: result.userId || null,
+            copyText: result.copyText,
+            linkCount,
+            date: today,
+        });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
     } finally {
         busyUsers.delete(key);
     }
@@ -946,15 +996,17 @@ router.get('/api/tasks', requireAuth, ah(async (req, res) => {
     const today = getTodayString();
     const period = await weekly.getLinkPeriod();
     const providerIds = Object.keys(linkProviders.PROVIDERS);
-    const [star, weeklyCount, dailyClaimed, freeVmosClaimed, linkCountAllTime, ...counts] = await Promise.all([
+    const [star, weeklyCount, dailyClaimed, freeVmosClaimed, freeVsphoneClaimed, linkCountAllTime, ...counts] = await Promise.all([
         db.checkDailyLimit(key, 'star', today),
         weekly.userLinkCount(key, period),
         db.checkDailyLimit(key, 'daily', today),
         db.checkDailyLimit(key, 'vmos_free', today),
+        db.checkDailyLimit(key, 'vsphone_free', today),
         db.getAllTimeLinkCount(key),
         ...providerIds.map(id => db.checkDailyLimit(key, id, today)),
     ]);
     const daily = Object.fromEntries(providerIds.map((id, i) => [id, Number(counts[i]) || 0]));
+    const linkCountToday = Object.values(daily).reduce((sum, count) => sum + count, 0);
     const providers = Object.values(linkProviders.PROVIDERS).map(p => {
         const used = daily[p.id] || 0;
         return {
@@ -982,6 +1034,9 @@ router.get('/api/tasks', requireAuth, ah(async (req, res) => {
         date: today,
         dailyClaimed: dailyClaimed > 0,
         freeVmosClaimed: freeVmosClaimed > 0,
+        freeVsphoneClaimed: freeVsphoneClaimed > 0,
+        freeDeviceClaimed: freeVmosClaimed > 0 || freeVsphoneClaimed > 0,
+        linkCountToday,
         linkCountAllTime,
     });
 }));

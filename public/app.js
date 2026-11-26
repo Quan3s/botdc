@@ -733,17 +733,30 @@ function renderRecentPurchases(list) {
 
 function updateDailyCard(tasks) {
   const claimed = !!tasks.dailyClaimed;
-  const freeClaimed = !!tasks.freeVmosClaimed;
-  const unlocked = Number(tasks.linkCountAllTime || 0) > 0;
+  const vmosClaimed = !!tasks.freeVmosClaimed;
+  const vsphoneClaimed = !!tasks.freeVsphoneClaimed;
+  const claimedAny = vmosClaimed || vsphoneClaimed || !!tasks.freeDeviceClaimed;
+  // Phải vượt link lại mỗi ngày; link từ trước không còn đủ điều kiện.
+  const unlocked = Number(tasks.linkCountToday || 0) > 0;
   setText('#daily-date', tasks.date || '—');
   const claimBtn = $('#daily-claim-btn');
   claimBtn.disabled = claimed;
   labelButton(claimBtn, claimed ? 'dashboard.claimedToday' : 'dashboard.claim');
   setText('#daily-claim-status', t(claimed ? 'dashboard.coinGiftClaimed' : 'dashboard.coinGiftPending'));
+
   const vmosBtn = $('#daily-vmos-btn');
-  vmosBtn.disabled = freeClaimed || !unlocked;
-  labelButton(vmosBtn, freeClaimed ? 'dashboard.takenToday' : 'dashboard.getVmos');
-  setText('#daily-vmos-status', t(freeClaimed ? 'dashboard.vmosTaken' : unlocked ? 'dashboard.vmosAvailable' : 'dashboard.vmosLocked'));
+  vmosBtn.disabled = claimedAny || !unlocked;
+  labelButton(vmosBtn, vmosClaimed ? 'dashboard.takenToday' : claimedAny ? 'dashboard.otherFreeTaken' : 'dashboard.getVmos');
+  setText('#daily-vmos-status', t(vmosClaimed ? 'dashboard.vmosTaken'
+    : claimedAny ? 'dashboard.otherFreeTaken'
+      : unlocked ? 'dashboard.vmosAvailable' : 'dashboard.vmosLocked'));
+
+  const vsphoneBtn = $('#daily-vsphone-btn');
+  vsphoneBtn.disabled = claimedAny || !unlocked;
+  labelButton(vsphoneBtn, vsphoneClaimed ? 'dashboard.takenToday' : claimedAny ? 'dashboard.otherFreeTaken' : 'dashboard.getVsphone');
+  setText('#daily-vsphone-status', t(vsphoneClaimed ? 'dashboard.vsphoneTaken'
+    : claimedAny ? 'dashboard.otherFreeTaken'
+      : unlocked ? 'dashboard.vsphoneAvailable' : 'dashboard.vsphoneLocked'));
 }
 
 $('#daily-claim-btn').addEventListener('click', async () => {
@@ -764,17 +777,21 @@ $('#daily-claim-btn').addEventListener('click', async () => {
   }
 });
 
-async function claimVmosFree(btn, box) {
+/** Nhận VMOS hoặc VSPhone thường free: cùng rule ngày, chỉ 1 trong 2. */
+async function claimFreeDevice(kind, btn, box) {
+  const isVsphone = kind === 'vsphone';
   btn.disabled = true;
   try {
-    const data = await api('/api/device/vmos-free', { method: 'POST' });
+    const data = await api(`/api/device/${isVsphone ? 'vsphone' : 'vmos'}-free`, { method: 'POST' });
+    const label = t(isVsphone ? 'dashboard.freeVsphone' : 'dashboard.freeVmos', { count: num(data.linkCount) });
+    const copyClass = isVsphone ? 'js-free-vsphone-copy' : 'js-free-vmos-copy';
     box.className = 'result-box';
-    box.innerHTML = `<div>${esc(t('dashboard.freeVmos', { count: num(data.linkCount) }))}</div>
+    box.innerHTML = `<div>${esc(label)}</div>
       <div class="accounts-box">${esc(data.copyText)}</div>
-      <div class="copy-row"><button class="btn btn-soft btn-sm js-free-vmos-copy">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
+      <div class="copy-row"><button class="btn btn-soft btn-sm ${copyClass}">${icon('copy', 14)}<span>${esc(t('shop.copyAll'))}</span></button></div>`;
     box.classList.remove('hidden');
     renderIcons(box);
-    $$('.js-free-vmos-copy', box).forEach(copyBtn =>
+    $$('.' + copyClass, box).forEach(copyBtn =>
       copyBtn.addEventListener('click', ev => copyText(data.copyText, ev.currentTarget)));
     await refreshDashboard();
   } catch (err) {
@@ -785,9 +802,15 @@ async function claimVmosFree(btn, box) {
   }
 }
 
+async function claimVmosFree(btn, box) { return claimFreeDevice('vmos', btn, box); }
+async function claimVsphoneFree(btn, box) { return claimFreeDevice('vsphone', btn, box); }
+
 $('#daily-vmos-btn').addEventListener('click', () => claimVmosFree($('#daily-vmos-btn'), $('#daily-result')));
+$('#daily-vsphone-btn').addEventListener('click', () => claimVsphoneFree($('#daily-vsphone-btn'), $('#daily-result')));
 $$('[data-vmos-free]').forEach(btn => btn.addEventListener('click', () =>
   claimVmosFree(btn, $('#vmos-free-result'))));
+$$('[data-vsphone-free]').forEach(btn => btn.addEventListener('click', () =>
+  claimVsphoneFree(btn, $('#vsphone-free-result'))));
 
 $('#exchange-btn').addEventListener('click', async e => {
   const btn = e.currentTarget;

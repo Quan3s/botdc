@@ -162,10 +162,17 @@ function getTodayString() {
     return vnTime.toISOString().split('T')[0];
 }
 
+/** Tổng link đã vượt hôm nay, cộng mọi provider — điều kiện mở quà free. */
+async function todayFreeLinkCount(userId, today) {
+    const ids = Object.keys(linkProviders.PROVIDERS);
+    const counts = await Promise.all(ids.map(id => db.checkDailyLimit(userId, id, today)));
+    return counts.reduce((sum, count) => sum + (Number(count) || 0), 0);
+}
+
 // ==========================================
 // PHẦN 1: WEB SERVER (NHẬN XU)
 // ==========================================
-const REDEEM_ASSET_VERSION = '20261124n';
+const REDEEM_ASSET_VERSION = '20261124o';
 const BROWSER_COOKIE = 'asynctas_browser';
 
 function escapeHtml(value) {
@@ -640,7 +647,8 @@ client.once('ready', async () => {
                 { name: 'bbmkts — 25 xu', value: 'bbmkts' }
             ).setRequired(false)),
         new SlashCommandBuilder().setName('tasks').setDescription('Xem tiến độ nhiệm vụ vượt link hôm nay'),
-        new SlashCommandBuilder().setName('vmosfree').setDescription('Lấy 1 VMOS free mỗi ngày (cần vượt ít nhất 1 link)'),
+        new SlashCommandBuilder().setName('vmosfree').setDescription('Lấy 1 VMOS free mỗi ngày (cần vượt 1 link hôm nay)'),
+        new SlashCommandBuilder().setName('vsphonefree').setDescription('Lấy 1 VSPhone thường free mỗi ngày (cần vượt 1 link hôm nay)'),
         new SlashCommandBuilder().setName('cloudstatus').setDescription('Xem trạng thái VMOS Cloud và VSPhone'),
         new SlashCommandBuilder().setName('cloudphone_status').setDescription('Xem trạng thái cloudphone như web (VMOS / VSPhone)')
             .addBooleanOption(o => o.setName('lam_moi').setDescription('Bỏ cache, gọi lại API ngay').setRequired(false)),
@@ -829,6 +837,7 @@ function buildRegPanel(ownerId) {
             `• VMOS Cloud — ${REG_COST} xu`,
             '• VMOS Free — 0 xu (1 link/ngày)',
             `• VSPhone — ${vsReady ? `${REG_COST} xu` : 'Sắp có'}`,
+            `• VSPhone Free — 0 xu${vsReady ? ' (1 link/ngày)' : ' (sắp có)'}`,
             '',
             '**Mua nhanh ASYNCTAS**',
             `• UGPhone — ${MEOWS_COSTS.UG} xu`,
@@ -857,14 +866,17 @@ function buildRegPanel(ownerId) {
         .setColor(0x39F58A);
     if (logos.VS) vsEmbed.setThumbnail(logos.VS);
 
-    const row = new ActionRowBuilder().addComponents(
+    const paidRow = new ActionRowBuilder().addComponents(
         regButton(`reg:vmos:${ownerId}`, `VMOS Cloud · ${REG_COST} xu`, ButtonStyle.Success, 'REG_EMOJI_VMOS', '🌐', false),
-        regButton(`reg:vmos-free:${ownerId}`, 'VMOS Free · 0 xu', ButtonStyle.Secondary, 'REG_EMOJI_VMOS', '🌐', false),
         regButton(`reg:vsphone:${ownerId}`, vsReady ? `VSPhone · ${REG_COST} xu` : 'VSPhone • Sắp có', vsReady ? ButtonStyle.Success : ButtonStyle.Secondary, 'REG_EMOJI_VSPHONE', '🥽', !vsReady),
         regButton(`reg:meows-ug:${ownerId}`, `UGPhone · ${MEOWS_COSTS.UG} xu`, ButtonStyle.Primary, 'REG_EMOJI_UGPHONE', '🟢', false),
         regButton(`reg:meows-vsvip:${ownerId}`, `VSPhone VIP · ${MEOWS_COSTS.VSVIP} xu`, ButtonStyle.Primary, 'REG_EMOJI_VSVIP', '💎', false)
     );
-    return { embeds: [main, ugEmbed, vsEmbed], components: [row] };
+    const freeRow = new ActionRowBuilder().addComponents(
+        regButton(`reg:vmos-free:${ownerId}`, 'VMOS Free · 0 xu', ButtonStyle.Secondary, 'REG_EMOJI_VMOS', '🌐', false),
+        regButton(`reg:vsphone-free:${ownerId}`, vsReady ? 'VSPhone Free · 0 xu' : 'VSPhone Free • Sắp có', ButtonStyle.Secondary, 'REG_EMOJI_VSPHONE', '🥽', !vsReady)
+    );
+    return { embeds: [main, ugEmbed, vsEmbed], components: [paidRow, freeRow] };
 }
 
 // Lưu tài khoản tạm vào KV để nút "Copy" gửi lại đúng nội dung (có thể thêm nút copy phụ).
@@ -895,31 +907,46 @@ async function sendAccountWithCopy(interaction, { header, copyText, lines, extra
     return interaction.editReply({ content: [`✅ ${header}`, ...lines].join('\n'), components: [row] });
 }
 
-/** Dùng chung cho /vmosfree và nút VMOS Free trong /reg. Giả sử caller đã defer + giữ busyUsers. */
-async function claimVmosFreeForUser(interaction, userId) {
+/** Quà free hôm nay: VMOS hoặc VSPhone thường. Mỗi ngày phải vượt link lại, chỉ lấy 1 trong 2. */
+async function claimFreeDeviceForUser(interaction, userId, type) {
     const today = getTodayString();
-    const [claimed, linkCount] = await Promise.all([
+    const isVsphone = type === 'vsphone';
+    const [vmosClaimed, vsphoneClaimed, linkCount] = await Promise.all([
         db.checkDailyLimit(userId, 'vmos_free', today),
-        db.getAllTimeLinkCount(userId),
+        db.checkDailyLimit(userId, 'vsphone_free', today),
+        todayFreeLinkCount(userId, today),
     ]);
-    if (claimed > 0) {
-        return interaction.editReply({ content: '⏰ Hôm nay bạn đã lấy VMOS free rồi. Quay lại sau 0h giờ VN nhé!' });
+    if (vmosClaimed > 0 || vsphoneClaimed > 0) {
+        return interaction.editReply({ content: '⏰ Hôm nay bạn đã lấy quà free rồi (VMOS hoặc VSPhone). Quay lại sau 0h giờ VN nhé!' });
     }
     if (linkCount < 1) {
-        return interaction.editReply({ content: '🔒 Bạn cần vượt ít nhất **1 link** để mở quà VMOS free.' });
+        return interaction.editReply({ content: '🔒 Bạn cần vượt ít nhất **1 link hôm nay** để mở quà free.' });
     }
-    const result = await services.regVmosAccount();
-    await db.increaseDailyLimit(userId, 'vmos_free', today);
-    hook('bot:device:vmos-free', { userId, linkCount, date: today });
+    const result = isVsphone ? await services.regVsphoneAccount() : await services.regVmosAccount();
+    await db.increaseDailyLimit(userId, isVsphone ? 'vsphone_free' : 'vmos_free', today);
+    hook(isVsphone ? 'bot:device:vsphone-free' : 'bot:device:vmos-free', { userId, linkCount, date: today });
+    const lines = [
+        `📧 \`${result.account}\``,
+        `🔑 \`${result.password}\``,
+    ];
+    if (isVsphone && result.token) lines.push(`🎫 token: \`${result.token}\``);
+    if (isVsphone && result.userId) lines.push(`🆔 userid: \`${result.userId}\``);
+    lines.push(`🔗 Đã vượt ${linkCount} link hôm nay.`);
     return await sendAccountWithCopy(interaction, {
-        header: '🎁 VMOS free hôm nay',
+        header: isVsphone ? '🎁 VSPhone thường free hôm nay' : '🎁 VMOS free hôm nay',
         copyText: result.copyText,
-        lines: [
-            `📧 \`${result.account}\``,
-            `🔑 \`${result.password}\``,
-            `🔗 Đã vượt ${linkCount} link từ trước đến nay.`,
-        ],
+        lines,
     });
+}
+
+/** Dùng chung cho /vmosfree và nút VMOS Free trong /reg. */
+async function claimVmosFreeForUser(interaction, userId) {
+    return claimFreeDeviceForUser(interaction, userId, 'vmos');
+}
+
+/** Dùng chung cho /vsphonefree và nút VSPhone Free trong /reg. */
+async function claimVsphoneFreeForUser(interaction, userId) {
+    return claimFreeDeviceForUser(interaction, userId, 'vsphone');
 }
 
 async function regVmos(interaction, userId) {
@@ -1052,6 +1079,10 @@ async function handleRegButton(interaction) {
     try {
         if (service === 'vmos-free') {
             await claimVmosFreeForUser(interaction, userId);
+            return;
+        }
+        if (service === 'vsphone-free') {
+            await claimVsphoneFreeForUser(interaction, userId);
             return;
         }
         if (service === 'vmos') await regVmos(interaction, userId);
@@ -1317,6 +1348,23 @@ client.on('interactionCreate', async interaction => {
             return await claimVmosFreeForUser(interaction, userId);
         } catch (e) {
             console.error('[vmosfree] lỗi:', e);
+            return interaction.editReply({ content: `❌ ${e.message}`.slice(0, 1900) });
+        } finally {
+            busyUsers.delete(userId);
+        }
+    }
+
+    // LỆNH /vsphonefree — VSPhone thường, đồng bộ POST /api/device/vsphone-free
+    if (interaction.commandName === 'vsphonefree') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (busyUsers.has(userId)) {
+            return interaction.editReply({ content: '⏳ Bạn đang có thao tác khác, thử lại sau giây lát.' });
+        }
+        busyUsers.add(userId);
+        try {
+            return await claimVsphoneFreeForUser(interaction, userId);
+        } catch (e) {
+            console.error('[vsphonefree] lỗi:', e);
             return interaction.editReply({ content: `❌ ${e.message}`.slice(0, 1900) });
         } finally {
             busyUsers.delete(userId);

@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
-<link rel="stylesheet" href="/styles.css?v=20261124n" />
+<link rel="stylesheet" href="/styles.css?v=20261124o" />
 <script>
   // Áp theme và ngôn ngữ ngay để không bị flash classic / sai ngôn ngữ.
   try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
@@ -193,14 +193,16 @@
         </div>
         <div class="card daily-card">
           <div class="card-head"><h3><span class="ico" data-icon="gift"></span><span data-i18n="dashboard.dailyTitle">Điểm danh & quà mỗi ngày</span></h3><span id="daily-date" class="pill">—</span></div>
-          <p class="muted" data-i18n="dashboard.dailyDesc">Claim mỗi ngày để nhận ngẫu nhiên 1–20 xu. Nếu đã vượt ít nhất 1 link, bạn còn được lấy 1 tài khoản VMOS miễn phí mỗi ngày — không trừ xu.</p>
+          <p class="muted" data-i18n="dashboard.dailyDesc">Claim mỗi ngày để nhận ngẫu nhiên 1–20 xu. Vượt ít nhất 1 link hôm nay để lấy 1 tài khoản VMOS hoặc VSPhone thường miễn phí — chỉ 1 trong 2, không trừ xu.</p>
           <div class="daily-actions">
             <button id="daily-claim-btn" class="btn btn-primary"><span class="ico" data-icon="gift"></span><span data-i18n="dashboard.claim">Claim 1–20 xu</span></button>
             <button id="daily-vmos-btn" class="btn btn-soft"><span class="ico" data-icon="device"></span><span data-i18n="dashboard.getVmos">Lấy VMOS free</span></button>
+            <button id="daily-vsphone-btn" class="btn btn-soft"><span class="ico" data-icon="device"></span><span data-i18n="dashboard.getVsphone">Lấy VSPhone free</span></button>
           </div>
           <div class="daily-meta">
             <span id="daily-claim-status" class="pill">—</span>
             <span id="daily-vmos-status" class="pill">—</span>
+            <span id="daily-vsphone-status" class="pill">—</span>
           </div>
           <div id="daily-result" class="result-box hidden"></div>
         </div>
@@ -494,9 +496,11 @@
               <button class="btn btn-soft" data-reg="vmos" data-provider-logo="vmos">VMOS Cloud</button>
               <button class="btn btn-soft" data-reg="vsphone" data-provider-logo="vsphone">VSPhone</button>
               <button class="btn btn-soft" data-vmos-free data-provider-logo="vmos"><span data-i18n="device.vmosFree">VMOS Free</span></button>
+              <button class="btn btn-soft" data-vsphone-free data-provider-logo="vsphone"><span data-i18n="device.vsphoneFree">VSPhone Free</span></button>
             </div>
             <div id="reg-result" class="result-box hidden"></div>
             <div id="vmos-free-result" class="result-box hidden"></div>
+            <div id="vsphone-free-result" class="result-box hidden"></div>
           </div>
           <div class="card">
             <div class="card-head"><h3><span class="ico" data-icon="bolt"></span><span data-i18n="device.quickTitle">Mua nhanh</span></h3></div>
@@ -948,8 +952,8 @@
 <div id="modal-root" class="modal-root hidden"></div>
 <span id="app-version" class="hidden" data-version="0" aria-hidden="true"></span>
 
-<script src="/icons.js?v=20261124n"></script>
-<script src="/i18n.js?v=20261124n"></script>
-<script src="/app.js?v=20261124n"></script>
+<script src="/icons.js?v=20261124o"></script>
+<script src="/i18n.js?v=20261124o"></script>
+<script src="/app.js?v=20261124o"></script>
 </body>
 </html>
