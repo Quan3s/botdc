@@ -125,9 +125,12 @@ async function shorten(id, longUrl, req) {
     const text = await res.text();
     let data = null;
     try { data = JSON.parse(text); } catch (e) { /* xử lý bên dưới */ }
-    if (!res.ok) throw new Error(`Lỗi từ 2ktraffic (${res.status}).`);
+    const reason = data && (data.message || data.error || data.status)
+        ? (data.message || data.error || data.status)
+        : text.slice(0, 120);
+    // 401/403 thường là key sai hoặc nguồn chưa được duyệt: phải đưa lý do provider lên FE.
+    if (!res.ok) throw new Error(`Lỗi từ 2ktraffic (${res.status}): ${reason}`);
     if (data && data.status === 'success' && data.shortenedUrl) return String(data.shortenedUrl);
-    const reason = data && (data.message || data.error || data.status) ? (data.message || data.error || data.status) : text.slice(0, 120);
     throw new Error(`Lỗi từ 2ktraffic: ${reason}`);
 }
 
