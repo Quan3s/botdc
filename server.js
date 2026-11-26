@@ -172,7 +172,7 @@ async function todayFreeLinkCount(userId, today) {
 // ==========================================
 // PHẦN 1: WEB SERVER (NHẬN XU)
 // ==========================================
-const REDEEM_ASSET_VERSION = '20261124p';
+const REDEEM_ASSET_VERSION = '20261124q';
 const BROWSER_COOKIE = 'asynctas_browser';
 
 function escapeHtml(value) {

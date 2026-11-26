@@ -2218,13 +2218,20 @@ $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
   finally { btn.disabled = false; }
 }));
 
-/** Khung chọn provider giống card shop: có logo, thưởng, giới hạn và trạng thái sẵn sàng. */
+/** Khung chọn provider giống card shop: có logo, thưởng, giới hạn và nút lấy link riêng. */
 function renderProviderCards(providers, daily) {
   const grid = $('#task-provider-grid');
   const input = $('#task-provider');
   if (!grid || !providers.length) return;
   const chosen = providers.some(p => p.id === (input && input.value)) ? input.value : providers[0].id;
-  if (input) input.value = chosen;
+  const selectCard = (id) => {
+    if (input) input.value = id;
+    $$('.provider-card', grid).forEach(el => {
+      const active = el.dataset.provider === id;
+      el.classList.toggle('selected', active);
+      el.setAttribute('aria-pressed', String(active));
+    });
+  };
   grid.innerHTML = providers.map(p => {
     const used = Number(p.used || daily[p.id] || 0);
     const left = Math.max(0, Number(p.dailyMax) - used);
@@ -2233,7 +2240,7 @@ function renderProviderCards(providers, daily) {
       ? `<img class="product-logo provider-logo-img" src="${esc(logo)}" alt="${esc(p.name)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'product-logo placeholder',innerHTML:window.icons.icon('link',42)}))" />`
       : `<div class="product-logo placeholder">${icon('link', 42)}</div>`;
     return `
-      <button type="button" class="product shop-card provider-card${p.id === chosen ? ' selected' : ''}" data-provider="${esc(p.id)}" aria-pressed="${p.id === chosen}">
+      <div class="product shop-card provider-card${p.id === chosen ? ' selected' : ''}" data-provider="${esc(p.id)}" role="button" tabindex="0" aria-pressed="${p.id === chosen}">
         ${logoHtml}
         <div class="product-body">
           <h4>${esc(p.name)}</h4>
@@ -2243,20 +2250,59 @@ function renderProviderCards(providers, daily) {
             <span class="stock-badge">${num(used)}/${num(p.dailyMax)}</span>
           </div>
           <span class="pill provider-status">${esc(t(p.ready === false ? 'tasks.providerNotReady' : 'tasks.providerReady'))}</span>
-          <span class="pill">${esc(t('tasks.remaining', { count: num(left) }))}</span>
+          <button type="button" class="btn btn-primary btn-block btn-sm provider-get" data-get-link="${esc(p.id)}" ${left < 1 ? 'disabled' : ''}>
+            ${icon('link', 13)}<span>${esc(t('tasks.getLinkShort'))}</span>
+          </button>
         </div>
-      </button>`;
+      </div>`;
   }).join('');
-  renderIcons(grid);
-  $$('[data-provider]', grid).forEach(card => card.addEventListener('click', () => {
-    if (input) input.value = card.dataset.provider;
+  selectCard(chosen);
+  $$('.provider-card', grid).forEach(card => {
+    card.addEventListener('click', () => selectCard(card.dataset.provider));
+    card.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); selectCard(card.dataset.provider); }
+    });
+  });
+  $$('[data-get-link]', grid).forEach(btn => btn.addEventListener('click', ev => {
+    ev.stopPropagation();
+    const id = btn.dataset.getLink;
+    if (input) input.value = id;
     $$('.provider-card', grid).forEach(el => {
-      const active = el === card;
+      const active = el.dataset.provider === id;
       el.classList.toggle('selected', active);
       el.setAttribute('aria-pressed', String(active));
     });
-    if (typeof applyTranslations === 'function') applyTranslations(grid);
+    getTaskLink(id, btn);
   }));
+}
+
+/** Lấy link theo đúng provider của card được bấm. */
+async function getTaskLink(providerId, btn) {
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  const box = $('#task-result');
+  try {
+    const data = await api('/api/tasks/link', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: providerId,
+        theme: document.documentElement.dataset.theme === 'classic' ? 'classic' : 'bubble',
+        browserId: getDeviceId(),
+      }),
+    });
+    if (box) {
+      box.className = 'result-box';
+      box.innerHTML = `${icon('check', 15)} ${esc(t('tasks.created', { reward: num(data.reward), remaining: num(data.remaining) }))}<br>
+        <a href="${esc(data.url)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">${esc(data.url)}</a>`;
+      box.classList.remove('hidden');
+    }
+    loadTasks();
+  } catch (err) {
+    if (box) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
+    else toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function loadTasks() {
@@ -2349,35 +2395,6 @@ if (gmailTaskBtn) gmailTaskBtn.addEventListener('click', async e => {
   } catch (err) {
     if (box) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
   } finally { btn.disabled = false; }
-});
-
-const taskGetBtn = $('#task-get-btn');
-if (taskGetBtn) taskGetBtn.addEventListener('click', async e => {
-  const btn = e.currentTarget;
-  btn.disabled = true;
-  const box = $('#task-result');
-  try {
-    const select = $('#task-provider');
-    const data = await api('/api/tasks/link', {
-      method: 'POST',
-      body: JSON.stringify({
-        provider: select ? select.value : 'link4m',
-        theme: document.documentElement.dataset.theme === 'classic' ? 'classic' : 'bubble',
-        browserId: getDeviceId(),
-      }),
-    });
-    if (box) {
-      box.className = 'result-box';
-      box.innerHTML = `${icon('check', 15)} ${esc(t('tasks.created', { reward: num(data.reward), remaining: num(data.remaining) }))}<br>
-        <a href="${esc(data.url)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">${esc(data.url)}</a>`;
-      box.classList.remove('hidden');
-    }
-    loadTasks();
-  } catch (err) {
-    if (box) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
-    else toast(err.message, 'error');
-  }
-  finally { btn.disabled = false; }
 });
 
 function startCloudStatusPolling() {
