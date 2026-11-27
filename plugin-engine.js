@@ -22,6 +22,7 @@ const crypto = require('crypto');
 const db = require('./database');
 const github = require('./github');
 const services = require('./services');
+const economy = require('./economy');
 const weekly = require('./weekly');
 const shop = require('./shop');
 const linkProviders = require('./link-providers');
@@ -466,10 +467,16 @@ async function loadPlugin(row) {
             purchases: (webUserId, limit) => db.getPurchasesByUser(webUserId, limit),
         },
 
+        // --- Kinh tế (đọc snapshot mới nhất sau khi admin lưu) ---
+        economy: {
+            snapshot: () => economy.snapshot(),
+            coinsForAmount: (amount) => economy.coinsForAmount(amount),
+        },
+
         // --- Dịch vụ device / cloud ---
         services: {
             cloudNames: services.CLOUD_NAMES,
-            costs: { reg: services.REG_COST, ...services.MEOWS_COSTS },
+            costs: { reg: services.REG_COST, ...services.MEOWS_COSTS, ...economy.snapshot().deviceCosts },
             regVmos: () => services.regVmosAccount(),
             regVsphone: () => services.regVsphoneAccount(),
             buyHanami: (provider, server, input) => services.buyHanami(provider, server, input),
@@ -531,7 +538,7 @@ async function loadPlugin(row) {
             claim: async (key) => {
                 const today = utils.getTodayString();
                 if (await db.checkDailyLimit(key, 'daily', today) > 0) throw new Error('Hôm nay đã claim rồi.');
-                const reward = crypto.randomInt(1, 21);
+                const reward = crypto.randomInt(10, 101); // 10-100 xu, cùng luồng /daily web & Discord
                 await db.increaseDailyLimit(key, 'daily', today);
                 return { reward, balance: await db.updateCoins(key, reward), date: today };
             },

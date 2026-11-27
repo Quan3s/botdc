@@ -7,7 +7,7 @@ const PROVIDERS = {
     link4m: {
         id: 'link4m',
         name: 'Link4M',
-        reward: 50,
+        reward: 409,
         dailyMax: 2,
         color: 0xffc107,
         logo: 'https://www.google.com/s2/favicons?domain=link4m.com&sz=128',
@@ -15,7 +15,7 @@ const PROVIDERS = {
     layma: {
         id: 'layma',
         name: 'LayMa',
-        reward: 50,
+        reward: 450,
         dailyMax: 2,
         color: 0x8b5cf6,
         logo: 'https://layma.net/assets/favicon.ico',
@@ -23,7 +23,7 @@ const PROVIDERS = {
     bbmkts: {
         id: 'bbmkts',
         name: 'bbmkts',
-        reward: 25,
+        reward: 259,
         dailyMax: 1,
         color: 0x22c55e,
         logo: 'https://bbmkts.com/images/iconbb.png',

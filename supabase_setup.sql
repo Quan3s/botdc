@@ -232,6 +232,35 @@ create table if not exists device_accounts (
 );
 create index if not exists device_accounts_user_idx on device_accounts (user_id);
 
+-- ---------- Đổi thẻ Card2K (REST v3, webhook là nguồn cộng xu chính) ----------
+create table if not exists card2k_orders (
+  id text primary key,
+  request_id text not null unique,
+  user_id text,
+  user_key text,
+  username text default '',
+  telco text not null,
+  code text not null,
+  serial text not null,
+  amount bigint not null,
+  status text not null default 'pending',
+  message text default '',
+  coins bigint not null default 0,
+  declared_value bigint not null default 0,
+  value bigint,
+  received_amount bigint not null default 0,
+  provider_status text default '',
+  provider_code text default '',
+  provider_card_id text default '',
+  note text default '',
+  credited_by text default '',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  constraint card2k_orders_card_unique unique (telco, code, serial)
+);
+create index if not exists card2k_orders_user_idx on card2k_orders (user_key);
+create index if not exists card2k_orders_status_idx on card2k_orders (status);
+
 -- ---------- Nếu bảng shop_items đã tồn tại từ trước, bổ sung cột còn thiếu ----------
 alter table shop_items add column if not exists stock_content text;
 alter table shop_items add column if not exists gist_filename text;
@@ -267,6 +296,7 @@ alter table reviews enable row level security;
 alter table complaints enable row level security;
 alter table acoin_balances enable row level security;
 alter table device_accounts enable row level security;
+alter table card2k_orders enable row level security;
 
 -- ---------- Nhiệm vụ Gmail (duyệt thủ công, ghim + tìm kiếm) ----------
 create table if not exists gmail_tasks (

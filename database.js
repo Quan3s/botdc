@@ -41,6 +41,7 @@ const EMPTY_DB = {
     acoin_balances: [],
     device_accounts: [],
     gmail_tasks: [],
+    card2k_orders: [],
 };
 
 let local = null;
@@ -1039,6 +1040,65 @@ module.exports = {
 
     async listGmailTasks(limit = 500) {
         return await listRows('gmail_tasks', {}, 'created_at.desc', limit);
+    },
+
+    // ==================== CARD2K (ĐỔI THẺ) ====================
+    async createCardOrder(row) {
+        return await insertRow('card2k_orders', row);
+    },
+    async getCardOrderByRequest(requestId) {
+        return await getRow('card2k_orders', { request_id: String(requestId) });
+    },
+    async getCardOrderByCard(code, serial) {
+        return await getRow('card2k_orders', { code: String(code), serial: String(serial) });
+    },
+    async listCardOrders(filter = {}, limit = 100) {
+        return await listRows('card2k_orders', filter, 'created_at.desc', limit);
+    },
+    async updateCardOrder(id, patch) {
+        const rows = await patchRowsGeneric('card2k_orders', { id: String(id) }, {
+            ...patch, updated_at: new Date().toISOString(),
+        });
+        return rows && rows[0];
+    },
+
+    /**
+     * Migration x10 coin — CHỈ chạy khi admin bấm nút trong Admin Hub → Kinh tế.
+     * Không tự chạy lúc deploy. Flag được ghi trước khi xử lý để không bao giờ nhân lại lần 2.
+     * Chỉ áp dụng tài khoản web có created_at trước thời điểm bấm nút.
+     */
+    async runLegacyCoinMigrationOnce() {
+        const flagKey = 'legacy_coin_x10_migration';
+        const existing = await module.exports.getKv(flagKey);
+        if (existing) {
+            try {
+                const parsed = JSON.parse(existing);
+                return { skipped: true, ...parsed };
+            } catch (e) {
+                return { skipped: true, raw: existing };
+            }
+        }
+        const cutoff = new Date().toISOString();
+        await module.exports.setKv(flagKey, JSON.stringify({ at: cutoff, users: 0, status: 'running' }));
+        const users = await module.exports.listWebUsers(2000);
+        let migrated = 0;
+        for (const user of users) {
+            if (!user.created_at || String(user.created_at) >= cutoff) continue;
+            const keys = [`web_${user.id}`];
+            if (user.discord_id) keys.unshift(String(user.discord_id));
+            let touched = false;
+            for (const key of keys) {
+                const balance = await module.exports.getCoins(key);
+                if (balance > 0) {
+                    // balance + 9 * balance = x10 (updateCoins nhận delta).
+                    await module.exports.updateCoins(key, balance * 9);
+                    touched = true;
+                }
+            }
+            if (touched) migrated += 1;
+        }
+        await module.exports.setKv(flagKey, JSON.stringify({ at: cutoff, users: migrated, status: 'done' }));
+        return { ok: true, cutoff, users: migrated };
     },
 
     // ==================== DEVICE -> ACCOUNT ====================

@@ -257,8 +257,8 @@ Key plugin được tự động prefix thành `plugin:<plugin-id>:<key>`.
 
 | API | Mô tả |
 |---|---|
-| `api.services.costs.reg` | Chi phí reg VMOS/VSPhone (10 xu). |
-| `api.services.costs.UG` / `.VS` | 49 xu / 15 xu. |
+| `api.services.costs.reg` | Alias cũ, giữ giá mặc định 10 xu. Giá thật đọc từ `api.economy.snapshot().deviceCosts`. |
+| `api.services.costs.UG` / `.VS` / `.VSVIP` | 490 xu / 100 xu / 150 xu (mặc định, admin đổi trong Kinh tế). |
 | `api.services.regVmos()` / `.regVsphone()` | Tạo tài khoản cloud. |
 | `api.services.buyHanami(provider, server, input)` | Mua cloud Hanami. |
 | `api.services.cloud(force?)` | Cloud Status (cache 60s). |
@@ -294,7 +294,7 @@ await api.gift.create(code, amount);
 
 await api.daily.today();                   // YYYY-MM-DD giờ VN
 await api.daily.status(key);               // { date, claimed, freeVmosClaimed, linkCount }
-await api.daily.claim(key);                // 1-20 xu, chống claim 2 lần
+await api.daily.claim(key);                // 10-100 xu, chống claim 2 lần
 await api.daily.claimVmos(key);            // 1 VMOS free/ngày, cần >= 1 link
 ```
 

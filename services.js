@@ -9,11 +9,21 @@ const github = require('./github');
 
 const HANAMI_URL = 'https://hanaminikata.com/dev/buy_device_cloud';
 const CLOUD_NAMES = { UG: 'UGPhone', VM: 'VMOS', VS: 'VSPhone' };
-const REG_COST = 10;
+
+// Chỉ cụm NÀY (xuất hiện trong JSON hoặc response) mới được coi là hết máy.
+// Mọi lỗi khác là lỗi tạm thời khi thực hiện lệnh -> gửi lại, giữ nguyên tài khoản test.
+const HANAMI_OUT_OF_STOCK = 'Vui lòng đăng nhập vào acc và sử dụng lại câu lệnh. Nếu đăng nhập rồi mà vẫn gặp lỗi này thì có thể gói trial đang tạm thời hết hàng, vui lòng thử lại sau.';
+const HANAMI_PROBE_TTL_MS = 5 * 60 * 1000;
+const HANAMI_PROBE_KV = 'hanami_cloud_probe';
+const HANAMI_TEST_ACCOUNTS_KV = 'hanami_test_accounts';
+const REG_COST = 10; // giữ alias cũ; giá thật đọc từ economy.js
+
+// Giá mặc định mới (admin chỉnh trong Admin Hub → Kinh tế).
+const DEVICE_COSTS = { VM: 60, VS: 100, VSVIP: 150, UG: 490 };
 
 // Dịch vụ mua nhanh qua Meows — cookie được admin lưu trong bảng kv
 const MEOWS_COOKIE_KEY = 'meows_cookie';
-const MEOWS_COSTS = { UG: 49, VSVIP: 15 };
+const MEOWS_COSTS = { UG: 490, VSVIP: 150 };
 const MEOWS_NAMES = { UG: 'UGPhone', VSVIP: 'VSPhone VIP' };
 const DEVICE_LOGOS = {
   UG: 'https://img.utdstc.com/icon/48f/fcd/48ffcdcfb167f38e517727e184da795d34418c94094af934298aacc64fceddb6:600',
@@ -26,6 +36,40 @@ function vsphoneReady() {
     return !!(process.env.VSPHONE_API_URL && process.env.VSPHONE_API_KEY);
 }
 
+/** Gom mọi chuỗi trong JSON (kể cả nested) để nhận diện thông báo hết máy. */
+function collectStrings(node, out = [], depth = 0) {
+    if (depth > 8 || node == null) return out;
+    if (typeof node === 'string') {
+        if (node) out.push(node);
+        return out;
+    }
+    if (Array.isArray(node)) {
+        for (const item of node) collectStrings(item, out, depth + 1);
+        return out;
+    }
+    if (typeof node === 'object') {
+        for (const value of Object.values(node)) collectStrings(value, out, depth + 1);
+    }
+    return out;
+}
+
+const normalizeSpaces = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+
+/** CHỈ cụm thông báo chính xác này mới là hết máy; các lỗi khác phải retry. */
+function isHanamiOutOfStock(...values) {
+    const needle = normalizeSpaces(HANAMI_OUT_OF_STOCK);
+    return values.some(value => normalizeSpaces(value).includes(needle))
+        || collectStrings(values).some(text => normalizeSpaces(text).includes(needle));
+}
+
+function hanamiLooksSuccess(data, raw) {
+    if (isHanamiOutOfStock(data, raw)) return false;
+    if (!data || typeof data !== 'object') return false;
+    if (data.success === true || data.ok === true || data.status === 'success') return true;
+    if (data.code === 0 || data.code === '0') return true;
+    return !!(data.data && (data.data.account || data.data.email || data.data.device || data.data.machine));
+}
+
 async function buyHanami(cloudId, server, inputData) {
     const body = { token: process.env.HANAMI_TOKEN, cloud_id: cloudId, input_data: inputData };
     if (server) body.server = server;
@@ -35,16 +79,29 @@ async function buyHanami(cloudId, server, inputData) {
         body: JSON.stringify(body),
         timeout: 60000,
     }, { includeWww: false, useProxy: process.env.HANAMI_USE_PROXY === '1' });
-    const raw = result.raw;
+    const raw = String(result.raw || '');
     let data;
     try {
         data = JSON.parse(raw);
     } catch (e) {
         console.error(`[buycloud] Hanami trả về không phải JSON (HTTP ${result.status}):`, raw.slice(0, 300));
         const snippet = raw.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
-        return { ok: false, message: `Hanami trả về HTML thay vì JSON (HTTP ${result.status}): ${snippet.replace(/`/g, "'")}`, source: result.source };
+        const message = `Hanami trả về HTML thay vì JSON (HTTP ${result.status}): ${snippet.replace(/`/g, "'")}`;
+        return { ok: false, message, raw, data: null, source: result.source, outOfStock: false, retryable: true };
     }
-    return { ok: data.code === 0, message: data.message || 'Không rõ', source: result.source };
+    const outOfStock = isHanamiOutOfStock(data, raw);
+    const ok = result.ok && hanamiLooksSuccess(data, raw);
+    const message = collectStrings(data).join(' · ').slice(0, 500) || (outOfStock ? HANAMI_OUT_OF_STOCK : 'Không rõ');
+    return {
+        ok,
+        message,
+        raw,
+        data,
+        source: result.source,
+        outOfStock,
+        // code !== 0 / HTTP lỗi / HTML / mạng đều là lỗi khi thực hiện lệnh -> gửi lại.
+        retryable: !ok && !outOfStock,
+    };
 }
 
 /** Đăng ký 1 tài khoản VMOS. Trả về { account, mail, password }. */
@@ -807,6 +864,18 @@ async function getCloudStatus({ force = false } = {}) {
             };
         }
 
+        // VMOS Cloud: dùng Hanami thử mua bằng tài khoản trong kho test.
+        // Chỉ đổi tài khoản sau lần mua thành công; mỗi lần thử cách nhau 5 phút.
+        try {
+            const probe = await probeVmosCloudStatus({ force });
+            meows.vmos = { ...meows.vmos, ...probe };
+            if (probe.message) meows.vmos.message = probe.message;
+            if (probe.retryable) errors.push(`Hanami: ${probe.message}`);
+        } catch (e) {
+            errors.push(`Hanami: ${e.message}`);
+            meows.vmos = { ...meows.vmos, retryable: true, message: e.message };
+        }
+
         const value = {
             checkedAt: new Date().toISOString(),
             source,
@@ -826,10 +895,194 @@ async function getCloudStatus({ force = false } = {}) {
     }
 }
 
+// ==================== VMOS CLOUD STATUS QUA HANAMI ====================
+let hanamiProbeCache = null;
+let hanamiProbePromise = null;
+
+function parseHanamiAccount(entry) {
+    if (typeof entry === 'string') {
+        const text = entry.trim();
+        if (!text) return null;
+        const [account, password, server] = text.split('|').map(x => x.trim());
+        if (!account || !password) return null;
+        return { inputData: `${account}|${password}`, label: account, server: server || null };
+    }
+    if (!entry || typeof entry !== 'object') return null;
+    const inputData = String(entry.inputData || entry.input_data || '').trim();
+    const account = String(entry.account || entry.email || entry.username || (inputData ? inputData.split('|')[0] : '')).trim();
+    const password = String(entry.password || entry.pass || '').trim();
+    if (!inputData && (!account || !password)) return null;
+    return {
+        inputData: inputData || `${account}|${password}`,
+        label: String(entry.label || account).trim(),
+        server: entry.server ? String(entry.server).trim() : null,
+    };
+}
+
+/** Kho test: ưu tiên env HANAMI_TEST_ACCOUNTS, sau đó KV hanami_test_accounts. */
+function parseHanamiAccounts(raw) {
+    if (!raw) return [];
+    let parsed = raw;
+    if (typeof raw === 'string') {
+        const text = raw.trim();
+        if (!text) return [];
+        try { parsed = JSON.parse(text); } catch (e) { parsed = text.split(/\r?\n/); }
+    }
+    if (parsed && !Array.isArray(parsed) && Array.isArray(parsed.accounts)) parsed = parsed.accounts;
+    if (!Array.isArray(parsed)) parsed = [parsed];
+    const out = [];
+    for (const entry of parsed) {
+        const acc = parseHanamiAccount(entry);
+        if (acc && !out.some(x => x.inputData === acc.inputData)) out.push(acc);
+    }
+    return out;
+}
+
+async function getHanamiTestAccounts() {
+    const out = parseHanamiAccounts(process.env.HANAMI_TEST_ACCOUNTS || process.env.HANAMI_TEST_ACCOUNT);
+    let fromKv = [];
+    try { fromKv = parseHanamiAccounts(await db.getKv(HANAMI_TEST_ACCOUNTS_KV)); } catch (e) { /* bỏ qua */ }
+    for (const acc of fromKv) {
+        if (!out.some(x => x.inputData === acc.inputData)) out.push(acc);
+    }
+    return out;
+}
+
+async function readHanamiProbeState() {
+    try {
+        const raw = await db.getKv(HANAMI_PROBE_KV);
+        const state = raw ? JSON.parse(raw) : null;
+        return state && typeof state === 'object' ? state : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function waitMs(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Thử mua VM bằng 1 tài khoản trong kho test. Chỉ sang tài khoản tiếp theo SAU khi mua thành công.
+ * Lỗi thường (kể cả "lỗi khi thực hiện câu lệnh") -> gửi lại cùng tài khoản, KHÔNG đánh dấu hết máy.
+ * Chỉ cụm HANAMI_OUT_OF_STOCK mới đánh dấu offline/hết máy. Mỗi lần probe cách nhau 5 phút.
+ */
+async function probeVmosCloudStatus({ force = false, buy = buyHanami } = {}) {
+    const now = Date.now();
+    if (!force && hanamiProbeCache && now - hanamiProbeCache.at < HANAMI_PROBE_TTL_MS) {
+        return hanamiProbeCache.value;
+    }
+    if (hanamiProbePromise) return hanamiProbePromise;
+
+    hanamiProbePromise = (async () => {
+        const accounts = await getHanamiTestAccounts();
+        const state = await readHanamiProbeState();
+        const accountIndex = accounts.length && Number.isInteger(state.accountIndex)
+            ? ((state.accountIndex % accounts.length) + accounts.length) % accounts.length
+            : 0;
+        const base = {
+            source: 'hanami',
+            checkedAt: new Date().toISOString(),
+            accountIndex,
+            nextAccountIndex: accountIndex,
+            accountCount: accounts.length,
+            hasMachine: !!state.hasMachine,
+            lastBuyAt: Number(state.lastBuyAt) || null,
+            status: state.hasMachine ? 'online' : 'offline',
+            message: '',
+            retryable: false,
+            outOfStock: false,
+        };
+
+        const saveValue = async (patch) => {
+            const value = { ...base, ...patch };
+            hanamiProbeCache = { at: Date.now(), value };
+            try {
+                await db.setKv(HANAMI_PROBE_KV, JSON.stringify({
+                    ...state,
+                    accountIndex: value.nextAccountIndex,
+                    hasMachine: value.hasMachine,
+                    lastBuyAt: value.lastBuyAt,
+                    lastAttemptAt: Date.now(),
+                    lastMessage: value.message,
+                }));
+            } catch (e) { /* không làm hỏng status vì lỗi KV */ }
+            return value;
+        };
+
+        if (!accounts.length) {
+            return await saveValue({
+                status: 'offline',
+                message: 'Chưa có tài khoản test Hanami. Thêm trong Admin Hub → Kinh tế hoặc env HANAMI_TEST_ACCOUNTS.',
+            });
+        }
+        if (!process.env.HANAMI_TOKEN) {
+            return await saveValue({ status: 'offline', message: 'Bot chưa cấu hình HANAMI_TOKEN.' });
+        }
+
+        const account = accounts[accountIndex];
+        let result = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                result = await buy('VM', account.server, account.inputData);
+            } catch (e) {
+                result = { ok: false, message: e.message, outOfStock: false, retryable: true };
+            }
+            if (result.ok || result.outOfStock) break;
+            if (attempt === 0) await waitMs(1500); // lỗi khi thực hiện lệnh -> gửi lại ngay cùng tài khoản
+        }
+
+        if (result.ok) {
+            return await saveValue({
+                status: 'online',
+                message: 'Có máy — Hanami mua VM thành công. Đang chuyển sang tài khoản test tiếp theo.',
+                hasMachine: true,
+                retryable: false,
+                outOfStock: false,
+                lastBuyAt: Date.now(),
+                account: account.label,
+                nextAccountIndex: (accountIndex + 1) % accounts.length,
+            });
+        }
+        if (result.outOfStock) {
+            return await saveValue({
+                status: 'offline',
+                message: HANAMI_OUT_OF_STOCK,
+                hasMachine: false,
+                retryable: false,
+                outOfStock: true,
+                account: account.label,
+            });
+        }
+        // Mọi lỗi khác: retry, giữ nguyên tài khoản cho đến khi mua thành công.
+        return await saveValue({
+            status: state.hasMachine ? 'online' : 'offline',
+            message: `Lỗi khi thực hiện lệnh Hanami (${String(result.message || '').slice(0, 180)}) — giữ tài khoản này, sẽ thử lại.`,
+            retryable: true,
+            outOfStock: false,
+            account: account.label,
+        });
+    })();
+
+    try {
+        return await hanamiProbePromise;
+    } finally {
+        hanamiProbePromise = null;
+    }
+}
+
+function resetHanamiProbe() {
+    hanamiProbeCache = null;
+    hanamiProbePromise = null;
+    return db.setKv(HANAMI_PROBE_KV, JSON.stringify({}));
+}
+
 module.exports = {
     HANAMI_URL,
+    HANAMI_OUT_OF_STOCK,
     CLOUD_NAMES,
     REG_COST,
+    DEVICE_COSTS,
     MEOWS_COOKIE_KEY,
     MEOWS_COSTS,
     MEOWS_NAMES,
@@ -852,6 +1105,11 @@ module.exports = {
     getVsphoneShareLink,
     normalizeStatusProxy,
     getCloudStatus,
+    probeVmosCloudStatus,
+    resetHanamiProbe,
+    getHanamiTestAccounts,
+    parseHanamiAccounts,
+    isHanamiOutOfStock,
     probeMeowsPost,
 };
 

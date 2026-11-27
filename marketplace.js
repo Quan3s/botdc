@@ -16,7 +16,7 @@ const { randomId } = require('./utils');
 
 const router = express.Router();
 
-const DEFAULT_RATE = 5;
+const DEFAULT_RATE = 1000;
 const RATE_KV = 'exchange_coin_per_acoin';
 const HOLD_MS = 3 * 24 * 60 * 60 * 1000;
 const FEE_RATE = 0.1;
@@ -1187,5 +1187,6 @@ module.exports = {
     publicProduct,
     publicShop: shopSummary,
     publicOrder,
+    parsePrice,
     requireSeller,
 };

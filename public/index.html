@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="https://i.postimg.cc/gkbfN52c/Logo-asynctas-1x.png" />
-<link rel="stylesheet" href="/styles.css?v=20261124r" />
+<link rel="stylesheet" href="/styles.css?v=20261124s" />
 <script>
   // Áp theme và ngôn ngữ ngay để không bị flash classic / sai ngôn ngữ.
   try { document.documentElement.dataset.theme = localStorage.getItem('asynctas_theme') || 'bubble'; }
@@ -81,6 +81,7 @@
       <button class="nav-item" data-view="tasks"><span class="ico" data-icon="link"></span><span data-i18n="nav.tasks">Vượt link</span></button>
       <button class="nav-item" data-view="google"><span class="ico" data-icon="checkCircle"></span><span data-i18n="nav.google">Tạo tài khoản Google</span></button>
       <button class="nav-item" data-view="giftcode"><span class="ico" data-icon="gift"></span><span data-i18n="nav.giftcode">Giftcode</span></button>
+      <button class="nav-item" data-view="topup"><span class="ico" data-icon="coin"></span><span data-i18n="nav.topup">Đổi thẻ</span></button>
       <button class="nav-item" data-view="leaderboard"><span class="ico" data-icon="leaderboard"></span><span data-i18n="nav.leaderboard">Xếp hạng</span></button>
       <button class="nav-item" data-view="transfer"><span class="ico" data-icon="transfer"></span><span data-i18n="nav.transfer">Chuyển tiền</span></button>
       <button class="nav-item" data-view="orders"><span class="ico" data-icon="orders"></span><span data-i18n="nav.orders">Lịch sử đơn hàng</span></button>
@@ -193,9 +194,9 @@
         </div>
         <div class="card daily-card">
           <div class="card-head"><h3><span class="ico" data-icon="gift"></span><span data-i18n="dashboard.dailyTitle">Điểm danh & quà mỗi ngày</span></h3><span id="daily-date" class="pill">—</span></div>
-          <p class="muted" data-i18n="dashboard.dailyDesc">Claim mỗi ngày để nhận ngẫu nhiên 1–20 xu. Vượt ít nhất 1 link hôm nay để lấy 1 tài khoản VMOS hoặc VSPhone thường miễn phí — chỉ 1 trong 2, không trừ xu.</p>
+          <p class="muted" data-i18n="dashboard.dailyDesc">Claim mỗi ngày để nhận ngẫu nhiên 10–100 xu. Vượt ít nhất 1 link hôm nay để lấy 1 tài khoản VMOS hoặc VSPhone thường miễn phí — chỉ 1 trong 2, không trừ xu.</p>
           <div class="daily-actions">
-            <button id="daily-claim-btn" class="btn btn-primary"><span class="ico" data-icon="gift"></span><span data-i18n="dashboard.claim">Claim 1–20 xu</span></button>
+            <button id="daily-claim-btn" class="btn btn-primary"><span class="ico" data-icon="gift"></span><span data-i18n="dashboard.claim">Claim 10–100 xu</span></button>
             <button id="daily-vmos-btn" class="btn btn-soft"><span class="ico" data-icon="device"></span><span data-i18n="dashboard.getVmos">Lấy VMOS free</span></button>
             <button id="daily-vsphone-btn" class="btn btn-soft"><span class="ico" data-icon="device"></span><span data-i18n="dashboard.getVsphone">Lấy VSPhone free</span></button>
           </div>
@@ -491,7 +492,7 @@
           </div>
           <div class="card">
             <div class="card-head"><h3><span class="ico" data-icon="profile"></span><span data-i18n="device.regTitle">Reg tài khoản</span></h3></div>
-            <p class="muted" data-i18n="device.regDesc">Tạo nhanh tài khoản cloud. Phí 10 xu, chỉ trừ khi thành công.</p>
+            <p class="muted" data-i18n="device.regDesc">Tạo nhanh tài khoản cloud (VMOS 60 xu / VSPhone 100 xu, chỉnh được trong Kinh tế). Chỉ trừ xu khi thành công.</p>
             <div class="device-actions">
               <button class="btn btn-soft" data-reg="vmos" data-provider-logo="vmos">VMOS Cloud</button>
               <button class="btn btn-soft" data-reg="vsphone" data-provider-logo="vsphone">VSPhone</button>
@@ -506,8 +507,8 @@
             <div class="card-head"><h3><span class="ico" data-icon="bolt"></span><span data-i18n="device.quickTitle">Mua nhanh</span></h3></div>
             <p class="muted" data-i18n="device.quickDesc">Tài khoản trả về ngay. Chỉ trừ coin khi mua thành công.</p>
             <div class="device-actions">
-              <button class="btn btn-soft" data-meows="UG" data-provider-logo="ugphone">UGPhone — 49 xu</button>
-              <button class="btn btn-soft" data-meows="VSVIP" data-provider-logo="vsphone">VSPhone VIP — 15 xu</button>
+              <button class="btn btn-soft" data-meows="UG" data-provider-logo="ugphone">UGPhone — <span data-device-cost="UG">490</span> xu</button>
+              <button class="btn btn-soft" data-meows="VSVIP" data-provider-logo="vsphone">VSPhone VIP — <span data-device-cost="VSVIP">150</span> xu</button>
             </div>
             <div id="meows-result" class="result-box hidden"></div>
           </div>
@@ -612,6 +613,29 @@
               <li><span data-i18n="giftcode.note2">Coin cộng vào web</span><b data-i18n="giftcode.note2Value">Liên kết Discord để đồng bộ</b></li>
               <li><span data-i18n="giftcode.note3">Lịch sử nhận</span><b data-i18n="giftcode.note3Value">Hiện ngay sau khi nhập</b></li>
             </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- TOPUP / ĐỔI THẺ CARD2K -->
+      <section id="view-topup" class="view">
+        <div class="section-head">
+          <div><h3 data-i18n="topup.title">Đổi thẻ lấy xu</h3><p class="muted" data-i18n="topup.desc">Gửi thẻ cào qua Card2K. Xu sẽ được cộng tự động khi thẻ được xác nhận đúng — không reload trang.</p></div>
+        </div>
+        <div class="grid two-col">
+          <div class="card">
+            <div class="card-head"><h3><span class="ico" data-icon="coin"></span><span data-i18n="topup.formTitle">Gửi thẻ</span></h3><span id="topup-status" class="pill">—</span></div>
+            <label><span data-i18n="topup.telco">Nhà mạng</span><select id="topup-telco"></select></label>
+            <label><span data-i18n="topup.amount">Mệnh giá</span><select id="topup-amount"></select></label>
+            <label><span data-i18n="topup.serial">Serial</span><input id="topup-serial" data-i18n-placeholder="topup.serialPlaceholder" placeholder="VD: 10000000001" autocomplete="off" /></label>
+            <label><span data-i18n="topup.code">Mã thẻ</span><input id="topup-code" data-i18n-placeholder="topup.codePlaceholder" placeholder="VD: 1234567890001" autocomplete="off" /></label>
+            <div id="topup-rate" class="reward-list"></div>
+            <button id="topup-submit" class="btn btn-primary btn-block"><span class="ico" data-icon="send"></span><span data-i18n="topup.submit">Gửi thẻ</span></button>
+            <div id="topup-result" class="result-box hidden"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3><span class="ico" data-icon="orders"></span><span data-i18n="topup.historyTitle">Lịch sử thẻ</span></h3><button id="topup-refresh" class="btn btn-ghost btn-sm" data-i18n="admin.refresh">Làm mới</button></div>
+            <div id="topup-history" class="mini-list"></div>
           </div>
         </div>
       </section>
@@ -773,7 +797,7 @@
               <form id="admin-create-form" onsubmit="return false">
                 <label class="form-group"><span data-i18n="admin.itemName">Tên sản phẩm</span><input id="admin-item-name" class="form-control" data-i18n-placeholder="admin.itemNamePlaceholder" placeholder="VD: VMOS 1 tháng" /></label>
                 <div class="form-row">
-                  <label class="form-group"><span data-i18n="admin.priceCoin">Giá (xu)</span><input id="admin-item-price" class="form-control" type="number" min="1" value="100" /></label>
+                  <label class="form-group"><span data-i18n="admin.priceCoin">Giá (xu hoặc $ cho ACOIN)</span><input id="admin-item-price" class="form-control" type="text" value="100" data-i18n-placeholder="admin.pricePlaceholder" placeholder="100 hoặc $100" /></label>
                   <label class="form-group"><span data-i18n="admin.category">Danh mục</span>
                     <select id="admin-item-category" class="form-control"><option value="shop">Shop</option><option value="device">Device</option></select></label>
                 </div>
@@ -824,8 +848,8 @@
             <div class="card">
               <div class="card-head"><h3><span class="ico" data-icon="bolt"></span><span data-i18n="admin.quickServices">Dịch vụ nhanh</span></h3></div>
               <ul class="reward-list">
-                <li><span>UGPhone</span><b>49 xu</b></li>
-                <li><span>VSPhone VIP</span><b>15 xu</b></li>
+                <li><span>UGPhone</span><b>490 xu</b></li>
+                <li><span>VSPhone VIP</span><b>150 xu</b></li>
               </ul>
               <p class="muted" style="margin-top:14px"><span data-i18n="admin.proxyDesc">Dùng chung cho Cloud Status, Mua nhanh và mua UGPhone.</span></p>
             </div>
@@ -873,10 +897,55 @@
             </div>
             <div class="card">
               <div class="card-head"><h3><span class="ico" data-icon="exchange"></span><span data-i18n="admin.exchangeRateTitle">Tỷ lệ ACOIN</span></h3></div>
-              <p class="muted" data-i18n="dashboard.exchangeRate" data-vars='{"rate":"5"}'>Tỷ lệ: 1 ACOIN = 5 coin</p>
-              <label><span data-i18n="admin.coinPerAcoin">Coin mỗi 1 ACOIN</span><input id="admin-exchange-rate" type="number" min="1" value="5" /></label>
+              <p class="muted" data-i18n="dashboard.exchangeRate" data-vars='{"rate":"1000"}'>Tỷ lệ: 1 ACOIN = 1000 coin</p>
+              <label><span data-i18n="admin.coinPerAcoin">Coin mỗi 1 ACOIN</span><input id="admin-exchange-rate" type="number" min="1" value="1000" /></label>
               <button id="admin-exchange-rate-save" class="btn btn-primary btn-block"><span class="ico" data-icon="check"></span><span data-i18n="admin.saveRate">Lưu tỷ lệ</span></button>
               <div id="admin-exchange-rate-result" class="result-box hidden"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="link"></span><span data-i18n="admin.linkRewardsTitle">Thưởng vượt link</span></h3></div>
+              <p class="muted" data-i18n="admin.linkRewardsDesc">Coin nhận được mỗi lần vượt link. Có hiệu lực ngay với web và bot.</p>
+              <div class="form-row">
+                <label class="form-group"><span>Link4M</span><input id="admin-reward-link4m" type="number" min="1" value="409" /></label>
+                <label class="form-group"><span>LayMa</span><input id="admin-reward-layma" type="number" min="1" value="450" /></label>
+                <label class="form-group"><span>bbmkts</span><input id="admin-reward-bbmkts" type="number" min="1" value="259" /></label>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="device"></span><span data-i18n="admin.devicePricesTitle">Giá tạo tài khoản</span></h3></div>
+              <div class="form-row">
+                <label class="form-group"><span>VMOS</span><input id="admin-cost-vm" type="number" min="1" value="60" /></label>
+                <label class="form-group"><span>VSPhone</span><input id="admin-cost-vs" type="number" min="1" value="100" /></label>
+                <label class="form-group"><span>VSPhone VIP</span><input id="admin-cost-vsvip" type="number" min="1" value="150" /></label>
+                <label class="form-group"><span>UGPhone</span><input id="admin-cost-ug" type="number" min="1" value="490" /></label>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="coin"></span><span data-i18n="admin.topupTableTitle">Xu theo mệnh giá thẻ</span></h3></div>
+              <p class="muted" data-i18n="admin.topupTableDesc">Nhập 8 số cách nhau bằng dấu phẩy, theo thứ tự 10k, 20k, 30k, 50k, 100k, 200k, 500k, 1M.</p>
+              <label><span data-i18n="admin.topupTablePlaceholder">Dãy xu</span><input id="admin-topup-coins" type="text" value="8000, 16000, 24000, 40000, 80000, 160000, 400000, 800000" autocomplete="off" /></label>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="check"></span><span data-i18n="admin.economySave">Lưu kinh tế</span></h3></div>
+              <div class="device-actions">
+                <button id="admin-economy-save" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="admin.save">Lưu tất cả</span></button>
+                <button id="admin-economy-reset" class="btn btn-soft"><span class="ico" data-icon="refresh"></span><span data-i18n="admin.useDefault">Dùng mặc định</span></button>
+              </div>
+              <div id="admin-economy-result" class="result-box hidden"></div>
+              <div id="admin-topup-orders" class="mini-list"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="coin"></span><span data-i18n="admin.migrationTitle">Migration x10 cho tài khoản cũ</span></h3><span id="admin-migration-status" class="pill" data-i18n="admin.migrationIdle">Chưa chạy</span></div>
+              <p class="muted" data-i18n="admin.migrationDesc">Chỉ bấm 1 lần. Hệ thống nhân x10 coin của tài khoản web tạo trước thời điểm bấm. Không tự chạy khi deploy lại.</p>
+              <button id="admin-migration-btn" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="admin.migrationBtn">Bấm để nhân x10</span></button>
+              <div id="admin-migration-result" class="result-box hidden"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3><span class="ico" data-icon="device"></span><span data-i18n="admin.hanamiAccountsTitle">Kho test VMOS Cloud (Hanami)</span></h3></div>
+              <p class="muted" data-i18n="admin.hanamiAccountsDesc">Mỗi dòng 1 tài khoản <code>email|password</code>. Cloud Status thử mua mỗi 5 phút, chỉ sang tài khoản khác sau lần mua thành công.</p>
+              <label><span data-i18n="admin.hanamiAccountsLabel">Danh sách tài khoản test</span><textarea id="admin-hanami-accounts" rows="4" data-i18n-placeholder="admin.hanamiAccountsPlaceholder" placeholder="email|password"></textarea></label>
+              <button id="admin-hanami-accounts-save" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="admin.save">Lưu kho test</span></button>
+              <div id="admin-hanami-accounts-result" class="result-box hidden"></div>
             </div>
           </div>
         </div>
@@ -937,8 +1006,8 @@
 <div id="modal-root" class="modal-root hidden"></div>
 <span id="app-version" class="hidden" data-version="0" aria-hidden="true"></span>
 
-<script src="/icons.js?v=20261124r"></script>
-<script src="/i18n.js?v=20261124r"></script>
-<script src="/app.js?v=20261124r"></script>
+<script src="/icons.js?v=20261124s"></script>
+<script src="/i18n.js?v=20261124s"></script>
+<script src="/app.js?v=20261124s"></script>
 </body>
 </html>

@@ -23,6 +23,7 @@ const state = {
   userShop: { q: '', filter: 'recommended', page: 1, detail: null, reviewIntent: null },
   chat: { contacts: [], with: null, withAdmin: false, messages: [], poll: null, unread: 0, open: false },
   adminReviews: [],
+  deviceCosts: { VM: 60, VS: 100, VSVIP: 150, UG: 490 },
 };
 
 let cloudStatusTimer = null;
@@ -430,7 +431,11 @@ function applyUser() {
   setText(heroAcoin.querySelector('span'), t('dashboard.acoinBalance', { value: num(u.acoin) }));
   const rate = $('#exchange-rate');
   rate.removeAttribute('data-i18n');
-  setText(rate, t('dashboard.exchangeRate', { rate: num(u.exchangeRate || 5) }));
+  setText(rate, t('dashboard.exchangeRate', { rate: num(u.exchangeRate || 1000) }));
+  $$('[data-device-cost]').forEach(el => {
+    const value = Number((state.deviceCosts || {})[el.dataset.deviceCost]);
+    if (value) setText(el, num(value));
+  });
 
   $('#youtube-link').href = u.youtubeUrl || 'https://youtube.com';
   $('#discord-link').href = u.discordUrl || 'https://discord.com';
@@ -547,6 +552,7 @@ async function refreshUser() {
   const user = data.user || data;
   if (!user) { showAuth(); return; }
   state.user = user;
+  if (data.deviceCosts) state.deviceCosts = data.deviceCosts;
   applyUser();
 }
 
@@ -581,7 +587,7 @@ const VIEW_TITLE_KEYS = {
   dashboard: 'nav.dashboard', shop: 'nav.shop', 'user-shop': 'nav.userShop',
   buydevice: 'nav.buydevice', cloudstatus: 'nav.cloudstatus', tasks: 'nav.tasks',
   google: 'nav.google',
-  giftcode: 'nav.giftcode', leaderboard: 'nav.leaderboard', transfer: 'nav.transfer',
+  giftcode: 'nav.giftcode', topup: 'nav.topup', leaderboard: 'nav.leaderboard', transfer: 'nav.transfer',
   orders: 'nav.orders', seller: 'nav.seller', profile: 'nav.profile',
   admin: 'nav.admin', messages: 'chat.title',
 };
@@ -695,6 +701,7 @@ function loadView(view) {
   else if (view === 'tasks') loadTasks();
   else if (view === 'google') loadGoogle();
   else if (view === 'giftcode') $('#giftcode-input').focus();
+  else if (view === 'topup') loadTopup();
   else if (view === 'leaderboard') loadLeaderboard();
   else if (view === 'transfer') loadTransfers();
   // Admin được nạp trong syncSidebar -> showAdminPanel (tránh fetch trùng).
@@ -2172,7 +2179,7 @@ $$('[data-reg]').forEach(btn => btn.addEventListener('click', async () => {
 $$('[data-meows]').forEach(btn => btn.addEventListener('click', async () => {
   const provider = btn.dataset.meows;
   const box = $('#meows-result');
-  const cost = provider === 'UG' ? 49 : 15;
+  const cost = Number((state.deviceCosts || {})[provider]) || (provider === 'UG' ? 490 : 150);
   const name = provider === 'UG' ? 'UGPhone' : 'VSPhone VIP';
   if (!window.confirm(t('device.confirmQuick', { name, cost: num(cost) }))) return;
   btn.disabled = true;
@@ -2408,10 +2415,12 @@ function stopCloudStatusPolling() {
 }
 
 function setDeviceStatus(sel, msgSel, device) {
-  const online = device && device.status === 'online';
+  const retrying = !!(device && device.retryable);
+  const online = device && device.status === 'online' && !retrying;
   const el = $(sel);
   el.className = `status-badge ${online ? 'online' : 'offline'}`;
-  el.innerHTML = icon(online ? 'dot-online' : 'dot-offline', 12) + `<span>${esc(t(online ? 'status.hasMachine' : 'status.noMachine'))}</span>`;
+  if (retrying) el.className = 'status-badge retrying';
+  el.innerHTML = icon(online ? 'dot-online' : 'dot-offline', 12) + `<span>${esc(t(online ? 'status.hasMachine' : retrying ? 'status.retrying' : 'status.noMachine'))}</span>`;
   const parts = [];
   if (device && device.message) parts.push(device.message);
   if (device && device.lastBuyAt) parts.push(t('status.lastBuy', { time: new Date(device.lastBuyAt).toLocaleString(getLanguage() === 'en' ? 'en-US' : 'vi-VN') }));
@@ -2450,6 +2459,69 @@ $('#giftcode-btn').addEventListener('click', async e => {
     setText(box, t('giftcode.success', { code, amount: num(data.amount), balance: num(data.newBalance) }));
     $('#giftcode-input').value = '';
     await refreshUser();
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); }
+  finally { box.classList.remove('hidden'); btn.disabled = false; }
+});
+
+// ==================== CARD2K — ĐỔI THẺ ====================
+function topupStatusLabel(status) {
+  const map = {
+    pending: 'topup.statusPending', success: 'topup.statusSuccess', wrong_value: 'topup.statusWrong',
+    invalid: 'topup.statusInvalid', failed: 'topup.statusFailed', needs_review: 'topup.statusReview',
+  };
+  return map[status] ? t(map[status]) : status;
+}
+
+async function loadTopup() {
+  try {
+    const cfg = await api('/api/topup/config');
+    const telcoSel = $('#topup-telco');
+    const amountSel = $('#topup-amount');
+    telcoSel.innerHTML = (cfg.telcos || []).map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+    amountSel.innerHTML = (cfg.amounts || []).map(x => `<option value="${x.amount}">${num(x.amount / 1000)}k — +${num(x.coins)} xu</option>`).join('');
+    $('#topup-rate').innerHTML = (cfg.amounts || []).map(x =>
+      `<div class="mini-row"><span>${num(x.amount / 1000)}k</span><b>+${num(x.coins)} xu</b></div>`).join('');
+    setText('#topup-status', cfg.configured ? t('topup.ready') : t('topup.notConfigured'));
+    $('#topup-submit').disabled = !cfg.configured;
+    if (cfg.callbackUrl) $('#topup-status').title = cfg.callbackUrl;
+    await loadTopupHistory();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function loadTopupHistory() {
+  const root = $('#topup-history');
+  try {
+    const data = await api('/api/topup/history');
+    root.innerHTML = (data.orders || []).length ? data.orders.map(o => `
+      <div class="mini-row">
+        <span>${esc(o.telco)} ${num(o.amount / 1000)}k · ${esc(o.serial)}</span>
+        <b>${esc(topupStatusLabel(o.status))}${o.coins ? ` +${num(o.coins)}` : ''}</b>
+      </div>`).join('') : `<div class="empty">${esc(t('topup.empty'))}</div>`;
+  } catch (err) { root.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+}
+
+$('#topup-refresh').addEventListener('click', () => loadTopupHistory().catch(err => toast(err.message, 'error')));
+
+$('#topup-submit').addEventListener('click', async e => {
+  const btn = e.currentTarget;
+  const box = $('#topup-result');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/topup/cards', {
+      method: 'POST',
+      body: JSON.stringify({
+        telco: $('#topup-telco').value,
+        amount: Number($('#topup-amount').value),
+        serial: $('#topup-serial').value,
+        code: $('#topup-code').value,
+      }),
+    });
+    box.className = 'result-box';
+    setText(box, data.message || t('topup.submitted'));
+    $('#topup-serial').value = '';
+    $('#topup-code').value = '';
+    await refreshUser();
+    await loadTopupHistory();
   } catch (err) { box.className = 'result-box error'; setText(box, err.message); }
   finally { box.classList.remove('hidden'); btn.disabled = false; }
 });
@@ -2615,7 +2687,7 @@ function renderAdminItemTable(root, items) {
       <div class="product-name-info"><strong>${esc(item.name)}</strong><small>${esc(item.description || '')}</small></div>
     </td>
     <td><span class="store-tag">${esc(item.category)}</span></td>
-    <td class="price-cell">${num(item.price)} ${esc(t('topbar.coinShort'))}</td>
+    <td class="price-cell">${esc(priceLabel(item.price, item.currency, item.priceText))}</td>
     <td><span class="${Number(item.stock) > 0 ? 'stock-ok' : 'stock-out'}">${num(item.stock)}</span></td>
     <td><span class="status-pill ${item.active === false ? 'status-inactive' : 'status-active'}">${esc(t(item.active === false ? 'seller.statusInactive' : 'seller.statusActive'))}</span></td>
     <td class="actions-cell">
@@ -2788,13 +2860,13 @@ $('#admin-gmail-list')?.addEventListener('click', async e => {
 async function loadAdminExchangeRate() {
   try {
     const data = await api('/api/admin/exchange-rate');
-    $('#admin-exchange-rate').value = data.coinPerAcoin || 5;
+    $('#admin-exchange-rate').value = data.coinPerAcoin || 1000;
   } catch (err) { /* giữ giá trị mặc định nếu route chưa sẵn */ }
 }
 
 $('#admin-exchange-rate-save').addEventListener('click', async e => {
   const box = $('#admin-exchange-rate-result');
-  const coinPerAcoin = Math.max(1, Number($('#admin-exchange-rate').value) || 5);
+  const coinPerAcoin = Math.max(1, Number($('#admin-exchange-rate').value) || 1000);
   e.currentTarget.disabled = true;
   try {
     const data = await api('/api/admin/exchange-rate', {
@@ -2809,8 +2881,136 @@ $('#admin-exchange-rate-save').addEventListener('click', async e => {
   finally { e.currentTarget.disabled = false; }
 });
 
+async function loadAdminEconomy() {
+  try {
+    const data = await api('/api/admin/economy');
+    const c = data.config;
+    $('#admin-reward-link4m').value = c.linkRewards.link4m;
+    $('#admin-reward-layma').value = c.linkRewards.layma;
+    $('#admin-reward-bbmkts').value = c.linkRewards.bbmkts;
+    $('#admin-cost-vm').value = c.deviceCosts.VM;
+    $('#admin-cost-vs').value = c.deviceCosts.VS;
+    $('#admin-cost-vsvip').value = c.deviceCosts.VSVIP;
+    $('#admin-cost-ug').value = c.deviceCosts.UG;
+    $('#admin-topup-coins').value = Object.keys(c.topupCoins).map(Number).sort((a, b) => a - b)
+      .map(k => c.topupCoins[String(k)]).join(', ');
+    $('#admin-exchange-rate').value = c.coinPerAcoin;
+    const orders = await api('/api/admin/topup/orders?limit=20');
+    $('#admin-topup-orders').innerHTML = (orders.orders || []).length
+      ? orders.orders.slice(0, 8).map(o => `<div class="mini-row"><span>${esc(o.telco)} ${num(o.amount / 1000)}k · ${esc(o.username || o.userKey || '')}</span><b>${esc(topupStatusLabel(o.status))}${o.coins ? ` +${num(o.coins)}` : ''}</b></div>`).join('')
+      : `<div class="empty">${esc(t('topup.empty'))}</div>`;
+  } catch (err) { /* giữ mặc định nếu route chưa sẵn */ }
+}
+
+function readEconomyForm() {
+  const amounts = [10000, 20000, 30000, 50000, 100000, 200000, 500000, 1000000];
+  const values = String($('#admin-topup-coins').value || '').split(',').map(x => Number(x.trim()));
+  const topupCoins = {};
+  amounts.forEach((amount, i) => { topupCoins[String(amount)] = Math.max(1, Number(values[i]) || economyDefaults.topupCoins[String(amount)]); });
+  return {
+    linkRewards: {
+      link4m: Math.max(1, Number($('#admin-reward-link4m').value) || 409),
+      layma: Math.max(1, Number($('#admin-reward-layma').value) || 450),
+      bbmkts: Math.max(1, Number($('#admin-reward-bbmkts').value) || 259),
+    },
+    deviceCosts: {
+      VM: Math.max(1, Number($('#admin-cost-vm').value) || 60),
+      VS: Math.max(1, Number($('#admin-cost-vs').value) || 100),
+      VSVIP: Math.max(1, Number($('#admin-cost-vsvip').value) || 150),
+      UG: Math.max(1, Number($('#admin-cost-ug').value) || 490),
+    },
+    topupCoins,
+    coinPerAcoin: Math.max(1, Number($('#admin-exchange-rate').value) || 1000),
+  };
+}
+
+const economyDefaults = {
+  topupCoins: { '10000': 8000, '20000': 16000, '30000': 24000, '50000': 40000, '100000': 80000, '200000': 160000, '500000': 400000, '1000000': 800000 },
+};
+
+$('#admin-economy-save').addEventListener('click', async e => {
+  const box = $('#admin-economy-result');
+  e.currentTarget.disabled = true;
+  try {
+    const data = await api('/api/admin/economy', { method: 'POST', body: JSON.stringify(readEconomyForm()) });
+    if (state.user) state.user.exchangeRate = data.config.coinPerAcoin;
+    applyUser();
+    box.className = 'result-box';
+    setText(box, t('admin.economySaved'));
+    box.classList.remove('hidden');
+    await loadAdminEconomy();
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
+  finally { e.currentTarget.disabled = false; }
+});
+
+$('#admin-economy-reset').addEventListener('click', async e => {
+  const box = $('#admin-economy-result');
+  e.currentTarget.disabled = true;
+  try {
+    const data = await api('/api/admin/economy/reset', { method: 'POST' });
+    if (state.user) state.user.exchangeRate = data.config.coinPerAcoin;
+    applyUser();
+    box.className = 'result-box';
+    setText(box, t('admin.economyResetDone'));
+    box.classList.remove('hidden');
+    await loadAdminEconomy();
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
+  finally { e.currentTarget.disabled = false; }
+});
+
+async function loadAdminMigration() {
+  try {
+    const data = await api('/api/admin/economy/migration');
+    const pill = $('#admin-migration-status');
+    setText(pill, data.running ? t('admin.migrationRunning')
+      : data.done ? t('admin.migrationDone', { users: num(data.users) })
+        : t('admin.migrationIdle'));
+    $('#admin-migration-btn').disabled = !!(data.done || data.running);
+  } catch (err) { /* giữ trạng thái mặc định */ }
+}
+
+$('#admin-migration-btn').addEventListener('click', async e => {
+  if (!confirm(t('admin.migrationConfirm'))) return;
+  const box = $('#admin-migration-result');
+  e.currentTarget.disabled = true;
+  try {
+    const data = await api('/api/admin/economy/migrate-x10', {
+      method: 'POST', body: JSON.stringify({ confirm: true }),
+    });
+    box.className = 'result-box';
+    setText(box, data.skipped ? t('admin.migrationSkipped') : t('admin.migrationDone', { users: num(data.users) }));
+    box.classList.remove('hidden');
+    await loadAdminMigration();
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
+  finally { e.currentTarget.disabled = false; }
+});
+
+async function loadAdminHanamiAccounts() {
+  try {
+    const data = await api('/api/admin/hanami/test-accounts');
+    $('#admin-hanami-accounts').value = data.raw || '';
+  } catch (err) { /* giữ trống nếu route chưa sẵn */ }
+}
+
+$('#admin-hanami-accounts-save').addEventListener('click', async e => {
+  const box = $('#admin-hanami-accounts-result');
+  e.currentTarget.disabled = true;
+  try {
+    const data = await api('/api/admin/hanami/test-accounts', {
+      method: 'POST', body: JSON.stringify({ accounts: $('#admin-hanami-accounts').value }),
+    });
+    box.className = 'result-box';
+    setText(box, t('admin.hanamiAccountsSaved', { count: num(data.count) }));
+    box.classList.remove('hidden');
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); box.classList.remove('hidden'); }
+  finally { e.currentTarget.disabled = false; }
+});
+
 async function loadAdminMarket() {
   loadAdminExchangeRate().catch(() => {});
+  loadAdminEconomy().catch(() => {});
+  loadAdminMigration().catch(() => {});
+  loadAdminHanamiAccounts().catch(() => {});
   const sellersRoot = $('#admin-sellers');
   const reviewsRoot = $('#admin-reviews');
   const complaintsRoot = $('#admin-complaints');
@@ -3107,7 +3307,7 @@ $('#admin-create-btn').addEventListener('click', async e => {
     await api('/api/admin/items', {
       method: 'POST', body: JSON.stringify({
         name: $('#admin-item-name').value,
-        price: parseInt($('#admin-item-price').value, 10) || 0,
+        priceText: $('#admin-item-price').value,
         logoUrl: $('#admin-item-logo').value,
         category: $('#admin-item-category').value,
         description: $('#admin-item-desc').value,
@@ -3185,7 +3385,7 @@ function editItemModal(item) {
   const wrap = document.createElement('div');
   wrap.innerHTML = `
     <label>${esc(t('common.name'))}<input id="edit-name" value="${esc(item.name)}" /></label>
-    <label>${esc(t('admin.priceCoin'))}<input id="edit-price" type="number" min="1" value="${item.price}" /></label>
+    <label>${esc(t('admin.priceCoin'))}<input id="edit-price" type="text" value="${item.currency === 'acoin' ? '$' : ''}${item.price}" /></label>
     <label>${esc(t('admin.logo'))}<input id="edit-logo" value="${esc(item.logoUrl)}" /></label>
     <label>${esc(t('admin.description'))}<input id="edit-desc" value="${esc(item.description)}" /></label>
     <label>${esc(t('admin.visible'))}<select id="edit-active"><option value="1" ${item.active ? 'selected' : ''}>${esc(t('admin.show'))}</option><option value="0" ${!item.active ? 'selected' : ''}>${esc(t('admin.hidden'))}</option></select></label>`;
@@ -3201,7 +3401,7 @@ function editItemModal(item) {
             await api(`/api/admin/items/${item.id}`, {
               method: 'PATCH', body: JSON.stringify({
                 name: wrap.querySelector('#edit-name').value,
-                price: parseInt(wrap.querySelector('#edit-price').value, 10) || 0,
+                priceText: wrap.querySelector('#edit-price').value,
                 logoUrl: wrap.querySelector('#edit-logo').value,
                 description: wrap.querySelector('#edit-desc').value,
                 active: wrap.querySelector('#edit-active').value === '1',

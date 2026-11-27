@@ -10,6 +10,7 @@ const weekly = require('./weekly');
 const gistStore = require('./gist-store');
 const shop = require('./shop');
 const linkProviders = require('./link-providers');
+const economy = require('./economy');
 const pluginEngine = require('./plugin-engine');
 const { generateUniqueLinkToken, randomId, hashPassword } = require('./utils');
 
@@ -26,7 +27,7 @@ const PAY_FEE_RATE = 0.05;   // phí chuyển 5%
 const LEADERBOARD_INTERVAL_MS = 10 * 60 * 1000; // cập nhật bảng xếp hạng mỗi 10 phút
 const WEEKLY_PAYOUT_INTERVAL_MS = 10 * 60 * 1000; // kiểm tra trả thưởng tuần mỗi 10 phút
 const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000; // dọn seller inactive mỗi 24h
-const DEFAULT_EXCHANGE_RATE = 5; // 5 coin = 1 ACOIN (10 coin = 2 ACOIN)
+const DEFAULT_EXCHANGE_RATE = 1000; // 1000 coin = 1 ACOIN (mặc định, admin đổi được)
 const ACOIN_KV_PREFIX = 'acoin_balance:';
 const BOT_SELLER_INDEX_KEY = 'bot_seller_index';
 const busyUsers = new Set();
@@ -121,10 +122,12 @@ function maskProxy(value) {
 }
 
 function deviceStatusLine(label, device) {
-    const ok = device && device.status === 'online';
-    const icon = ok ? '🟢' : '🔴';
+    const ok = device && device.status === 'online' && !device.retryable;
+    const retrying = !!(device && device.retryable);
+    const icon = ok ? '🟢' : retrying ? '🟡' : '🔴';
+    const stateText = ok ? 'Online' : retrying ? 'Đang thử lại' : 'Offline';
     const msg = device && device.message ? String(device.message).slice(0, 120) : '';
-    return `${icon} **${label}**: ${ok ? 'Online' : 'Offline'}${msg ? ` — ${msg}` : ''}`;
+    return `${icon} **${label}**: ${stateText}${msg ? ` — ${msg}` : ''}`;
 }
 
 // heartbeat watchdog: nếu bot im lặng quá 2 phút -> relogin
@@ -172,7 +175,7 @@ async function todayFreeLinkCount(userId, today) {
 // ==========================================
 // PHẦN 1: WEB SERVER (NHẬN XU)
 // ==========================================
-const REDEEM_ASSET_VERSION = '20261124r';
+const REDEEM_ASSET_VERSION = '20261124s';
 const BROWSER_COOKIE = 'asynctas_browser';
 
 function escapeHtml(value) {
@@ -386,6 +389,11 @@ app.post('/redeem/claim', express.json(), async (req, res) => {
         return res.status(500).json({ ok: false, error: 'Lỗi Server khi nhận xu.' });
     }
 });
+
+// Nạp cấu hình kinh tế. Migration x10 KHÔNG chạy ở đây — admin bấm tay trong Admin Hub.
+economy.load().then(() => {
+    console.log('[economy] đã nạp cấu hình kinh tế.');
+}).catch(e => console.error('[economy] load lỗi:', e.message));
 
 app.listen(PORT, () => console.log(`\n✅ Web Server đang chạy: http://localhost:${PORT}`));
 
@@ -640,11 +648,11 @@ client.once('ready', async () => {
     resetHeartbeat(); // bắt đầu watchdog ngay khi bot sẵn sàng
     hook('bot:ready', { botId: client.user.id, username: client.user.username, at: new Date().toISOString() });
     const commands = [
-        new SlashCommandBuilder().setName('getlink').setDescription('Lấy link nhận xu (Link4M 50 xu, LayMa 50 xu, bbmkts 25 xu)')
+        new SlashCommandBuilder().setName('getlink').setDescription('Lấy link nhận xu (Link4M 409 xu, LayMa 450 xu, bbmkts 259 xu)')
             .addStringOption(opt => opt.setName('provider').setDescription('Chọn dịch vụ rút gọn link').addChoices(
-                { name: 'Link4M — 50 xu', value: 'link4m' },
-                { name: 'LayMa — 50 xu', value: 'layma' },
-                { name: 'bbmkts — 25 xu', value: 'bbmkts' }
+                { name: 'Link4M — 409 xu', value: 'link4m' },
+                { name: 'LayMa — 450 xu', value: 'layma' },
+                { name: 'bbmkts — 259 xu', value: 'bbmkts' }
             ).setRequired(false)),
         new SlashCommandBuilder().setName('tasks').setDescription('Xem tiến độ nhiệm vụ vượt link hôm nay'),
         new SlashCommandBuilder().setName('vmosfree').setDescription('Lấy 1 VMOS free mỗi ngày (cần vượt 1 link hôm nay)'),
@@ -688,17 +696,17 @@ client.once('ready', async () => {
                 .addChoices({ name: 'UGPhone', value: 'UG' }, { name: 'VMOS', value: 'VM' }, { name: 'VSPhone', value: 'VS' }))
             .addStringOption(o => o.setName('server').setDescription('Khu vực (bắt buộc với UGPhone)').setRequired(false)
                 .addChoices({ name: 'Singapore', value: 'SG' }, { name: 'Hong Kong', value: 'HK' }, { name: 'Japan', value: 'JP' }, { name: 'Germany', value: 'DE' }, { name: 'US', value: 'US' })),
-        new SlashCommandBuilder().setName('asynctas').setDescription('Mua nhanh UGPhone (49 xu) hoặc VSPhone VIP (15 xu)')
+        new SlashCommandBuilder().setName('asynctas').setDescription('Mua nhanh UGPhone (490 xu) hoặc VSPhone VIP (150 xu)')
             .addStringOption(o => o.setName('provider').setDescription('Chọn dịch vụ').setRequired(true)
                 .addChoices(
-                    { name: 'UGPhone — 49 xu', value: 'UG' },
-                    { name: 'VSPhone VIP — 15 xu', value: 'VSVIP' }
+                    { name: 'UGPhone — 490 xu', value: 'UG' },
+                    { name: 'VSPhone VIP — 150 xu', value: 'VSVIP' }
                 )),
-        new SlashCommandBuilder().setName('meows').setDescription('(Lệnh cũ) Mua nhanh UGPhone (49 xu) hoặc VSPhone VIP (15 xu)')
+        new SlashCommandBuilder().setName('meows').setDescription('(Lệnh cũ) Mua nhanh UGPhone (490 xu) hoặc VSPhone VIP (150 xu)')
             .addStringOption(o => o.setName('provider').setDescription('Chọn dịch vụ').setRequired(true)
                 .addChoices(
-                    { name: 'UGPhone — 49 xu', value: 'UG' },
-                    { name: 'VSPhone VIP — 15 xu', value: 'VSVIP' }
+                    { name: 'UGPhone — 490 xu', value: 'UG' },
+                    { name: 'VSPhone VIP — 150 xu', value: 'VSVIP' }
                 )),
         new SlashCommandBuilder().setName('shop').setDescription('Xem danh sách hàng hoá và giá trong shop'),
         new SlashCommandBuilder().setName('connect').setDescription('Liên kết tài khoản web với Discord để đồng bộ coin')
@@ -718,7 +726,7 @@ client.once('ready', async () => {
                 .addChoices({ name: 'Xu (coin)', value: 'coin' }, { name: 'ACOIN', value: 'acoin' }))
             .addUserOption(o => o.setName('user').setDescription('Chọn người dùng').setRequired(false))
             .addStringOption(o => o.setName('id').setDescription('Hoặc nhập ID Discord').setRequired(false)),
-        new SlashCommandBuilder().setName('daily').setDescription('Nhận quà hàng ngày (ngẫu nhiên 1-20 xu)'),
+        new SlashCommandBuilder().setName('daily').setDescription('Nhận quà hàng ngày (ngẫu nhiên 10-100 xu)'),
         new SlashCommandBuilder().setName('pay').setDescription('Chuyển xu cho người khác (phí 5%)')
             .addUserOption(o => o.setName('nguoinhan').setDescription('Người nhận').setRequired(true))
             .addIntegerOption(o => o.setName('sotien').setDescription(`Số xu muốn chuyển (tối thiểu ${PAY_MIN})`).setRequired(true).setMinValue(PAY_MIN)),
@@ -828,20 +836,21 @@ function regButton(customId, label, style, envName, fallbackEmoji, disabled) {
 function buildRegPanel(ownerId) {
     const vsReady = vsphoneReady();
     const logos = services.DEVICE_LOGOS || {};
+    const prices = economy.snapshot().deviceCosts;
     const main = new EmbedBuilder()
         .setTitle('📋 Reg Panel')
         .setDescription([
             'Chọn dịch vụ bên dưới để tạo tài khoản nhanh gọn.',
             '',
             '**Đăng ký tài khoản**',
-            `• VMOS Cloud — ${REG_COST} xu`,
+            `• VMOS Cloud — ${prices.VM} xu`,
             '• VMOS Free — 0 xu (1 link/ngày)',
-            `• VSPhone — ${vsReady ? `${REG_COST} xu` : 'Sắp có'}`,
+            `• VSPhone — ${vsReady ? `${prices.VS} xu` : 'Sắp có'}`,
             `• VSPhone Free — 0 xu${vsReady ? ' (1 link/ngày)' : ' (sắp có)'}`,
             '',
             '**Mua nhanh ASYNCTAS**',
-            `• UGPhone — ${MEOWS_COSTS.UG} xu`,
-            `• VSPhone VIP — ${MEOWS_COSTS.VSVIP} xu`,
+            `• UGPhone — ${prices.UG} xu`,
+            `• VSPhone VIP — ${prices.VSVIP} xu`,
             '',
             '💰 Chỉ trừ xu khi tạo thành công.',
             '',
@@ -853,24 +862,24 @@ function buildRegPanel(ownerId) {
 
     const ugEmbed = new EmbedBuilder()
         .setTitle('UGPhone — Mua nhanh')
-        .setDescription(`Tài khoản trả về ngay · **${MEOWS_COSTS.UG} xu**`)
+        .setDescription(`Tài khoản trả về ngay · **${prices.UG} xu**`)
         .setColor(0x5865F2);
     if (logos.UG) ugEmbed.setThumbnail(logos.UG);
 
     const vsEmbed = new EmbedBuilder()
         .setTitle('VSPhone — Đăng ký & VIP')
         .setDescription([
-            `• VSPhone thường — **${REG_COST} xu**${vsReady ? '' : ' (sắp có)'}`,
-            `• VSPhone VIP — **${MEOWS_COSTS.VSVIP} xu**`,
+            `• VSPhone thường — **${prices.VS} xu**${vsReady ? '' : ' (sắp có)'}`,
+            `• VSPhone VIP — **${prices.VSVIP} xu**`,
         ].join('\n'))
         .setColor(0x39F58A);
     if (logos.VS) vsEmbed.setThumbnail(logos.VS);
 
     const paidRow = new ActionRowBuilder().addComponents(
-        regButton(`reg:vmos:${ownerId}`, `VMOS Cloud · ${REG_COST} xu`, ButtonStyle.Success, 'REG_EMOJI_VMOS', '🌐', false),
-        regButton(`reg:vsphone:${ownerId}`, vsReady ? `VSPhone · ${REG_COST} xu` : 'VSPhone • Sắp có', vsReady ? ButtonStyle.Success : ButtonStyle.Secondary, 'REG_EMOJI_VSPHONE', '🥽', !vsReady),
-        regButton(`reg:meows-ug:${ownerId}`, `UGPhone · ${MEOWS_COSTS.UG} xu`, ButtonStyle.Primary, 'REG_EMOJI_UGPHONE', '🟢', false),
-        regButton(`reg:meows-vsvip:${ownerId}`, `VSPhone VIP · ${MEOWS_COSTS.VSVIP} xu`, ButtonStyle.Primary, 'REG_EMOJI_VSVIP', '💎', false)
+        regButton(`reg:vmos:${ownerId}`, `VMOS Cloud · ${prices.VM} xu`, ButtonStyle.Success, 'REG_EMOJI_VMOS', '🌐', false),
+        regButton(`reg:vsphone:${ownerId}`, vsReady ? `VSPhone · ${prices.VS} xu` : 'VSPhone • Sắp có', vsReady ? ButtonStyle.Success : ButtonStyle.Secondary, 'REG_EMOJI_VSPHONE', '🥽', !vsReady),
+        regButton(`reg:meows-ug:${ownerId}`, `UGPhone · ${prices.UG} xu`, ButtonStyle.Primary, 'REG_EMOJI_UGPHONE', '🟢', false),
+        regButton(`reg:meows-vsvip:${ownerId}`, `VSPhone VIP · ${prices.VSVIP} xu`, ButtonStyle.Primary, 'REG_EMOJI_VSVIP', '💎', false)
     );
     const freeRow = new ActionRowBuilder().addComponents(
         regButton(`reg:vmos-free:${ownerId}`, 'VMOS Free · 0 xu', ButtonStyle.Secondary, 'REG_EMOJI_VMOS', '🌐', false),
@@ -950,14 +959,15 @@ async function claimVsphoneFreeForUser(interaction, userId) {
 }
 
 async function regVmos(interaction, userId) {
+    const cost = economy.snapshot().deviceCosts.VM;
     const currentCoins = await db.getCoins(userId);
-    if (currentCoins < REG_COST) {
-        return interaction.editReply({ content: `❌ Bạn không đủ xu (Cần ${REG_COST} xu). Số dư: **${currentCoins} xu**.` });
+    if (currentCoins < cost) {
+        return interaction.editReply({ content: `❌ Bạn không đủ xu (Cần ${cost} xu). Số dư: **${currentCoins} xu**.` });
     }
     const result = await regVmosAccount();
-    const newBalance = await db.updateCoins(userId, -REG_COST);
+    const newBalance = await db.updateCoins(userId, -cost);
     return sendAccountWithCopy(interaction, {
-        header: `Tạo VMOS thành công! (Đã trừ ${REG_COST} xu)`,
+        header: `Tạo VMOS thành công! (Đã trừ ${cost} xu)`,
         copyText: result.copyText,
         lines: [
             `📧 \`${result.account}\``,
@@ -971,12 +981,13 @@ async function regVsphone(interaction, userId) {
     if (!vsphoneReady()) {
         return interaction.editReply({ content: '❌ VSPhone chưa được cấu hình (thiếu VSPHONE_API_URL / VSPHONE_API_KEY).' });
     }
+    const cost = economy.snapshot().deviceCosts.VS;
     const currentCoins = await db.getCoins(userId);
-    if (currentCoins < REG_COST) {
-        return interaction.editReply({ content: `❌ Bạn không đủ xu (Cần ${REG_COST} xu). Số dư: **${currentCoins} xu**.` });
+    if (currentCoins < cost) {
+        return interaction.editReply({ content: `❌ Bạn không đủ xu (Cần ${cost} xu). Số dư: **${currentCoins} xu**.` });
     }
     const result = await regVsphoneAccount();
-    const newBalance = await db.updateCoins(userId, -REG_COST);
+    const newBalance = await db.updateCoins(userId, -cost);
     const lines = [
         `📧 \`${result.account}\``,
         `🔑 \`${result.password}\``,
@@ -985,7 +996,7 @@ async function regVsphone(interaction, userId) {
     if (result.userId) lines.push(`🆔 User ID: \`${result.userId}\``);
     lines.push(`💰 Số dư còn lại: **${newBalance} xu**`);
     return sendAccountWithCopy(interaction, {
-        header: `Tạo VSPhone thành công! (Đã trừ ${REG_COST} xu)`,
+        header: `Tạo VSPhone thành công! (Đã trừ ${cost} xu)`,
         copyText: result.copyText,
         lines,
         extraCopy: result.account && result.password
@@ -997,7 +1008,7 @@ async function regVsphone(interaction, userId) {
 
 /** Dùng chung cho /asynctas và các nút mua nhanh trong /reg. Giả định busyUsers đã được giữ bởi caller. */
 async function buyMeowsForUser(interaction, userId, provider) {
-    const cost = MEOWS_COSTS[provider];
+    const cost = economy.snapshot().deviceCosts[provider];
     if (!cost) return interaction.editReply({ content: '❌ Dịch vụ không hợp lệ.' });
 
     const balance = await db.getCoins(userId);
@@ -1090,9 +1101,10 @@ async function handleRegButton(interaction) {
         else if (service === 'meows-ug') await buyMeowsForUser(interaction, userId, 'UG');
         else if (service === 'meows-vsvip') await buyMeowsForUser(interaction, userId, 'VSVIP');
         else await interaction.editReply({ content: '🚧 Dịch vụ này sắp có.' });
-        const regCost = service === 'meows-ug' ? MEOWS_COSTS.UG
-            : service === 'meows-vsvip' ? MEOWS_COSTS.VSVIP
-                : REG_COST;
+        const prices = economy.snapshot().deviceCosts;
+        const regCost = service === 'meows-ug' ? prices.UG
+            : service === 'meows-vsvip' ? prices.VSVIP
+                : service === 'vsphone' ? prices.VS : prices.VM;
         hook('bot:device:reg', { service, userId, cost: regCost });
     } catch (error) {
         console.error(`[reg:${service}] lỗi:`, error, error.cause);
@@ -1639,7 +1651,7 @@ client.on('interactionCreate', async interaction => {
     // LỆNH /asynctas (alias cũ: /meows) — mua UGPhone / VSPhone VIP.
     if (interaction.commandName === 'asynctas' || interaction.commandName === 'meows') {
         const provider = String(interaction.options.getString('provider') || '').toUpperCase();
-        const cost = MEOWS_COSTS[provider];
+        const cost = economy.snapshot().deviceCosts[provider];
         if (!cost) return interaction.reply({ content: '❌ Dịch vụ không hợp lệ.', flags: MessageFlags.Ephemeral });
 
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -1698,7 +1710,7 @@ client.on('interactionCreate', async interaction => {
             if (claimed > 0) {
                 return await interaction.editReply({ content: '⏰ Hôm nay bạn đã nhận quà rồi. Quay lại vào ngày mai (sau 0h giờ VN) nhé!' });
             }
-            const reward = crypto.randomInt(1, 21); // 1-20
+            const reward = crypto.randomInt(10, 101); // 10-100 xu
             await db.increaseDailyLimit(userId, 'daily', today); // đánh dấu đã nhận trước để chống nhận 2 lần
             const newBalance = await db.updateCoins(userId, reward);
             hook('bot:daily:claim', { userId, reward, newBalance, date: today });

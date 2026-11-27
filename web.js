@@ -16,6 +16,8 @@ const github = require('./github');
 const weekly = require('./weekly');
 const pluginEngine = require('./plugin-engine');
 const linkProviders = require('./link-providers');
+const economy = require('./economy');
+const card2k = require('./card2k');
 const marketplace = require('./marketplace');
 const gmailTasks = require('./gmail-tasks');
 const { getTodayString, generateUniqueLinkToken, sha256, randomId, hashPassword, verifyPassword } = require('./utils');
@@ -235,7 +237,11 @@ function rateLimit(key, max, windowMs, bypass = false) {
     return true;
 }
 
-router.use(express.json({ limit: '2mb' }));
+// Giữ raw body để verify chữ ký webhook Card2K (HMAC trên chuỗi thô).
+router.use(express.json({
+  limit: '2mb',
+  verify: (req, res, buf) => { req.rawBody = buf.toString('utf8'); },
+}));
 router.use(express.urlencoded({ extended: true }));
 
 // nạp user từ cookie cho mọi request
@@ -470,7 +476,8 @@ router.get('/api/me', ah(async (req, res) => {
     const { language, acoin, exchangeRate, sellerStatus, isSeller, unreadMessages } = extra;
     // FE đọc cả 2 dạng: me.user.acoin và me.acoin.
     // contacts.unread (số tin chưa reply) được tính trong GET /api/messages/contacts.
-    res.json({ user, language, acoin, exchangeRate, sellerStatus, isSeller, unreadMessages });
+    // deviceCosts giúp FE hiển thị đúng giá mua nhanh sau khi admin đổi trong Kinh tế.
+    res.json({ user, language, acoin, exchangeRate, sellerStatus, isSeller, unreadMessages, deviceCosts: economy.snapshot().deviceCosts });
 }));
 
 // ==================== HỒ SƠ ====================
@@ -627,6 +634,7 @@ function publicItem(item) {
         name: item.name,
         description: item.description || '',
         price: Number(item.price) || 0,
+        currency: item.currency === 'acoin' ? 'acoin' : 'coin',
         logoUrl: item.logo_url || '',
         category: item.category || 'shop',
         stock: Number(item.stock) || 0,
@@ -655,15 +663,19 @@ router.post('/api/shop/buy', requireAuth, ah(async (req, res) => {
 
     const total = Number(item.price) * quantity;
     const key = balanceKey(req.webUser);
-    const balance = await db.getCoins(key);
-    if (balance < total) return res.status(400).json({ error: `Bạn không đủ coin (cần ${total}). Số dư: ${balance}.` });
+    const useAcoin = item.currency === 'acoin';
+    const readBalance = useAcoin ? db.getAcoin : db.getCoins;
+    const writeBalance = useAcoin ? db.updateAcoin : db.updateCoins;
+    const unit = useAcoin ? 'ACOIN' : 'coin';
+    const balance = await readBalance(key);
+    if (balance < total) return res.status(400).json({ error: `Bạn không đủ ${unit} (cần ${total}). Số dư: ${balance}.` });
 
-    const newBalance = await db.updateCoins(key, -total);
+    const newBalance = await writeBalance(key, -total);
     let taken;
     try {
         taken = await shop.takeStock(item, quantity);
     } catch (e) {
-        await db.updateCoins(key, total).catch(() => {});
+        await writeBalance(key, total).catch(() => {});
         return res.status(400).json({ error: e.message });
     }
     await shop.persistStock(item, taken.stockFields);
@@ -816,14 +828,15 @@ router.post('/api/device/reg', requireAuth, ah(async (req, res) => {
     const key = balanceKey(req.webUser);
     if (busyUsers.has(key)) return res.status(409).json({ error: 'Bạn đang có thao tác khác, thử lại sau.' });
 
+    const cost = economy.snapshot().deviceCosts[service === 'vmos' ? 'VM' : 'VS'];
     const balance = await db.getCoins(key);
-    if (balance < REG_COST) return res.status(400).json({ error: `Bạn không đủ coin (cần ${REG_COST}). Số dư: ${balance}.` });
+    if (balance < cost) return res.status(400).json({ error: `Bạn không đủ coin (cần ${cost}). Số dư: ${balance}.` });
 
     busyUsers.add(key);
     try {
         const result = service === 'vmos' ? await services.regVmosAccount() : await services.regVsphoneAccount();
-        const newBalance = await db.updateCoins(key, -REG_COST);
-        hook('web:device:reg', { service, userKey: key, cost: REG_COST, newBalance });
+        const newBalance = await db.updateCoins(key, -cost);
+        hook('web:device:reg', { service, userKey: key, cost, newBalance });
         res.json({
             ok: true,
             service,
@@ -839,10 +852,10 @@ router.post('/api/device/reg', requireAuth, ah(async (req, res) => {
     }
 }));
 
-// Mua device qua Meows (UGPhone 49 xu / VSPhone VIP 15 xu)
+// Mua device qua Meows (giá mặc định UGPhone 490 xu / VSPhone VIP 150 xu, đọc từ economy)
 router.post('/api/device/meows', requireAuth, ah(async (req, res) => {
     const provider = String(req.body.provider || '').toUpperCase();
-    const cost = services.MEOWS_COSTS[provider];
+    const cost = economy.snapshot().deviceCosts[provider];
     if (!cost) return res.status(400).json({ error: 'Dịch vụ không hợp lệ.' });
 
     const key = balanceKey(req.webUser);
@@ -928,7 +941,7 @@ router.post('/api/daily/claim', requireAuth, ah(async (req, res) => {
         if (await db.checkDailyLimit(key, 'daily', today) > 0) {
             return res.status(400).json({ error: 'Hôm nay bạn đã nhận quà rồi. Quay lại sau 0h giờ VN nhé!' });
         }
-        const reward = crypto.randomInt(1, 21); // 1-20 xu, cùng luồng /daily Discord
+        const reward = crypto.randomInt(10, 101); // 10-100 xu, cùng luồng /daily Discord
         await db.increaseDailyLimit(key, 'daily', today); // đánh dấu trước để chống nhận 2 lần
         const newBalance = await db.updateCoins(key, reward);
         hook('web:daily:claim', { userKey: key, reward, newBalance, date: today });
@@ -1246,7 +1259,7 @@ router.get('/api/admin/items', requireAdmin, ah(async (req, res) => {
 router.post('/api/admin/items', requireAdmin, ah(async (req, res) => {
     const name = String(req.body.name || '').trim();
     const description = String(req.body.description || '').trim();
-    const price = toInt(req.body.price, 0);
+    const { currency, price } = marketplace.parsePrice(req.body.priceText != null ? req.body.priceText : req.body.price);
     const logoUrl = String(req.body.logoUrl || '').trim();
     const category = ['shop', 'device'].includes(req.body.category) ? req.body.category : 'shop';
     const accounts = String(req.body.accounts || '');
@@ -1261,6 +1274,8 @@ router.post('/api/admin/items', requireAdmin, ah(async (req, res) => {
         name,
         description,
         price,
+        currency,
+        price_value: price,
         logo_url: logoUrl,
         category,
         created_by: req.webUser.id,
@@ -1284,10 +1299,12 @@ router.patch('/api/admin/items/:id', requireAdmin, ah(async (req, res) => {
     const patch = {};
     if (req.body.name !== undefined) patch.name = String(req.body.name).trim();
     if (req.body.description !== undefined) patch.description = String(req.body.description).trim();
-    if (req.body.price !== undefined) {
-        const price = toInt(req.body.price, 0);
+    if (req.body.price !== undefined || req.body.priceText !== undefined) {
+        const { currency, price } = marketplace.parsePrice(req.body.priceText != null ? req.body.priceText : req.body.price);
         if (price < 1) return res.status(400).json({ error: 'Giá phải lớn hơn 0.' });
         patch.price = price;
+        patch.price_value = price;
+        patch.currency = currency;
     }
     if (req.body.logoUrl !== undefined) {
         const logoUrl = String(req.body.logoUrl).trim();
@@ -1616,6 +1633,247 @@ router.delete('/api/admin/plugins/:id', requireAdmin, ah(async (req, res) => {
     await pluginEngine.remove(id);
     hook('web:plugin:removed', { id });
     res.json({ ok: true });
+}));
+
+// ==================== CARD2K — ĐỔI THẺ CÀO (REST v3) ====================
+function publicTopupOrder(row) {
+    return {
+        id: String(row.id),
+        requestId: row.request_id,
+        telco: row.telco,
+        amount: Number(row.amount) || 0,
+        serial: row.serial,
+        code: row.code,
+        status: row.status || 'pending',
+        message: row.message || '',
+        coins: Number(row.coins) || 0,
+        declaredValue: Number(row.declared_value) || 0,
+        receivedAmount: Number(row.received_amount) || 0,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    };
+}
+
+/** Xử lý webhook Card2K: chỉ cộng xu khi status success, mỗi request_id đúng 1 lần. */
+async function applyCard2kWebhook(data) {
+    const reference = String(data.reference || '');
+    const order = reference ? await db.getCardOrderByRequest(reference) : null;
+    if (!order) return { ignored: true, reason: 'order_not_found' };
+    if (['success', 'wrong_value', 'invalid', 'failed', 'needs_review'].includes(order.status)) {
+        return { skipped: true, status: order.status };
+    }
+
+    const status = String(data.status || '').toLowerCase();
+    const patch = {
+        provider_status: status,
+        message: String(data.message || ''),
+        declared_value: Number(data.declared_value) || Number(order.amount) || 0,
+        value: Number(data.value) || null,
+        received_amount: Number(data.amount) || 0,
+        provider_card_id: String(data.id || ''),
+    };
+
+    if (status === 'success') {
+        const coins = economy.coinsForAmount(patch.declared_value);
+        if (coins < 1) {
+            patch.status = 'needs_review';
+            patch.note = 'Thẻ đúng nhưng chưa có cấu hình xu cho mệnh giá này.';
+            await db.updateCardOrder(order.id, patch);
+            return { status: 'needs_review', reason: 'coin_mapping_missing' };
+        }
+        patch.status = 'success';
+        patch.coins = coins;
+        await db.updateCardOrder(order.id, patch);
+        const newBalance = await db.updateCoins(order.user_key, coins);
+        hook('web:topup:credited', {
+            orderId: order.id, requestId: order.request_id, userId: order.user_id,
+            amount: patch.declared_value, coins, newBalance,
+        });
+        return { status: 'success', coins, newBalance };
+    }
+
+    patch.status = ['wrong_value', 'invalid', 'failed', 'pending'].includes(status) ? status : 'pending';
+    await db.updateCardOrder(order.id, patch);
+    return { status: patch.status };
+}
+
+router.get('/api/topup/config', requireAuth, ah(async (req, res) => {
+    const config = economy.snapshot();
+    res.json({
+        configured: card2k.configured(),
+        telcos: card2k.TELCOS,
+        amounts: Object.keys(config.topupCoins)
+            .map(Number).sort((a, b) => a - b)
+            .map(amount => ({ amount, coins: config.topupCoins[String(amount)] })),
+        callbackUrl: `${(process.env.RENDER_DOMAIN || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '')}/api/topup/callback`,
+    });
+}));
+
+router.post('/api/topup/cards', requireAuth, ah(async (req, res) => {
+    if (!card2k.configured()) return res.status(503).json({ error: 'Card2K chưa được cấu hình (CARD2K_API_KEY).' });
+    if (!rateLimit(`topup:${balanceKey(req.webUser)}`, 10, 60 * 1000)) {
+        return res.status(429).json({ error: 'Gửi thẻ quá nhanh, thử lại sau 1 phút.' });
+    }
+
+    const code = String(req.body.code || '').replace(/\s+/g, '').trim();
+    const serial = String(req.body.serial || '').replace(/\s+/g, '').trim();
+    const telco = card2k.normalizeTelco(req.body.telco);
+    const amount = parseInt(req.body.amount, 10);
+    if (!code || !serial) return res.status(400).json({ error: 'Nhập đủ mã thẻ và serial.' });
+    if (!telco) return res.status(400).json({ error: 'Nhà mạng không hợp lệ.' });
+    if (!Number.isFinite(amount) || amount < 10000) return res.status(400).json({ error: 'Mệnh giá tối thiểu 10.000đ.' });
+
+    const existing = await db.getCardOrderByCard(code, serial);
+    if (existing) {
+        return res.status(400).json({ error: 'Thẻ này đã được nạp rồi, không gửi lại lần 2.', order: publicTopupOrder(existing) });
+    }
+
+    const requestId = card2k.newReference();
+    const order = await db.createCardOrder({
+        id: randomId(),
+        request_id: requestId,
+        user_id: req.webUser.id,
+        user_key: balanceKey(req.webUser),
+        username: req.webUser.username,
+        telco, code, serial, amount,
+        status: 'pending',
+        message: '',
+        coins: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    });
+
+    const sent = await card2k.submitExchange({ telco, amount, serial, code, reference: requestId });
+    if (!sent.ok) {
+        const failed = await db.updateCardOrder(order.id, {
+            status: 'failed',
+            message: sent.message,
+            provider_code: sent.code,
+        });
+        const message = sent.code === 'card_already_submitted'
+            ? 'Thẻ này đã được nạp rồi, không gửi lại lần 2.'
+            : `Gửi thẻ thất bại: ${sent.message}`;
+        return res.status(400).json({ error: message, order: publicTopupOrder(failed || { ...order, status: 'failed', message: sent.message }) });
+    }
+
+    const updated = await db.updateCardOrder(order.id, {
+        status: 'pending',
+        message: sent.data.message || 'Đã gửi thẻ, chờ Card2K xử lý.',
+        provider_code: '',
+        provider_card_id: String(sent.data.id || ''),
+    });
+    hook('web:topup:submitted', {
+        orderId: order.id, requestId, userId: req.webUser.id, telco, amount,
+    });
+    res.json({ ok: true, order: publicTopupOrder(updated || order), message: 'Đã gửi thẻ. Xu sẽ được cộng khi Card2K báo thẻ đúng.' });
+}));
+
+router.get('/api/topup/history', requireAuth, ah(async (req, res) => {
+    const rows = await db.listCardOrders({ user_key: balanceKey(req.webUser) }, 100);
+    res.json({ orders: rows.map(publicTopupOrder) });
+}));
+
+// Card2K gọi webhook v3: POST JSON + X-Signature-V2. Không cần cookie/admin.
+async function handleTopupCallback(req, res) {
+    if (!card2k.verifyWebhook(req)) return res.status(401).json({ error: 'Chữ ký webhook không hợp lệ.' });
+    const body = req.body || {};
+    const event = String(body.event || req.get('x-webhook-event') || '');
+    if (event === 'webhook.test') return res.json({ ok: true, ignored: true });
+    if (event && event !== 'card_exchange.updated') return res.json({ ok: true, ignored: true, event });
+    try {
+        const result = await applyCard2kWebhook(body.data || {});
+        res.json({ ok: true, ...result });
+    } catch (e) {
+        console.error('[card2k] xử lý webhook lỗi:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+}
+router.post('/api/topup/callback', ah(handleTopupCallback));
+router.post('/api/topup/webhook', ah(handleTopupCallback));
+
+// ==================== ADMIN: KINH TẾ ====================
+router.get('/api/admin/economy', requireAdmin, ah(async (req, res) => {
+    res.json({ config: economy.snapshot(), defaults: economy.DEFAULTS, card2kConfigured: card2k.configured() });
+}));
+
+router.post('/api/admin/economy', requireAdmin, ah(async (req, res) => {
+    const patch = {};
+    for (const group of ['linkRewards', 'deviceCosts', 'topupCoins']) {
+        if (req.body[group] && typeof req.body[group] === 'object') patch[group] = req.body[group];
+    }
+    if (req.body.coinPerAcoin !== undefined) patch.coinPerAcoin = req.body.coinPerAcoin;
+    const config = await economy.save(patch);
+    hook('web:admin:economy', { config });
+    res.json({ ok: true, config });
+}));
+
+router.post('/api/admin/economy/reset', requireAdmin, ah(async (req, res) => {
+    const config = await economy.reset();
+    res.json({ ok: true, config });
+}));
+
+/** Migration x10 cho tài khoản cũ — chỉ chạy khi admin bấm tay, không chạy lúc deploy. */
+router.get('/api/admin/economy/migration', requireAdmin, ah(async (req, res) => {
+    const raw = await db.getKv('legacy_coin_x10_migration');
+    let state = null;
+    if (raw) {
+        try { state = JSON.parse(raw); } catch (e) { state = { raw }; }
+    }
+    res.json({
+        done: !!(state && (state.status === 'done' || state.at)),
+        running: !!(state && state.status === 'running'),
+        at: state && state.at ? state.at : null,
+        users: Number(state && state.users) || 0,
+    });
+}));
+
+router.post('/api/admin/economy/migrate-x10', requireAdmin, ah(async (req, res) => {
+    if (req.body.confirm !== true) {
+        return res.status(400).json({ error: 'Cần xác nhận trước khi nhân x10 coin.' });
+    }
+    const result = await db.runLegacyCoinMigrationOnce();
+    hook('web:admin:economy:migrate-x10', { result });
+    res.json({ ok: !result.skipped, ...result });
+}));
+
+/** Kho tài khoản test Hanami cho VMOS Cloud Status (mỗi 5 phút thử mua 1 lần). */
+router.get('/api/admin/hanami/test-accounts', requireAdmin, ah(async (req, res) => {
+    const raw = String((await db.getKv('hanami_test_accounts')) || '');
+    const fromEnv = services.parseHanamiAccounts(process.env.HANAMI_TEST_ACCOUNTS || process.env.HANAMI_TEST_ACCOUNT);
+    res.json({
+        raw,
+        count: services.parseHanamiAccounts(raw).length + fromEnv.length,
+        envCount: fromEnv.length,
+        placeholder: 'email|password (mỗi dòng 1 tài khoản)',
+    });
+}));
+
+router.post('/api/admin/hanami/test-accounts', requireAdmin, ah(async (req, res) => {
+    const raw = String(req.body.accounts || '').trim();
+    const accounts = services.parseHanamiAccounts(raw);
+    if (!accounts.length) return res.status(400).json({ error: 'Cần ít nhất 1 tài khoản dạng email|password.' });
+    await db.setKv('hanami_test_accounts', raw);
+    await services.resetHanamiProbe().catch(() => {});
+    hook('web:admin:hanami:test-accounts', { count: accounts.length });
+    res.json({ ok: true, count: accounts.length });
+}));
+
+router.get('/api/admin/topup/orders', requireAdmin, ah(async (req, res) => {
+    const orders = await db.listCardOrders({}, Number(req.query.limit) || 200);
+    res.json({ orders: orders.map(publicTopupOrder) });
+}));
+
+router.post('/api/admin/topup/orders/:id/credit', requireAdmin, ah(async (req, res) => {
+    const order = await db.getCardOrderByRequest(String(req.params.id));
+    const target = order || (await db.listCardOrders({ id: String(req.params.id) }, 1))[0];
+    if (!target) return res.status(404).json({ error: 'Không tìm thấy đơn thẻ.' });
+    const coins = parseInt(req.body.coins, 10);
+    if (!Number.isFinite(coins) || coins < 1) return res.status(400).json({ error: 'Số xu phải lớn hơn 0.' });
+    if (target.status === 'success') return res.status(400).json({ error: 'Đơn này đã cộng xu rồi.' });
+    const newBalance = await db.updateCoins(target.user_key, coins);
+    await db.updateCardOrder(target.id, { status: 'success', coins, message: 'Admin duyệt cộng xu.', credited_by: 'admin' });
+    hook('web:admin:topup:credit', { orderId: target.id, coins, newBalance });
+    res.json({ ok: true, coins, newBalance });
 }));
 
 // ==================== MARKETPLACE / SELLER / CHAT / ACOIN ====================

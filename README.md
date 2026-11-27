@@ -6,9 +6,9 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 ## Tính năng
 
 ### Bot Discord
-- `/reg` — panel chọn dịch vụ: VMOS (10 xu), VSPhone (10 xu), **UGPhone (49 xu)** và **VSPhone VIP (15 xu)**. Hai dịch vụ mua nhanh dùng chung luồng với `/asynctas` (`/meows` là lệnh cũ, vẫn hoạt động).
+- `/reg` — panel chọn dịch vụ: VMOS (60 xu), VSPhone (100 xu), **UGPhone (490 xu)** và **VSPhone VIP (150 xu)**. Giá chỉnh được trong Admin Hub → Kinh tế. Hai dịch vụ mua nhanh dùng chung luồng với `/asynctas` (`/meows` là lệnh cũ, vẫn hoạt động).
 - `/buycloud` — mua máy cloud qua Hanami (UGPhone / VMOS / VSPhone).
-- `/getlink` — nhận link nhiệm vụ: **Link4M / LayMa +50 xu** (2 lượt/ngày), **bbmkts +25 xu** (1 lượt/ngày).
+- `/getlink` — nhận link nhiệm vụ: **Link4M +409 xu**, **LayMa +450 xu** (2 lượt/ngày), **bbmkts +259 xu** (1 lượt/ngày). Thưởng chỉnh được trong Admin Hub → Kinh tế.
 - `/tasks` — xem tiến độ từng dịch vụ hôm nay (cùng dữ liệu `GET /api/tasks`).
 - `/vmosfree` — lấy 1 tài khoản VMOS free mỗi ngày (cần đã vượt ≥ 1 link).
 - `/cloudstatus` / `/cloudphone_status` — xem trạng thái VMOS Cloud / VSPhone (cùng nguồn với web). `/cloudphone_status lam_moi:true` bỏ cache như nút Làm mới trên web.
@@ -17,11 +17,11 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 - `/shop` — xem danh sách sản phẩm, giá, logo và tồn kho.
 - `/connect <token>` — liên kết tài khoản web với Discord để **cộng dồn coin** (coin web + coin Discord).
 - `/token` — lấy **token cố định** của tài khoản (bằng `web_users.link_token`); dùng để đăng nhập web hoặc `/connect`.
-- `/asynctas` — mua nhanh **UGPhone (49 xu)** hoặc **VSPhone VIP (15 xu)** (alias cũ: `/meows`).
+- `/asynctas` — mua nhanh **UGPhone (490 xu)** hoặc **VSPhone VIP (150 xu)** (alias cũ: `/meows`).
 - `/plugin ten:lenh` — gọi lệnh do plugin đăng ký.
 - `/vi`, `/daily`, `/code`, `/pay`, `/star`, `/sdone`, `/adcoin`, `/gen`, `/op`, `/unop`, `/clear`.
 - `/seller` — gửi yêu cầu làm seller (`request`); admin duyệt (`trust`, chỉ định `user` hoặc `id`) và xem danh sách (`list`).
-- `/exchange` — đổi `coin -> ACOIN` hoặc `ACOIN -> coin` theo tỷ giá hiện hành (mặc định **5 coin = 1 ACOIN**). `soluong` là số coin khi đổi sang ACOIN (`floor(soluong / rate)`) hoặc số ACOIN khi đổi sang coin (`soluong * rate`).
+- `/exchange` — đổi `coin -> ACOIN` hoặc `ACOIN -> coin` theo tỷ giá hiện hành (mặc định **1000 coin = 1 ACOIN**). `soluong` là số coin khi đổi sang ACOIN (`floor(soluong / rate)`) hoặc số ACOIN khi đổi sang coin (`soluong * rate`).
 - `/acoin` — xem số dư ACOIN và tỷ giá quy đổi.
 - `/shops` — tìm kiếm shop trên marketplace (lọc theo `recommended` / `newest` / `oldest` / `cheapest` / `priciest` / `topRated` / `bestSelling`).
 - `/appeal` — (Admin) chấp nhận hoặc từ chối review/khiếu nại theo `id`, kèm ghi chú.
@@ -33,18 +33,21 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 - Số dư coin hiển thị ở góc trên; nút bấm trực quan cho mọi chức năng.
 - **Shop**: mua hàng, xem đồ đã mua, copy tài khoản.
 - **Giftcode**: nhập mã quà để nhận coin (mã tạo từ lệnh `/gen`).
-- **Buy Device**: mua cloud (Hanami), reg tài khoản và mua nhanh (UGPhone 49 xu / VSPhone VIP 15 xu).
-- **Cloud Status** (hiển thị cho mọi người, không cần đăng nhập): trạng thái **VMOS Cloud** và **VSPhone** của dịch vụ mua nhanh (lấy từ `GET https://meows.vn/api/cloud-status`). Tự làm mới mỗi 60s; API public `GET /api/status/cloud` (cache 60s, `?force=1` để lấy mới ngay). `status: offline` = hết máy. Nếu IP server bị Cloudflare chặn (`403 - Just a moment...`), hệ thống tự thử `www.meows.vn` rồi tới proxy đọc nội dung; ô thời gian sẽ hiện `proxy` khi đang dùng đường dự phòng. Cả 3 đường cùng lỗi mới hiện thông báo lỗi.
-- **Nhiệm vụ**: lấy link vượt link, theo dõi lượt trong ngày & trong tuần. 3 dịch vụ dùng chung cấu hình `link-providers.js`: Link4M/LayMa 50 xu (2 lượt/ngày), **bbmkts 25 xu (1 lượt/ngày)**. Token bbmkts lấy từ `BBMKTS_API_TOKEN` (alias `VUOTNHANH_API_TOKEN`), gọi `https://bbmkts.com/dapi?token=...&longurl=...&format=text`; hỗ trợ cả response TEXT lẫn JSON `{"status":"success","bbmktsUrl":"..."}`. Web và bot cùng đọc một cấu hình nên reward luôn đồng nhất.
-- **Điểm danh mỗi ngày**: nút claim nhận random **1–20 xu** (cùng bucket với `/daily` Discord). Nếu đã vượt **≥ 1 link** thì mỗi ngày còn lấy được **1 tài khoản VMOS free**, không trừ xu.
+- **Buy Device**: mua cloud (Hanami), reg tài khoản và mua nhanh (UGPhone 490 xu / VSPhone VIP 150 xu).
+- **Cloud Status** (hiển thị cho mọi người, không cần đăng nhập): trạng thái **VMOS Cloud** và **VSPhone**. VSPhone lấy từ `GET https://meows.vn/api/cloud-status`; riêng **VMOS Cloud dùng Hanami** thử mua bằng tài khoản trong kho test (cấu hình `HANAMI_TEST_ACCOUNTS` hoặc Admin Hub → Kinh tế → "Kho test VMOS Cloud"). Chỉ cụm thông báo hết máy chính xác mới đánh dấu hết máy; lỗi khác giữ nguyên tài khoản và thử lại. Chỉ sang tài khoản khác sau lần mua thành công, mỗi lần thử cách nhau 5 phút. Tự làm mới mỗi 60s; API public `GET /api/status/cloud` (`?force=1` để lấy mới ngay). `retryable: true` = đang thử lại (🟡), `offline` = hết máy (🔴).
+- **Đổi thẻ**: gửi thẻ cào qua Card2K REST v3 (`CARD2K_API_KEY` chỉ nằm ở server). Nhập `mã thẻ | seri | nhà cung cấp`. Kết quả là webhook quyết định: chỉ `status=success` mới cộng xu tự động (không cần reload); `pending` chờ, `wrong_value`/lỗi khác để admin duyệt. Mỗi thẻ chỉ gửi 1 lần.
+- **Nhiệm vụ**: lấy link vượt link theo từng provider, theo dõi lượt trong ngày & trong tuần. 3 dịch vụ dùng chung cấu hình `economy.js` (Admin Hub → Kinh tế): Link4M 409 xu, LayMa 450 xu (2 lượt/ngày), **bbmkts 259 xu (1 lượt/ngày)**. 2ktraffic đã bị ẩn. Token bbmkts lấy từ `BBMKTS_API_TOKEN` (alias `VUOTNHANH_API_TOKEN`). Web và bot cùng đọc một cấu hình nên reward luôn đồng nhất.
+- **Điểm danh mỗi ngày**: nút claim nhận random **10–100 xu** (cùng bucket với `/daily` Discord và plugin). Nếu đã vượt **≥ 1 link** thì mỗi ngày lấy được **1 trong 2**: tài khoản VMOS free hoặc VSPhone thường free — không trừ xu.
 - **Xếp hạng**: coin · vượt link **7 ngày** (có thưởng, reset sau mỗi kỳ) · vượt link **tổng** (không thưởng). Tên hiển thị là username, không phải ID số.
 - **Chuyển tiền**: chuyển coin cho người khác (phí 5%).
 - **Hồ sơ**: đổi mật khẩu, xem/copy token liên kết Discord.
-- **Quản trị** (chỉ hiện với tài khoản đã liên kết Discord admin), chia 4 tab:
+- **Hub Admin** (chỉ mở được từ mục "Quản trị" trong avatar, tài khoản đã liên kết Discord admin), 8 tab kiểu Seller, mỗi tab chỉ tải dữ liệu của tab đó:
   - **User**: danh sách người dùng, đơn hàng, lịch sử trả thưởng.
-  - **Shop**: tạo sản phẩm, upload kho lên GitHub Gist, đặt giá, thêm kho, sửa/xoá.
+  - **Shop**: tạo sản phẩm, upload kho lên GitHub Gist, đặt giá (nhập `$` để dùng ACOIN), thêm kho, sửa/xoá.
   - **Plugin**: dán link raw script → tự lưu Gist → lưu gist_id vào DB → load chạy ngay (không deploy lại). Plugin viết bằng **JavaScript/CommonJS**, có API nội bộ bot/web, event bus và gọi API chéo plugin. Xem [docs/PLUGINS.md](docs/PLUGINS.md).
   - **Cookie**: nhập/lưu cookie dùng cho 2 dịch vụ mua nhanh; tự chuẩn hoá `.COOKIESECURITY=<cookie>`, đổi không cần deploy.
+  - **Kinh tế**: sửa thưởng vượt link, giá tạo tài khoản, bảng xu nạp thẻ và tỷ giá ACOIN (lưu vào KV `economy_config`); kho test Hanami; đơn thẻ chờ duyệt; nút **migration x10** cho tài khoản cũ (bấm thủ công, chỉ chạy 1 lần, không tự chạy lúc deploy).
+  - Các tab còn lại: Market, Seller, Thưởng tuần, Gmail. Thưởng tuần lưu KV `weekly_rewards`, có hiệu lực kỳ sau.
 
 ### Thưởng bảng xếp hạng vượt link (tự động mỗi Chủ nhật)
 | Hạng | Thưởng |
@@ -58,8 +61,8 @@ Sau khi trả thưởng, bộ đếm vượt link bắt đầu kỳ mới. Có t
 
 ## Marketplace, ACOIN và Seller
 
-- **ACOIN** là đơn vị thanh toán của marketplace. Tỷ giá mặc định do KV `exchange_coin_per_acoin` quyết định: **5 coin = 1 ACOIN** (nghĩa là **10 coin = 2 ACOIN**). Dùng `/exchange` để đổi hai chiều; số dư không bao giờ xuống dưới 0 và mỗi lần đổi đều ghi event `bot:exchange`.
-- Bảng giá tham khảo: **$100 = 100 ACOIN**. Lệnh `/acoin` hiển thị số dư kèm tỷ giá hiện tại.
+- **ACOIN** là đơn vị thanh toán của marketplace. Tỷ giá mặc định do KV `exchange_coin_per_acoin` quyết định: **1000 coin = 1 ACOIN**. Admin đổi trong Admin Hub → Kinh tế. Dùng `/exchange` để đổi hai chiều; số dư không bao giờ xuống dưới 0 và mỗi lần đổi đều ghi event `bot:exchange`.
+- Khi tạo sản phẩm trong Shop, nhập giá dạng `$100` để dùng ACOIN (thay vì coin). Lệnh `/acoin` hiển thị số dư kèm tỷ giá hiện tại.
 - Seller gửi yêu cầu bằng `/seller request`, admin duyệt bằng `/seller trust`. Có thể trust trực tiếp user chưa từng gửi yêu cầu; hệ thống sẽ tạo luôn seller ở trạng thái `active`.
 - Duyệt maintenance tự động lúc bot sẵn sàng và sau mỗi 24 giờ: seller **không hoạt động 30 ngày bị giáng quyền**, **180 ngày bị xoá**.
 - `/shops` hiển thị tối đa 10 shop (tên, tỷ lệ đánh giá, số lượt bán). `/appeal` cho phép admin override quyết định review/khiếu nại.
@@ -127,7 +130,7 @@ Cookie hết hạn chỉ cần cập nhật ở đây, không deploy lại. Dùn
 IP Render bị nhà cung cấp/Cloudflare chặn (`403 - Just a moment...`), nhưng **IP Cloudflare (WARP / Worker)** thì dùng được. Proxy này áp dụng cho:
 
 - **Cloud Status**
-- **Mua nhanh** ASYNCTAS (UGPhone 49 xu / VSPhone VIP 15 xu)
+- **Mua nhanh** ASYNCTAS (UGPhone 490 xu / VSPhone VIP 150 xu)
 - **Mua UGPhone** qua Hanami (`Buy Device` / lệnh `reg`)
 
 **Render không cài được `warp-cli`** (cần `NET_ADMIN` + `/dev/net/tun`), nhưng **chạy được WARP userspace bằng `wireproxy` ngay trong Render** — xem mục **C** bên dưới (không cần VPS). Cloudflare Worker vẫn là phương án dự phòng.
