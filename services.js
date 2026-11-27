@@ -967,7 +967,7 @@ function waitMs(ms) {
  * Lỗi thường (kể cả "lỗi khi thực hiện câu lệnh") -> gửi lại cùng tài khoản, KHÔNG đánh dấu hết máy.
  * Chỉ cụm HANAMI_OUT_OF_STOCK mới đánh dấu offline/hết máy. Mỗi lần probe cách nhau 5 phút.
  */
-async function probeVmosCloudStatus({ force = false, buy = buyHanami } = {}) {
+async function probeVmosCloudStatus({ force = false, buy = buyHanami, fetchAccount = regVmosAccount } = {}) {
     const now = Date.now();
     if (!force && hanamiProbeCache && now - hanamiProbeCache.at < HANAMI_PROBE_TTL_MS) {
         return hanamiProbeCache.value;
@@ -975,17 +975,21 @@ async function probeVmosCloudStatus({ force = false, buy = buyHanami } = {}) {
     if (hanamiProbePromise) return hanamiProbePromise;
 
     hanamiProbePromise = (async () => {
-        const accounts = await getHanamiTestAccounts();
+        // Kho tự động: Hanami gọi API get-key (cùng luồng Buy Device → VMOS).
+        // env/KV chỉ là override tay, để trống thì dùng auto.
+        const manualAccounts = await getHanamiTestAccounts();
         const state = await readHanamiProbeState();
-        const accountIndex = accounts.length && Number.isInteger(state.accountIndex)
-            ? ((state.accountIndex % accounts.length) + accounts.length) % accounts.length
+        const manual = manualAccounts.length > 0;
+        const accountIndex = manual && Number.isInteger(state.accountIndex)
+            ? ((state.accountIndex % manualAccounts.length) + manualAccounts.length) % manualAccounts.length
             : 0;
         const base = {
             source: 'hanami',
             checkedAt: new Date().toISOString(),
             accountIndex,
             nextAccountIndex: accountIndex,
-            accountCount: accounts.length,
+            accountCount: manual ? manualAccounts.length : 0,
+            accountMode: manual ? 'manual' : 'auto',
             hasMachine: !!state.hasMachine,
             lastBuyAt: Number(state.lastBuyAt) || null,
             status: state.hasMachine ? 'online' : 'offline',
@@ -994,7 +998,42 @@ async function probeVmosCloudStatus({ force = false, buy = buyHanami } = {}) {
             outOfStock: false,
         };
 
-        const saveValue = async (patch) => {
+        let autoAccount = null;
+        let autoFetchError = null;
+        if (!manual) {
+            if (state.accountInputData) {
+                // Lỗi trước đó: giữ nguyên tài khoản này cho đến khi mua thành công.
+                autoAccount = {
+                    inputData: state.accountInputData,
+                    label: String(state.accountLabel || state.accountInputData.split('|')[0] || 'Hanami'),
+                    server: state.accountServer || null,
+                    auto: true,
+                };
+            } else {
+                for (let i = 0; i < 3; i++) {
+                    try {
+                        const fetched = await fetchAccount();
+                        const inputData = String(fetched?.copyText || (fetched?.account && fetched?.password
+                            ? `${fetched.account}|${fetched.password}` : '')).trim();
+                        if (!inputData) throw new Error('API get-key không trả tài khoản.');
+                        if (inputData === state.lastAccountInputData && i < 2) continue; // sau success phải sang acc khác
+                        autoAccount = {
+                            inputData,
+                            label: String(fetched.account || inputData.split('|')[0]),
+                            server: null,
+                            auto: true,
+                        };
+                        break;
+                    } catch (e) {
+                        autoFetchError = e;
+                        break;
+                    }
+                }
+            }
+            base.accountCount = autoAccount ? 1 : 0;
+        }
+
+        const saveValue = async (patch, { clearAutoAccount = false } = {}) => {
             const value = { ...base, ...patch };
             hanamiProbeCache = { at: Date.now(), value };
             try {
@@ -1005,22 +1044,29 @@ async function probeVmosCloudStatus({ force = false, buy = buyHanami } = {}) {
                     lastBuyAt: value.lastBuyAt,
                     lastAttemptAt: Date.now(),
                     lastMessage: value.message,
+                    accountInputData: clearAutoAccount ? null : (autoAccount ? autoAccount.inputData : (state.accountInputData || null)),
+                    accountLabel: clearAutoAccount ? null : (autoAccount ? autoAccount.label : (state.accountLabel || null)),
+                    accountServer: clearAutoAccount ? null : (autoAccount ? autoAccount.server : (state.accountServer || null)),
+                    lastAccountInputData: value.lastAccountInputData || state.lastAccountInputData || null,
                 }));
             } catch (e) { /* không làm hỏng status vì lỗi KV */ }
             return value;
         };
 
-        if (!accounts.length) {
+        if (!manual && !autoAccount) {
             return await saveValue({
                 status: 'offline',
-                message: 'Chưa có tài khoản test Hanami. Thêm trong Admin Hub → Kinh tế hoặc env HANAMI_TEST_ACCOUNTS.',
+                message: autoFetchError
+                    ? `Không lấy được tài khoản Hanami tự động: ${String(autoFetchError.message || autoFetchError).slice(0, 160)}`
+                    : 'Không lấy được tài khoản test Hanami từ API get-key.',
+                retryable: true,
             });
         }
         if (!process.env.HANAMI_TOKEN) {
             return await saveValue({ status: 'offline', message: 'Bot chưa cấu hình HANAMI_TOKEN.' });
         }
 
-        const account = accounts[accountIndex];
+        const account = manual ? manualAccounts[accountIndex] : autoAccount;
         let result = null;
         for (let attempt = 0; attempt < 2; attempt++) {
             try {
@@ -1041,8 +1087,9 @@ async function probeVmosCloudStatus({ force = false, buy = buyHanami } = {}) {
                 outOfStock: false,
                 lastBuyAt: Date.now(),
                 account: account.label,
-                nextAccountIndex: (accountIndex + 1) % accounts.length,
-            });
+                nextAccountIndex: manual ? (accountIndex + 1) % manualAccounts.length : accountIndex,
+                lastAccountInputData: manual ? state.lastAccountInputData : account.inputData,
+            }, { clearAutoAccount: !manual });
         }
         if (result.outOfStock) {
             return await saveValue({

@@ -942,8 +942,8 @@
             </div>
             <div class="card">
               <div class="card-head"><h3><span class="ico" data-icon="device"></span><span data-i18n="admin.hanamiAccountsTitle">Kho test VMOS Cloud (Hanami)</span></h3></div>
-              <p class="muted" data-i18n="admin.hanamiAccountsDesc">Mỗi dòng 1 tài khoản <code>email|password</code>. Cloud Status thử mua mỗi 5 phút, chỉ sang tài khoản khác sau lần mua thành công.</p>
-              <label><span data-i18n="admin.hanamiAccountsLabel">Danh sách tài khoản test</span><textarea id="admin-hanami-accounts" rows="4" data-i18n-placeholder="admin.hanamiAccountsPlaceholder" placeholder="email|password"></textarea></label>
+              <p class="muted" data-i18n="admin.hanamiAccountsDesc">Để trống = Cloud Status tự gọi API get-key lấy tài khoản VMOS (như Buy Device). Ghi đè: mỗi dòng 1 tài khoản <code>email|password</code>. Thử mua mỗi 5 phút, chỉ sang tài khoản khác sau lần mua thành công.</p>
+              <label><span data-i18n="admin.hanamiAccountsLabel">Override tài khoản test (tùy chọn)</span><textarea id="admin-hanami-accounts" rows="4" data-i18n-placeholder="admin.hanamiAccountsPlaceholder" placeholder="Để trống = tự lấy qua API get-key"></textarea></label>
               <button id="admin-hanami-accounts-save" class="btn btn-primary"><span class="ico" data-icon="check"></span><span data-i18n="admin.save">Lưu kho test</span></button>
               <div id="admin-hanami-accounts-result" class="result-box hidden"></div>
             </div>

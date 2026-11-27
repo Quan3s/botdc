@@ -1844,7 +1844,7 @@ router.get('/api/admin/hanami/test-accounts', requireAdmin, ah(async (req, res) 
         raw,
         count: services.parseHanamiAccounts(raw).length + fromEnv.length,
         envCount: fromEnv.length,
-        placeholder: 'email|password (mỗi dòng 1 tài khoản)',
+        placeholder: 'Để trống = tự lấy qua API get-key. Override: email|password mỗi dòng.',
     });
 }));
 
