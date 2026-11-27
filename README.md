@@ -35,7 +35,7 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 - **Giftcode**: nhập mã quà để nhận coin (mã tạo từ lệnh `/gen`).
 - **Buy Device**: mua cloud (Hanami), reg tài khoản và mua nhanh (UGPhone 490 xu / VSPhone VIP 150 xu).
 - **Cloud Status** (hiển thị cho mọi người, không cần đăng nhập): trạng thái **VMOS Cloud** và **VSPhone**. VSPhone lấy từ `GET https://meows.vn/api/cloud-status`; riêng **VMOS Cloud dùng Hanami** thử mua bằng tài khoản trong kho test (cấu hình `HANAMI_TEST_ACCOUNTS` hoặc Admin Hub → Kinh tế → "Kho test VMOS Cloud"). Chỉ cụm thông báo hết máy chính xác mới đánh dấu hết máy; lỗi khác giữ nguyên tài khoản và thử lại. Chỉ sang tài khoản khác sau lần mua thành công, mỗi lần thử cách nhau 5 phút. Tự làm mới mỗi 60s; API public `GET /api/status/cloud` (`?force=1` để lấy mới ngay). `retryable: true` = đang thử lại (🟡), `offline` = hết máy (🔴).
-- **Đổi thẻ**: gửi thẻ cào qua Card2K REST v3 (`CARD2K_API_KEY` chỉ nằm ở server). Nhập `mã thẻ | seri | nhà cung cấp`. Kết quả là webhook quyết định: chỉ `status=success` mới cộng xu tự động (không cần reload); `pending` chờ, `wrong_value`/lỗi khác để admin duyệt. Mỗi thẻ chỉ gửi 1 lần.
+- **Nạp coin**: gồm 2 tab trong cùng view — **Nạp thẻ cào** (nhập `mã thẻ | seri | nhà cung cấp`) và **Nạp ngân hàng** (tối thiểu 10.000đ/lần, lấy mã nạp + VietQR, tự kiểm tra 15s). Cả hai dùng API REST v3 (`CARD2K_API_KEY` chỉ nằm ở server) và webhook là nguồn cộng xu chính: thẻ chỉ cộng khi `status=success`, ngân hàng chỉ cộng khi `status=completed` + `paid_amount>0`; `pending`/`wrong_value`/lỗi khác để admin duyệt. Mỗi thẻ chỉ gửi 1 lần; mỗi kết nối chỉ có 1 mã nạp hiệu lực trong 30 phút. Xu cập nhật tại chỗ, không reload trang.
 - **Nhiệm vụ**: lấy link vượt link theo từng provider, theo dõi lượt trong ngày & trong tuần. 3 dịch vụ dùng chung cấu hình `economy.js` (Admin Hub → Kinh tế): Link4M 409 xu, LayMa 450 xu (2 lượt/ngày), **bbmkts 259 xu (1 lượt/ngày)**. 2ktraffic đã bị ẩn. Token bbmkts lấy từ `BBMKTS_API_TOKEN` (alias `VUOTNHANH_API_TOKEN`). Web và bot cùng đọc một cấu hình nên reward luôn đồng nhất.
 - **Điểm danh mỗi ngày**: nút claim nhận random **10–100 xu** (cùng bucket với `/daily` Discord và plugin). Nếu đã vượt **≥ 1 link** thì mỗi ngày lấy được **1 trong 2**: tài khoản VMOS free hoặc VSPhone thường free — không trừ xu.
 - **Xếp hạng**: coin · vượt link **7 ngày** (có thưởng, reset sau mỗi kỳ) · vượt link **tổng** (không thưởng). Tên hiển thị là username, không phải ID số.
@@ -81,7 +81,7 @@ npm start
 - Đặt `DISABLE_BOT=1` nếu chỉ muốn chạy web khi dev.
 
 ### Supabase
-Chạy `supabase_setup.sql` **hoặc** `supabase_new_tables.sql` trong **SQL Editor**: cả hai đều tạo đầy đủ 21 bảng (kể cả bảng cũ của bot), dùng `if not exists` nên chạy lại nhiều lần không lỗi và không xoá dữ liệu cũ. Nếu DB đã có bảng từ bản trước, file sẽ tự bổ sung cột còn thiếu rồi bật RLS.
+Chạy `supabase_setup.sql` **hoặc** `supabase_new_tables.sql` trong **SQL Editor**: cả hai là cùng một file full schema, tạo đầy đủ mọi bảng (kể cả bảng cũ của bot, bảng nạp thẻ `card2k_orders`, nạp ngân hàng `card2k_deposits` và Gmail). Dùng `create table if not exists` / `add column if not exists` / `create index if not exists` nên chạy lại nhiều lần không lỗi, không xoá dữ liệu cũ; cuối file có `notify pgrst, 'reload schema';` để API thấy ngay bảng/cột mới. Nếu DB đã có bảng từ bản trước, file tự bổ sung cột còn thiếu rồi bật RLS.
 
 ### GitHub Gist (kho shop)
 Tạo token GitHub có quyền `gist` và điền `GITHUB_TOKEN`. Khi admin tạo sản phẩm:

@@ -237,7 +237,7 @@ function rateLimit(key, max, windowMs, bypass = false) {
     return true;
 }
 
-// Giữ raw body để verify chữ ký webhook Card2K (HMAC trên chuỗi thô).
+// Giữ raw body để verify chữ ký webhook nạp coin (HMAC trên chuỗi thô).
 router.use(express.json({
   limit: '2mb',
   verify: (req, res, buf) => { req.rawBody = buf.toString('utf8'); },
@@ -1654,7 +1654,7 @@ function publicTopupOrder(row) {
     };
 }
 
-/** Xử lý webhook Card2K: chỉ cộng xu khi status success, mỗi request_id đúng 1 lần. */
+/** Xử lý webhook nạp coin: chỉ cộng xu khi status success, mỗi request_id đúng 1 lần. */
 async function applyCard2kWebhook(data) {
     const reference = String(data.reference || '');
     const order = reference ? await db.getCardOrderByRequest(reference) : null;
@@ -1798,7 +1798,7 @@ router.get('/api/topup/config', requireAuth, ah(async (req, res) => {
 }));
 
 router.post('/api/topup/cards', requireAuth, ah(async (req, res) => {
-    if (!card2k.configured()) return res.status(503).json({ error: 'Card2K chưa được cấu hình (CARD2K_API_KEY).' });
+    if (!card2k.configured()) return res.status(503).json({ error: 'Hệ thống nạp coin chưa được cấu hình.' });
     if (!rateLimit(`topup:${balanceKey(req.webUser)}`, 10, 60 * 1000)) {
         return res.status(429).json({ error: 'Gửi thẻ quá nhanh, thử lại sau 1 phút.' });
     }
@@ -1846,14 +1846,14 @@ router.post('/api/topup/cards', requireAuth, ah(async (req, res) => {
 
     const updated = await db.updateCardOrder(order.id, {
         status: 'pending',
-        message: sent.data.message || 'Đã gửi thẻ, chờ Card2K xử lý.',
+        message: sent.data.message || 'Đã gửi thẻ, chờ xử lý.',
         provider_code: '',
         provider_card_id: String(sent.data.id || ''),
     });
     hook('web:topup:submitted', {
         orderId: order.id, requestId, userId: req.webUser.id, telco, amount,
     });
-    res.json({ ok: true, order: publicTopupOrder(updated || order), message: 'Đã gửi thẻ. Xu sẽ được cộng khi Card2K báo thẻ đúng.' });
+    res.json({ ok: true, order: publicTopupOrder(updated || order), message: 'Đã gửi thẻ. Xu sẽ được cộng khi thẻ được xác nhận đúng.' });
 }));
 
 router.get('/api/topup/history', requireAuth, ah(async (req, res) => {
@@ -1863,9 +1863,9 @@ router.get('/api/topup/history', requireAuth, ah(async (req, res) => {
     res.json({ orders: rows.map(publicTopupOrder), deposits: deposits.map(publicBankDeposit) });
 }));
 
-/** Nạp ngân hàng: Card2K chỉ có 1 mã đang hiện cho mỗi tài khoản kết nối (30 phút). */
+/** Nạp ngân hàng: mỗi kết nối chỉ có 1 mã đang hiện trong 30 phút. */
 router.post('/api/topup/bank/request', requireAuth, ah(async (req, res) => {
-    if (!card2k.configured()) return res.status(503).json({ error: 'Card2K chưa được cấu hình (CARD2K_API_KEY).' });
+    if (!card2k.configured()) return res.status(503).json({ error: 'Hệ thống nạp coin chưa được cấu hình.' });
     const userKey = balanceKey(req.webUser);
     if (!rateLimit(`bank:${userKey}`, 8, 60 * 1000)) {
         return res.status(429).json({ error: 'Lấy mã nạp quá nhanh, thử lại sau 1 phút.' });
@@ -1882,10 +1882,10 @@ router.post('/api/topup/bank/request', requireAuth, ah(async (req, res) => {
     }
     const providerMin = Number(sent.data.min_amount) || 10000;
     if (amount < providerMin) {
-        return res.status(400).json({ error: `Card2K yêu cầu nạp tối thiểu ${providerMin.toLocaleString('vi-VN')}đ/lần.` });
+        return res.status(400).json({ error: `Hệ thống yêu cầu nạp tối thiểu ${providerMin.toLocaleString('vi-VN')}đ/lần.` });
     }
     const code = String(sent.data.code || '');
-    if (!code) return res.status(502).json({ error: 'Card2K không trả mã nạp.' });
+    if (!code) return res.status(502).json({ error: 'Không lấy được mã nạp, thử lại sau.' });
 
     const fresh = {
         code,
@@ -1960,7 +1960,7 @@ router.get('/api/topup/bank/status', requireAuth, ah(async (req, res) => {
     res.json({ deposit: publicBankDeposit(row) });
 }));
 
-// Card2K gọi webhook v3: POST JSON + X-Signature-V2. Không cần cookie/admin.
+// Webhook v3: POST JSON + X-Signature-V2. Không cần cookie/admin.
 async function handleTopupCallback(req, res) {
     if (!card2k.verifyWebhook(req)) return res.status(401).json({ error: 'Chữ ký webhook không hợp lệ.' });
     const body = req.body || {};

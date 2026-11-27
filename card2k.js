@@ -1,5 +1,5 @@
 /**
- * Card2K API v3 (REST) — gửi thẻ đổi xu + lấy mã nạp ngân hàng.
+ * API nạp coin v3 (REST) — gửi thẻ đổi xu + lấy mã nạp ngân hàng.
  * Không gọi check, không mua thẻ. Webhook là nguồn cộng xu chính.
  * Key nằm hoàn toàn ở server: CARD2K_API_KEY.
  */
@@ -18,6 +18,12 @@ function configured() {
     return !!apiKey();
 }
 
+/** Mọi message trả về FE/user đều dùng tên chung, không lộ tên nhà cung cấp. */
+function publicMessage(message, fallback) {
+    const text = String(message || '').replace(/card2k/gi, 'hệ thống nạp coin');
+    return text || fallback;
+}
+
 function normalizeTelco(value) {
     const raw = String(value || '').trim().toUpperCase();
     const alias = { MOBI: 'MOBIFONE', VINA: 'VINAPHONE', VMOBILE: 'VIETNAMOBILE' };
@@ -25,7 +31,7 @@ function normalizeTelco(value) {
     return TELCOS.includes(telco) ? telco : null;
 }
 
-/** Mã tham chiếu của mình, gửi lại cùng thẻ để Card2K chặn trùng. */
+/** Mã tham chiếu của mình, gửi lại cùng thẻ để hệ thống chặn trùng. */
 function newReference() {
     return `at${crypto.randomBytes(12).toString('hex')}`; // 26 ký tự
 }
@@ -58,11 +64,11 @@ function verifyWebhook(req) {
 }
 
 /**
- * Gửi thẻ qua REST. Card2K trả HTTP 201 + status pending; kết quả gửi qua webhook.
+ * Gửi thẻ qua REST. Hệ thống trả HTTP 201 + status pending; kết quả gửi qua webhook.
  * Trả { ok, data } hoặc { ok:false, code, message }.
  */
 async function submitExchange({ telco, amount, serial, code, reference }) {
-    if (!configured()) return { ok: false, code: 'not_configured', message: 'Card2K chưa được cấu hình (CARD2K_API_KEY).' };
+    if (!configured()) return { ok: false, code: 'not_configured', message: 'Hệ thống nạp coin chưa được cấu hình.' };
     const cleanTelco = normalizeTelco(telco);
     if (!cleanTelco) return { ok: false, code: 'invalid_telco', message: 'Nhà mạng không hợp lệ.' };
     const value = parseInt(amount, 10);
@@ -87,7 +93,7 @@ async function submitExchange({ telco, amount, serial, code, reference }) {
             signal: AbortSignal.timeout(20000),
         });
     } catch (e) {
-        return { ok: false, code: 'network_error', message: `Không kết nối được Card2K: ${e.message}` };
+        return { ok: false, code: 'network_error', message: 'Không kết nối được hệ thống nạp coin, thử lại sau.' };
     }
 
     const text = await res.text();
@@ -99,13 +105,13 @@ async function submitExchange({ telco, amount, serial, code, reference }) {
         ok: false,
         status: res.status,
         code: error.code || `http_${res.status}`,
-        message: error.message || (json && json.message) || `Card2K trả lỗi (HTTP ${res.status}).`,
+        message: publicMessage(error.message || (json && json.message), `Hệ thống nạp coin trả lỗi (HTTP ${res.status}).`),
     };
 }
 
 /** Gọi API ví: POST /deposits (mã đang hiện hoặc mã mới), GET /deposits/{code}. */
 async function callDepositApi(path, method = 'GET') {
-    if (!configured()) return { ok: false, code: 'not_configured', message: 'Card2K chưa được cấu hình (CARD2K_API_KEY).' };
+    if (!configured()) return { ok: false, code: 'not_configured', message: 'Hệ thống nạp coin chưa được cấu hình.' };
     let res;
     try {
         res = await fetch(`${BASE_URL}${path}`, {
@@ -114,7 +120,7 @@ async function callDepositApi(path, method = 'GET') {
             signal: AbortSignal.timeout(20000),
         });
     } catch (e) {
-        return { ok: false, code: 'network_error', message: `Không kết nối được Card2K: ${e.message}` };
+        return { ok: false, code: 'network_error', message: 'Không kết nối được hệ thống nạp coin, thử lại sau.' };
     }
     const text = await res.text();
     let json = null;
@@ -125,7 +131,7 @@ async function callDepositApi(path, method = 'GET') {
         ok: false,
         status: res.status,
         code: error.code || `http_${res.status}`,
-        message: error.message || (json && json.message) || `Card2K trả lỗi (HTTP ${res.status}).`,
+        message: publicMessage(error.message || (json && json.message), `Hệ thống nạp coin trả lỗi (HTTP ${res.status}).`),
     };
 }
 

@@ -1,14 +1,14 @@
 -- ============================================================
--- ASYNCTAS — TẠO TOÀN BỘ BẢNG (chạy lại được nhiều lần)
--- Cách chạy: Supabase -> SQL Editor -> New query -> paste -> Run.
+-- ASYNCTAS — FULL SCHEMA SUPABASE (chạy lại được nhiều lần)
+-- Cách chạy: Supabase -> SQL Editor -> New query -> paste toàn bộ -> Run.
 --
--- File tự tạo mọi bảng còn thiếu và BỎ QUA bảng đã có:
+-- File tự tạo mọi bảng/cột/index còn thiếu và BỎ QUA cái đã có:
 --   create table if not exists ...
---   create index if not exists ...
 --   alter table ... add column if not exists ...
+--   create index if not exists ...
 --   alter table ... enable row level security (idempotent)
--- Không drop/xoá/sửa dữ liệu cũ. Bot & web dùng service_role
--- nên bật RLS mà không cần policy.
+-- Không drop/xoá/sửa dữ liệu cũ. Chạy lại bao nhiêu lần cũng được.
+-- Bot & web dùng service_role key nên RLS bật mà không cần policy.
 -- ============================================================
 
 -- ---------- Bảng cũ của bot ----------
@@ -239,7 +239,85 @@ create table if not exists device_accounts (
 );
 create index if not exists device_accounts_user_idx on device_accounts (user_id);
 
--- ---------- Nếu bảng shop_items đã tồn tại từ trước, bổ sung cột còn thiếu ----------
+-- ---------- Nạp coin: thẻ cào (REST v3, webhook là nguồn cộng xu chính) ----------
+create table if not exists card2k_orders (
+  id text primary key,
+  request_id text not null unique,
+  user_id text,
+  user_key text,
+  username text default '',
+  telco text not null,
+  code text not null,
+  serial text not null,
+  amount bigint not null,
+  status text not null default 'pending',
+  message text default '',
+  coins bigint not null default 0,
+  declared_value bigint not null default 0,
+  value bigint,
+  received_amount bigint not null default 0,
+  provider_status text default '',
+  provider_code text default '',
+  provider_card_id text default '',
+  note text default '',
+  credited_by text default '',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  constraint card2k_orders_card_unique unique (telco, code, serial)
+);
+create index if not exists card2k_orders_user_idx on card2k_orders (user_key);
+create index if not exists card2k_orders_status_idx on card2k_orders (status);
+
+-- ---------- Nạp coin: ngân hàng (mỗi kết nối chỉ có 1 mã đang hiệu lực / 30 phút) ----------
+create table if not exists card2k_deposits (
+  id text primary key,
+  code text not null unique,
+  user_id text,
+  user_key text,
+  username text default '',
+  transfer_content text default '',
+  status text not null default 'pending',
+  paid_amount bigint not null default 0,
+  coins bigint not null default 0,
+  min_amount bigint not null default 10000,
+  max_amount bigint not null default 0,
+  expires_at timestamptz,
+  credit_until timestamptz,
+  accounts text default '[]',
+  event_id text default '',
+  message text default '',
+  note text default '',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create index if not exists card2k_deposits_user_idx on card2k_deposits (user_key);
+create index if not exists card2k_deposits_status_idx on card2k_deposits (status);
+
+-- ---------- Nhiệm vụ Gmail (duyệt thủ công, ghim + tìm kiếm) ----------
+create table if not exists gmail_tasks (
+  id text primary key,
+  user_id text not null,
+  user_key text not null,
+  username text default '',
+  email text not null,
+  password text not null,
+  reward bigint not null default 180,
+  status text not null default 'pending',
+  pinned boolean not null default false,
+  reject_reason text,
+  reviewed_by text,
+  reviewed_at timestamptz,
+  notified boolean not null default false,
+  coin_after bigint,
+  created_at timestamptz default now()
+);
+create unique index if not exists gmail_tasks_email_key on gmail_tasks (email);
+create index if not exists gmail_tasks_status_idx on gmail_tasks (status, pinned desc, created_at desc);
+create index if not exists gmail_tasks_user_idx on gmail_tasks (user_key);
+
+-- ============================================================
+-- BỔ SUNG CỘT CHO DB ĐÃ CÓ TỪ BẢN CŨ (bảng đã tồn tại thì create ở trên bỏ qua)
+-- ============================================================
 alter table shop_items add column if not exists stock_content text;
 alter table shop_items add column if not exists gist_filename text;
 alter table shop_items add column if not exists gist_id text;
@@ -252,8 +330,6 @@ alter table shop_items add column if not exists line_count integer not null defa
 -- Cho phép seller cũ/set-admin giữ item không thuộc shop nào (shop_id null).
 create index if not exists shop_items_shop_idx on shop_items (shop_id);
 
--- ---------- Bổ sung cột cho DB đã có bảng từ bản cũ ----------
--- (bảng đã tồn tại thì create table ở trên bỏ qua, nên cần thêm cột ở đây)
 alter table sellers add column if not exists status text not null default 'pending';
 alter table sellers add column if not exists note text default '';
 alter table sellers add column if not exists created_at timestamptz default now();
@@ -314,6 +390,76 @@ alter table acoin_balances add column if not exists updated_at timestamptz defau
 alter table device_accounts add column if not exists user_id text not null default '';
 alter table device_accounts add column if not exists created_at timestamptz default now();
 
+-- Bảng nạp coin cũ có thể thiếu cột mới: bổ sung nhưng không xoá dữ liệu.
+alter table card2k_orders add column if not exists request_id text;
+alter table card2k_orders add column if not exists user_id text;
+alter table card2k_orders add column if not exists user_key text;
+alter table card2k_orders add column if not exists username text default '';
+alter table card2k_orders add column if not exists telco text not null default '';
+alter table card2k_orders add column if not exists code text not null default '';
+alter table card2k_orders add column if not exists serial text not null default '';
+alter table card2k_orders add column if not exists amount bigint not null default 0;
+alter table card2k_orders add column if not exists status text not null default 'pending';
+alter table card2k_orders add column if not exists message text default '';
+alter table card2k_orders add column if not exists coins bigint not null default 0;
+alter table card2k_orders add column if not exists declared_value bigint not null default 0;
+alter table card2k_orders add column if not exists value bigint;
+alter table card2k_orders add column if not exists received_amount bigint not null default 0;
+alter table card2k_orders add column if not exists provider_status text default '';
+alter table card2k_orders add column if not exists provider_code text default '';
+alter table card2k_orders add column if not exists provider_card_id text default '';
+alter table card2k_orders add column if not exists note text default '';
+alter table card2k_orders add column if not exists credited_by text default '';
+alter table card2k_orders add column if not exists created_at timestamptz default now();
+alter table card2k_orders add column if not exists updated_at timestamptz default now();
+
+alter table card2k_deposits add column if not exists code text;
+alter table card2k_deposits add column if not exists user_id text;
+alter table card2k_deposits add column if not exists user_key text;
+alter table card2k_deposits add column if not exists username text default '';
+alter table card2k_deposits add column if not exists transfer_content text default '';
+alter table card2k_deposits add column if not exists status text not null default 'pending';
+alter table card2k_deposits add column if not exists paid_amount bigint not null default 0;
+alter table card2k_deposits add column if not exists coins bigint not null default 0;
+alter table card2k_deposits add column if not exists min_amount bigint not null default 10000;
+alter table card2k_deposits add column if not exists max_amount bigint not null default 0;
+alter table card2k_deposits add column if not exists expires_at timestamptz;
+alter table card2k_deposits add column if not exists credit_until timestamptz;
+alter table card2k_deposits add column if not exists accounts text default '[]';
+alter table card2k_deposits add column if not exists event_id text default '';
+alter table card2k_deposits add column if not exists message text default '';
+alter table card2k_deposits add column if not exists note text default '';
+alter table card2k_deposits add column if not exists created_at timestamptz default now();
+alter table card2k_deposits add column if not exists updated_at timestamptz default now();
+
+alter table gmail_tasks add column if not exists user_id text;
+alter table gmail_tasks add column if not exists user_key text;
+alter table gmail_tasks add column if not exists username text default '';
+alter table gmail_tasks add column if not exists email text;
+alter table gmail_tasks add column if not exists password text;
+alter table gmail_tasks add column if not exists reward bigint not null default 180;
+alter table gmail_tasks add column if not exists status text not null default 'pending';
+alter table gmail_tasks add column if not exists pinned boolean not null default false;
+alter table gmail_tasks add column if not exists reject_reason text;
+alter table gmail_tasks add column if not exists reviewed_by text;
+alter table gmail_tasks add column if not exists reviewed_at timestamptz;
+alter table gmail_tasks add column if not exists notified boolean not null default false;
+alter table gmail_tasks add column if not exists coin_after bigint;
+alter table gmail_tasks add column if not exists created_at timestamptz default now();
+
+-- Chỉ thêm constraint nếu bảng cũ chưa có (không đụng vào dữ liệu có sẵn).
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'card2k_orders_card_unique'
+      and conrelid = 'public.card2k_orders'::regclass
+  ) then
+    alter table public.card2k_orders
+      add constraint card2k_orders_card_unique unique (telco, code, serial);
+  end if;
+end $$;
+
 -- ---------- Bật RLS (chỉ service_role truy cập) ----------
 alter table user_coins enable row level security;
 alter table sessions enable row level security;
@@ -336,26 +482,9 @@ alter table reviews enable row level security;
 alter table complaints enable row level security;
 alter table acoin_balances enable row level security;
 alter table device_accounts enable row level security;
-
--- ---------- Nhiệm vụ Gmail (duyệt thủ công, ghim + tìm kiếm) ----------
-create table if not exists gmail_tasks (
-  id text primary key,
-  user_id text not null,
-  user_key text not null,
-  username text default '',
-  email text not null,
-  password text not null,
-  reward bigint not null default 180,
-  status text not null default 'pending',
-  pinned boolean not null default false,
-  reject_reason text,
-  reviewed_by text,
-  reviewed_at timestamptz,
-  notified boolean not null default false,
-  coin_after bigint,
-  created_at timestamptz default now()
-);
-create unique index if not exists gmail_tasks_email_key on gmail_tasks (email);
-create index if not exists gmail_tasks_status_idx on gmail_tasks (status, pinned desc, created_at desc);
-create index if not exists gmail_tasks_user_idx on gmail_tasks (user_key);
+alter table card2k_orders enable row level security;
+alter table card2k_deposits enable row level security;
 alter table gmail_tasks enable row level security;
+
+-- PostgREST phải nạp lại cache thì API mới thấy bảng/cột vừa tạo (hết PGRST205).
+notify pgrst, 'reload schema';
