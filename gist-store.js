@@ -16,6 +16,8 @@ const KINDS = {
     chat: { kv: 'gist_chat', file: 'asynctas-chat.json', days: 30, field: 'messages', local: 'gist-chat.json' },
     orders: { kv: 'gist_orders', file: 'asynctas-orders.json', days: 7, field: 'orders', local: 'gist-orders.json' },
     links: { kv: 'gist_links', file: 'asynctas-links.json', days: 7, field: 'links', local: 'gist-links.json' },
+    // Trạng thái VMOS Cloud do job nền ghi mỗi 5 phút; web/bot chỉ đọc từ đây.
+    cloudstatus: { kv: 'gist_cloud_status', file: 'asynctas-cloud-status.json', days: null, field: 'items', local: 'gist-cloud-status.json' },
 };
 const ALIASES = {
     chat: 'chat', message: 'chat', messages: 'chat',
@@ -339,7 +341,22 @@ async function userLinkCount(userId, period) {
     return (await linkEvents(period)).filter(r => String(r.userId || r.user_id) === id).length;
 }
 
+// ==================== VMOS CLOUD STATUS (job nền ghi, web/bot chỉ đọc) ====================
+async function readCloudStatus() {
+    const data = await read('cloudstatus');
+    const state = data && data.state;
+    return state && typeof state === 'object' && !Array.isArray(state) ? state : null;
+}
+
+async function writeCloudStatus(state) {
+    const payload = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
+    await write('cloudstatus', { state: payload });
+    return payload;
+}
+
 module.exports = {
+    readCloudStatus,
+    writeCloudStatus,
     // API theo CONTRACT.md
     readJson,
     writeJson,

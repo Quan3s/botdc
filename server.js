@@ -175,7 +175,7 @@ async function todayFreeLinkCount(userId, today) {
 // ==========================================
 // PHẦN 1: WEB SERVER (NHẬN XU)
 // ==========================================
-const REDEEM_ASSET_VERSION = '20261124v';
+const REDEEM_ASSET_VERSION = '20261124w';
 const BROWSER_COOKIE = 'asynctas_browser';
 
 function escapeHtml(value) {
@@ -2222,6 +2222,12 @@ client.on('interactionCreate', async interaction => {
         }
     }
 });
+
+// VMOS Cloud Status: thử mua nền mỗi 5 phút rồi lưu gist.
+// Web và bot lệnh /cloudstatus chỉ đọc gist, không gọi Hanami lúc user xem.
+if (process.env.DISABLE_CLOUD_STATUS_PROBE !== '1') {
+    services.startVmosCloudStatusScheduler();
+}
 
 if (process.env.DISABLE_BOT === '1') {
     console.log('[BOT] DISABLE_BOT=1 — bỏ qua đăng nhập Discord (chỉ chạy web).');

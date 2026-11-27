@@ -2409,7 +2409,7 @@ if (gmailTaskBtn) gmailTaskBtn.addEventListener('click', async e => {
 
 function startCloudStatusPolling() {
   if (cloudStatusTimer) return;
-  cloudStatusTimer = setInterval(() => { if (state.view === 'cloudstatus') loadCloudStatus(true).catch(() => {}); }, 60000);
+  cloudStatusTimer = setInterval(() => { if (state.view === 'cloudstatus') loadCloudStatus().catch(() => {}); }, 60000);
 }
 function stopCloudStatusPolling() {
   if (!cloudStatusTimer) return;
@@ -2433,8 +2433,11 @@ function setDeviceStatus(sel, msgSel, device) {
 async function loadCloudStatus(force = false) {
   try {
     const data = await api(`/api/status/cloud${force ? '?force=1' : ''}`);
+    const locale = getLanguage() === 'en' ? 'en-US' : 'vi-VN';
     const sourceLabel = { direct: '', www: 'www', proxy: 'proxy' }[data.source] || '';
-    setText('#cloud-status-time', t('status.updated', { time: new Date(data.checkedAt).toLocaleTimeString(getLanguage() === 'en' ? 'en-US' : 'vi-VN') }) + (sourceLabel ? ` · ${sourceLabel}` : ''));
+    const vmosTime = data.vmos && data.vmos.checkedAt
+      ? ` · VMOS ${new Date(data.vmos.checkedAt).toLocaleTimeString(locale)}` : '';
+    setText('#cloud-status-time', t('status.updated', { time: new Date(data.checkedAt).toLocaleTimeString(locale) }) + (sourceLabel ? ` · ${sourceLabel}` : '') + vmosTime);
     setDeviceStatus('#status-meows-vmos', '#status-meows-vmos-msg', data.vmos);
     setDeviceStatus('#status-meows-vsphone', '#status-meows-vsphone-msg', data.vsphone);
     const errorBox = $('#cloud-status-errors');
