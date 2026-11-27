@@ -947,6 +947,7 @@ textarea { resize: vertical; }
 .two-inline > .pill { margin-bottom: 2px; }
 .mini-tabs { gap: 5px; margin-bottom: 0; }
 .mini-tabs .tab { padding: 6px 11px; font-size: 12px; }
+#bank-qr { max-width: 100%; border-radius: 12px; border: 1px solid var(--border); background: #fff; padding: 8px; }
 .empty-card { text-align: center; padding: 48px 22px; }
 .empty-illustration { width: 72px; height: 72px; border-radius: 22px; display: grid; place-items: center; margin: 0 auto 16px; background: rgba(57,245,138,.1); color: var(--accent); }
 .empty-card h3 { margin-bottom: 8px; }

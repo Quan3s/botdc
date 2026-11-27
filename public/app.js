@@ -28,6 +28,9 @@ const state = {
 
 let cloudStatusTimer = null;
 let deviceIdCache = null;
+let topupConfig = null;
+let bankDeposit = null;
+let currentTopupTab = 'card';
 
 const DEVICE_LOGOS = {
   vmos: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSnEz_zC4ZHJBI8GYKBKoLB4OArt8V9lVet6fX5Ndv83w&s=10',
@@ -2463,7 +2466,7 @@ $('#giftcode-btn').addEventListener('click', async e => {
   finally { box.classList.remove('hidden'); btn.disabled = false; }
 });
 
-// ==================== CARD2K — ĐỔI THẺ ====================
+// ==================== CARD2K — NẠP COIN (THẺ CÀO / NGÂN HÀNG) ====================
 function topupStatusLabel(status) {
   const map = {
     pending: 'topup.statusPending', success: 'topup.statusSuccess', wrong_value: 'topup.statusWrong',
@@ -2472,9 +2475,18 @@ function topupStatusLabel(status) {
   return map[status] ? t(map[status]) : status;
 }
 
+function bankStatusLabel(status) {
+  const map = {
+    pending: 'topup.bankStatusPending', success: 'topup.bankStatusSuccess',
+    expired: 'topup.bankStatusExpired', needs_review: 'topup.bankStatusReview',
+  };
+  return map[status] ? t(map[status]) : status;
+}
+
 async function loadTopup() {
   try {
-    const cfg = await api('/api/topup/config');
+    topupConfig = await api('/api/topup/config');
+    const cfg = topupConfig;
     const telcoSel = $('#topup-telco');
     const amountSel = $('#topup-amount');
     telcoSel.innerHTML = (cfg.telcos || []).map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
@@ -2482,9 +2494,63 @@ async function loadTopup() {
     $('#topup-rate').innerHTML = (cfg.amounts || []).map(x =>
       `<div class="mini-row"><span>${num(x.amount / 1000)}k</span><b>+${num(x.coins)} xu</b></div>`).join('');
     setText('#topup-status', cfg.configured ? t('topup.ready') : t('topup.notConfigured'));
+    setText('#bank-status', cfg.configured ? t('topup.ready') : t('topup.notConfigured'));
     $('#topup-submit').disabled = !cfg.configured;
+    $('#bank-request').disabled = !cfg.configured;
     if (cfg.callbackUrl) $('#topup-status').title = cfg.callbackUrl;
+    updateBankRate();
     await loadTopupHistory();
+    await loadBankDeposit();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function updateBankRate() {
+  const amount = Math.max(0, Number($('#bank-amount').value) || 0);
+  const rate = Number(topupConfig?.bankRate || 8000);
+  $('#bank-rate').innerHTML = amount > 0
+    ? `<div class="mini-row"><span>${num(amount)} VNĐ</span><b>+${num(Math.floor(amount / 10000 * rate))} xu</b></div>`
+    : '';
+  if (bankDeposit) renderBankQr();
+}
+
+function renderBankQr() {
+  const wrap = $('#bank-qr-wrap');
+  const accounts = (bankDeposit && bankDeposit.accounts) || [];
+  if (!wrap || !accounts.length) { if (wrap) wrap.classList.add('hidden'); return; }
+  const sel = $('#bank-account');
+  const acct = accounts.find(a => String(a.account_number) === sel.value) || accounts[0];
+  const amount = Math.max(Number($('#bank-amount').value) || 0, Number(bankDeposit.minAmount) || 10000);
+  const query = new URLSearchParams({
+    amount: String(amount),
+    addInfo: bankDeposit.transferContent || '',
+    accountName: acct.account_name || '',
+  });
+  $('#bank-qr').src = `https://img.vietqr.io/image/${encodeURIComponent(acct.bin)}-${encodeURIComponent(acct.account_number)}-compact2.png?${query.toString()}`;
+  wrap.classList.remove('hidden');
+}
+
+function renderBankDeposit() {
+  const box = $('#bank-deposit');
+  if (!bankDeposit) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const accounts = bankDeposit.accounts || [];
+  $('#bank-deposit-info').innerHTML = `
+    <div class="mini-row"><span>${esc(t('topup.bankTransferContent'))}</span><b>${esc(bankDeposit.transferContent || '—')} <button class="btn btn-ghost btn-sm" data-bank-copy="${esc(bankDeposit.transferContent || '')}">Copy</button></b></div>
+    <div class="mini-row"><span>${esc(t('topup.bankCheck'))}</span><b>${esc(bankStatusLabel(bankDeposit.status))}${bankDeposit.coins ? ` +${num(bankDeposit.coins)} xu` : ''}</b></div>
+    ${bankDeposit.expiresAt ? `<div class="mini-row"><span>${esc(t('topup.bankExpiry'))}</span><b>${esc(new Date(bankDeposit.expiresAt).toLocaleString())}</b></div>` : ''}
+    ${bankDeposit.message ? `<div class="mini-row"><span>${esc(bankDeposit.message)}</span></div>` : ''}`;
+  $('#bank-account').innerHTML = accounts.map(a =>
+    `<option value="${esc(a.account_number)}">${esc(a.bank_label || a.bank || '')} · ${esc(a.account_number)}</option>`).join('');
+  $$('[data-bank-copy]', $('#bank-deposit-info')).forEach(b =>
+    b.addEventListener('click', () => copyText(b.dataset.bankCopy, b)));
+  renderBankQr();
+}
+
+async function loadBankDeposit(refresh = false) {
+  try {
+    const data = await api(`/api/topup/bank/status${refresh ? '?refresh=1' : ''}`);
+    bankDeposit = data.deposit || null;
+    renderBankDeposit();
   } catch (err) { toast(err.message, 'error'); }
 }
 
@@ -2497,10 +2563,29 @@ async function loadTopupHistory() {
         <span>${esc(o.telco)} ${num(o.amount / 1000)}k · ${esc(o.serial)}</span>
         <b>${esc(topupStatusLabel(o.status))}${o.coins ? ` +${num(o.coins)}` : ''}</b>
       </div>`).join('') : `<div class="empty">${esc(t('topup.empty'))}</div>`;
-  } catch (err) { root.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+    const bankRoot = $('#bank-history');
+    bankRoot.innerHTML = (data.deposits || []).length ? data.deposits.map(d => `
+      <div class="mini-row">
+        <span>${esc(d.code)} · ${num(d.paidAmount || 0)}đ</span>
+        <b>${esc(bankStatusLabel(d.status))}${d.coins ? ` +${num(d.coins)} xu` : ''}</b>
+      </div>`).join('') : `<div class="empty">${esc(t('topup.bankEmpty'))}</div>`;
+  } catch (err) {
+    root.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+    $('#bank-history').innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
 }
 
+$$('[data-topup-tab]').forEach(tab => tab.addEventListener('click', () => {
+  currentTopupTab = tab.dataset.topupTab;
+  $$('[data-topup-tab]').forEach(x => x.classList.toggle('active', x === tab));
+  $$('[data-topup-panel]').forEach(p => p.classList.toggle('active', p.dataset.topupPanel === currentTopupTab));
+  if (currentTopupTab === 'bank') { loadBankDeposit().catch(() => {}); renderBankQr(); }
+}));
+
+$('#bank-amount').addEventListener('input', updateBankRate);
+$('#bank-account').addEventListener('change', renderBankQr);
 $('#topup-refresh').addEventListener('click', () => loadTopupHistory().catch(err => toast(err.message, 'error')));
+$('#bank-history-refresh').addEventListener('click', () => loadTopupHistory().catch(err => toast(err.message, 'error')));
 
 $('#topup-submit').addEventListener('click', async e => {
   const btn = e.currentTarget;
@@ -2525,6 +2610,51 @@ $('#topup-submit').addEventListener('click', async e => {
   } catch (err) { box.className = 'result-box error'; setText(box, err.message); }
   finally { box.classList.remove('hidden'); btn.disabled = false; }
 });
+
+$('#bank-request').addEventListener('click', async e => {
+  const btn = e.currentTarget;
+  const box = $('#bank-result');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/topup/bank/request', {
+      method: 'POST',
+      body: JSON.stringify({ amount: Number($('#bank-amount').value) || 10000 }),
+    });
+    bankDeposit = data.deposit || null;
+    box.className = 'result-box';
+    setText(box, data.message || t('topup.bankSubmitted'));
+    renderBankDeposit();
+    await refreshUser();
+    await loadTopupHistory();
+  } catch (err) { box.className = 'result-box error'; setText(box, err.message); }
+  finally { box.classList.remove('hidden'); btn.disabled = false; }
+});
+
+$('#bank-refresh').addEventListener('click', async e => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    const before = bankDeposit && bankDeposit.status;
+    await loadBankDeposit(true);
+    if (bankDeposit && bankDeposit.status === 'success' && before !== 'success') {
+      await refreshUser();
+      await loadTopupHistory();
+    }
+  } finally { btn.disabled = false; }
+});
+
+// Tự kiểm tra mã nạp ngân hàng khi đang mở tab này; xu cập nhật tại chỗ, không reload.
+setInterval(() => {
+  if (state.view !== 'topup' || currentTopupTab !== 'bank' || !bankDeposit || bankDeposit.status === 'success') return;
+  (async () => {
+    const before = bankDeposit && bankDeposit.status;
+    await loadBankDeposit(true);
+    if (bankDeposit && bankDeposit.status === 'success' && before !== 'success') {
+      await refreshUser();
+      await loadTopupHistory();
+    }
+  })().catch(() => {});
+}, 15000);
 
 $$('[data-lb]').forEach(tab => tab.addEventListener('click', () => {
   $$('[data-lb]').forEach(x => x.classList.remove('active'));

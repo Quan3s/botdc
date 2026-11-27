@@ -261,6 +261,31 @@ create table if not exists card2k_orders (
 create index if not exists card2k_orders_user_idx on card2k_orders (user_key);
 create index if not exists card2k_orders_status_idx on card2k_orders (status);
 
+-- Mã nạp ngân hàng Card2K (mỗi tài khoản Card2K chỉ có 1 mã đang hiện)
+create table if not exists card2k_deposits (
+  id text primary key,
+  code text not null unique,
+  user_id text,
+  user_key text,
+  username text default '',
+  transfer_content text default '',
+  status text not null default 'pending',
+  paid_amount bigint not null default 0,
+  coins bigint not null default 0,
+  min_amount bigint not null default 10000,
+  max_amount bigint not null default 0,
+  expires_at timestamptz,
+  credit_until timestamptz,
+  accounts text default '[]',
+  event_id text default '',
+  message text default '',
+  note text default '',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create index if not exists card2k_deposits_user_idx on card2k_deposits (user_key);
+create index if not exists card2k_deposits_status_idx on card2k_deposits (status);
+
 -- ---------- Nếu bảng shop_items đã tồn tại từ trước, bổ sung cột còn thiếu ----------
 alter table shop_items add column if not exists stock_content text;
 alter table shop_items add column if not exists gist_filename text;
@@ -297,6 +322,7 @@ alter table complaints enable row level security;
 alter table acoin_balances enable row level security;
 alter table device_accounts enable row level security;
 alter table card2k_orders enable row level security;
+alter table card2k_deposits enable row level security;
 
 -- ---------- Nhiệm vụ Gmail (duyệt thủ công, ghim + tìm kiếm) ----------
 create table if not exists gmail_tasks (

@@ -42,6 +42,7 @@ const EMPTY_DB = {
     device_accounts: [],
     gmail_tasks: [],
     card2k_orders: [],
+    card2k_deposits: [],
 };
 
 let local = null;
@@ -1057,6 +1058,23 @@ module.exports = {
     },
     async updateCardOrder(id, patch) {
         const rows = await patchRowsGeneric('card2k_orders', { id: String(id) }, {
+            ...patch, updated_at: new Date().toISOString(),
+        });
+        return rows && rows[0];
+    },
+
+    // ==================== CARD2K (NẠP NGÂN HÀNG) ====================
+    async createCardDeposit(row) {
+        return await insertRow('card2k_deposits', row);
+    },
+    async getCardDepositByCode(code) {
+        return await getRow('card2k_deposits', { code: String(code) });
+    },
+    async listCardDeposits(filter = {}, limit = 100) {
+        return await listRows('card2k_deposits', filter, 'created_at.desc', limit);
+    },
+    async updateCardDeposit(id, patch) {
+        const rows = await patchRowsGeneric('card2k_deposits', { id: String(id) }, {
             ...patch, updated_at: new Date().toISOString(),
         });
         return rows && rows[0];

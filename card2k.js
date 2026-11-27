@@ -1,12 +1,13 @@
 /**
- * Card2K API v3 (REST) — chỉ dùng luồng ĐỔI THẺ CÀO.
- * Không gọi check, không nạp tiền, không mua thẻ.
+ * Card2K API v3 (REST) — gửi thẻ đổi xu + lấy mã nạp ngân hàng.
+ * Không gọi check, không mua thẻ. Webhook là nguồn cộng xu chính.
  * Key nằm hoàn toàn ở server: CARD2K_API_KEY.
  */
 const crypto = require('crypto');
 
 const BASE_URL = 'https://card2k.net';
 const EXCHANGE_PATH = '/api/v3/card-exchanges';
+const DEPOSIT_PATH = '/api/v3/deposits';
 const TELCOS = ['VIETTEL', 'VINAPHONE', 'MOBIFONE', 'VIETNAMOBILE', 'ZING', 'GARENA', 'GATE', 'VCOIN', 'APPOTA', 'CAROT'];
 
 function apiKey() {
@@ -102,9 +103,46 @@ async function submitExchange({ telco, amount, serial, code, reference }) {
     };
 }
 
+/** Gọi API ví: POST /deposits (mã đang hiện hoặc mã mới), GET /deposits/{code}. */
+async function callDepositApi(path, method = 'GET') {
+    if (!configured()) return { ok: false, code: 'not_configured', message: 'Card2K chưa được cấu hình (CARD2K_API_KEY).' };
+    let res;
+    try {
+        res = await fetch(`${BASE_URL}${path}`, {
+            method,
+            headers: { Accept: 'application/json', Authorization: `Bearer ${apiKey()}` },
+            signal: AbortSignal.timeout(20000),
+        });
+    } catch (e) {
+        return { ok: false, code: 'network_error', message: `Không kết nối được Card2K: ${e.message}` };
+    }
+    const text = await res.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch (e) { /* xử lý bên dưới */ }
+    if (res.ok && json && json.data) return { ok: true, data: json.data, status: res.status };
+    const error = (json && json.error) || {};
+    return {
+        ok: false,
+        status: res.status,
+        code: error.code || `http_${res.status}`,
+        message: error.message || (json && json.message) || `Card2K trả lỗi (HTTP ${res.status}).`,
+    };
+}
+
+function requestDeposit() {
+    return callDepositApi(DEPOSIT_PATH, 'POST');
+}
+
+function getDeposit(code) {
+    const clean = String(code || '').trim();
+    if (!clean) return Promise.resolve({ ok: false, code: 'invalid_deposit', message: 'Mã nạp không hợp lệ.' });
+    return callDepositApi(`${DEPOSIT_PATH}/${encodeURIComponent(clean)}`, 'GET');
+}
+
 module.exports = {
     BASE_URL,
     EXCHANGE_PATH,
+    DEPOSIT_PATH,
     TELCOS,
     apiKey,
     configured,
@@ -113,4 +151,6 @@ module.exports = {
     sign,
     verifyWebhook,
     submitExchange,
+    requestDeposit,
+    getDeposit,
 };

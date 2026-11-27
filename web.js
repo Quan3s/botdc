@@ -1697,10 +1697,98 @@ async function applyCard2kWebhook(data) {
     return { status: patch.status };
 }
 
+/** Tỷ giá nạp ngân hàng: theo bảng mệnh giá, mặc định 8000 xu / 10k. */
+function bankCoinsForAmount(amount) {
+    const value = parseInt(amount, 10);
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    const exact = economy.coinsForAmount(value);
+    if (exact > 0) return exact;
+    const base = economy.coinsForAmount(10000) || 8000;
+    return Math.floor((value / 10000) * base);
+}
+
+function publicBankDeposit(row) {
+    if (!row) return null;
+    let accounts = [];
+    try {
+        accounts = typeof row.accounts === 'string' ? JSON.parse(row.accounts || '[]') : (row.accounts || []);
+        if (!Array.isArray(accounts)) accounts = [];
+    } catch (e) { accounts = []; }
+    return {
+        id: String(row.id),
+        code: row.code,
+        transferContent: row.transfer_content || '',
+        status: row.status || 'pending',
+        paidAmount: Number(row.paid_amount) || 0,
+        coins: Number(row.coins) || 0,
+        minAmount: Number(row.min_amount) || 10000,
+        maxAmount: Number(row.max_amount) || 0,
+        expiresAt: row.expires_at || null,
+        creditUntil: row.credit_until || null,
+        accounts,
+        eventId: row.event_id || '',
+        message: row.message || '',
+        note: row.note || '',
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    };
+}
+
+/** Webhook deposit.completed: chỉ cộng xu khi hoàn tất và có paid_amount > 0. */
+async function applyCard2kDeposit(data = {}, eventId = '', event = '') {
+    const code = String(data.code || '');
+    if (!code) return { ignored: true, reason: 'code_missing' };
+    const deposit = await db.getCardDepositByCode(code);
+    if (!deposit) return { ignored: true, reason: 'deposit_not_found' };
+    if (deposit.status === 'success' || deposit.status === 'failed') {
+        return { skipped: true, status: deposit.status };
+    }
+    if (eventId && deposit.event_id === eventId) return { skipped: true, reason: 'event_seen' };
+
+    const status = String(data.status || (event === 'deposit.completed' ? 'completed' : '')).toLowerCase();
+    const paid = Math.floor(Number(data.paid_amount) || 0);
+    const rawAccounts = data.accounts;
+    const patch = {
+        status: status || deposit.status,
+        paid_amount: paid,
+        message: String(data.message || ''),
+        expires_at: data.expires_at || deposit.expires_at,
+        credit_until: data.credit_until || deposit.credit_until,
+        accounts: rawAccounts
+            ? (typeof rawAccounts === 'string' ? rawAccounts : JSON.stringify(rawAccounts))
+            : deposit.accounts,
+        event_id: eventId || deposit.event_id || '',
+    };
+
+    if (status === 'completed' && paid > 0) {
+        const coins = bankCoinsForAmount(paid);
+        if (coins < 1) {
+            patch.status = 'needs_review';
+            patch.note = 'Tiền đã vào nhưng chưa có cấu hình xu. Admin cần duyệt tay.';
+            await db.updateCardDeposit(deposit.id, patch);
+            return { status: 'needs_review', reason: 'coin_mapping_missing' };
+        }
+        patch.status = 'success';
+        patch.coins = coins;
+        await db.updateCardDeposit(deposit.id, patch);
+        const newBalance = await db.updateCoins(deposit.user_key, coins);
+        hook('web:topup:bank:credited', {
+            depositId: deposit.id, code, userId: deposit.user_id, paid, coins, newBalance,
+        });
+        return { status: 'success', coins, newBalance };
+    }
+
+    patch.status = ['pending', 'expired', 'completed', 'needs_review'].includes(patch.status) ? patch.status : 'pending';
+    await db.updateCardDeposit(deposit.id, patch);
+    return { status: patch.status };
+}
+
 router.get('/api/topup/config', requireAuth, ah(async (req, res) => {
     const config = economy.snapshot();
     res.json({
         configured: card2k.configured(),
+        bankConfigured: card2k.configured(),
+        bankRate: bankCoinsForAmount(10000),
         telcos: card2k.TELCOS,
         amounts: Object.keys(config.topupCoins)
             .map(Number).sort((a, b) => a - b)
@@ -1769,8 +1857,98 @@ router.post('/api/topup/cards', requireAuth, ah(async (req, res) => {
 }));
 
 router.get('/api/topup/history', requireAuth, ah(async (req, res) => {
-    const rows = await db.listCardOrders({ user_key: balanceKey(req.webUser) }, 100);
-    res.json({ orders: rows.map(publicTopupOrder) });
+    const userKey = balanceKey(req.webUser);
+    const rows = await db.listCardOrders({ user_key: userKey }, 100);
+    const deposits = await db.listCardDeposits({ user_key: userKey }, 50);
+    res.json({ orders: rows.map(publicTopupOrder), deposits: deposits.map(publicBankDeposit) });
+}));
+
+/** Nạp ngân hàng: Card2K chỉ có 1 mã đang hiện cho mỗi tài khoản kết nối (30 phút). */
+router.post('/api/topup/bank/request', requireAuth, ah(async (req, res) => {
+    if (!card2k.configured()) return res.status(503).json({ error: 'Card2K chưa được cấu hình (CARD2K_API_KEY).' });
+    const userKey = balanceKey(req.webUser);
+    if (!rateLimit(`bank:${userKey}`, 8, 60 * 1000)) {
+        return res.status(429).json({ error: 'Lấy mã nạp quá nhanh, thử lại sau 1 phút.' });
+    }
+
+    const sent = await card2k.requestDeposit();
+    if (!sent.ok) {
+        return res.status(400).json({ error: `Lấy mã nạp thất bại: ${sent.message}`, code: sent.code });
+    }
+    const code = String(sent.data.code || '');
+    if (!code) return res.status(502).json({ error: 'Card2K không trả mã nạp.' });
+
+    const fresh = {
+        code,
+        user_id: req.webUser.id,
+        user_key: userKey,
+        username: String(req.webUser.username || ''),
+        transfer_content: String(sent.data.transfer_content || ''),
+        min_amount: Number(sent.data.min_amount) || 10000,
+        max_amount: Number(sent.data.max_amount) || 0,
+        expires_at: sent.data.expires_at || null,
+        credit_until: sent.data.credit_until || null,
+        accounts: typeof sent.data.accounts === 'string'
+            ? sent.data.accounts
+            : JSON.stringify(sent.data.accounts || []),
+        message: '',
+        updated_at: new Date().toISOString(),
+    };
+
+    const existing = await db.getCardDepositByCode(code);
+    if (existing && existing.user_key !== userKey) {
+        return res.status(409).json({
+            error: 'Mã nạp ngân hàng đang được tài khoản khác dùng. Vui lòng thử lại sau khi mã hết hạn (30 phút).',
+            deposit: publicBankDeposit(existing),
+        });
+    }
+
+    let deposit = existing;
+    if (!deposit) {
+        deposit = await db.createCardDeposit({
+            id: randomId(),
+            ...fresh,
+            status: 'pending',
+            paid_amount: 0,
+            coins: 0,
+            event_id: '',
+            note: '',
+            created_at: new Date().toISOString(),
+        });
+    } else if (deposit.status !== 'success') {
+        deposit = await db.updateCardDeposit(deposit.id, fresh) || deposit;
+    }
+
+    hook('web:topup:bank:requested', { userId: req.webUser.id, code, reused: sent.status === 200 });
+    res.json({
+        ok: true,
+        created: sent.status === 201,
+        deposit: publicBankDeposit(deposit),
+        message: sent.status === 200
+            ? 'Đây là mã nạp đang hiện. Chuyển khoản với nội dung bên dưới.'
+            : 'Đã lấy mã nạp mới. Chuyển khoản với nội dung bên dưới.',
+    });
+}));
+
+router.get('/api/topup/bank/status', requireAuth, ah(async (req, res) => {
+    const userKey = balanceKey(req.webUser);
+    const code = String(req.query.code || '').trim();
+    let row = code
+        ? await db.getCardDepositByCode(code)
+        : (await db.listCardDeposits({ user_key: userKey }, 1))[0];
+    if (!row || row.user_key !== userKey) return res.json({ deposit: null });
+
+    if (req.query.refresh === '1') {
+        if (!rateLimit(`bank-refresh:${userKey}`, 20, 60 * 1000)) {
+            return res.status(429).json({ error: 'Kiểm tra mã nạp quá nhanh, thử lại sau 1 phút.' });
+        }
+        const fetched = await card2k.getDeposit(row.code);
+        if (fetched.ok) {
+            await applyCard2kDeposit(fetched.data, String(fetched.data.event_id || ''), '');
+            row = await db.getCardDepositByCode(row.code) || row;
+        }
+    }
+    res.json({ deposit: publicBankDeposit(row) });
 }));
 
 // Card2K gọi webhook v3: POST JSON + X-Signature-V2. Không cần cookie/admin.
@@ -1779,9 +1957,13 @@ async function handleTopupCallback(req, res) {
     const body = req.body || {};
     const event = String(body.event || req.get('x-webhook-event') || '');
     if (event === 'webhook.test') return res.json({ ok: true, ignored: true });
-    if (event && event !== 'card_exchange.updated') return res.json({ ok: true, ignored: true, event });
+    if (event && !['card_exchange.updated', 'deposit.completed'].includes(event)) {
+        return res.json({ ok: true, ignored: true, event });
+    }
     try {
-        const result = await applyCard2kWebhook(body.data || {});
+        const result = event === 'deposit.completed'
+            ? await applyCard2kDeposit(body.data || {}, String(body.event_id || ''), event)
+            : await applyCard2kWebhook(body.data || {});
         res.json({ ok: true, ...result });
     } catch (e) {
         console.error('[card2k] xử lý webhook lỗi:', e.message);
