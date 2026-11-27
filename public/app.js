@@ -2409,7 +2409,7 @@ if (gmailTaskBtn) gmailTaskBtn.addEventListener('click', async e => {
 
 function startCloudStatusPolling() {
   if (cloudStatusTimer) return;
-  cloudStatusTimer = setInterval(() => { if (state.view === 'cloudstatus') loadCloudStatus().catch(() => {}); }, 60000);
+  cloudStatusTimer = setInterval(() => { if (state.view === 'cloudstatus') loadCloudStatus().catch(() => {}); }, 5000);
 }
 function stopCloudStatusPolling() {
   if (!cloudStatusTimer) return;

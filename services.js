@@ -36,6 +36,14 @@ const DEVICE_LOGOS = {
 };
 const MEOWS_UA = 'Mozilla/5.0 (Linux; Android 10; S28 Ultra Build/QP1A.190711.020) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.8103.52 Mobile Safari/537.36';
 
+// VMOS Cloud Status dùng API chính chủ, không probe Hanami.
+// API rất nhẹ nên cache 5s; user gọi là tự làm mới khi quá hạn.
+const VMOS_API_BASE = 'https://api.vmoscloud.com';
+const VMOS_CLOUD_GOODS_PATH = '/vcpcloud/api/padApi/getCloudGoodList';
+const VMOS_CLOUD_ANDROID_VERSION = '13';
+const VMOS_API_TIMEOUT_MS = 10000;
+const VMOS_CLOUD_SOURCE = 'vmoscloud';
+
 function vsphoneReady() {
     return !!(process.env.VSPHONE_API_URL && process.env.VSPHONE_API_KEY);
 }
@@ -706,13 +714,16 @@ async function buyMeows(provider) {
 }
 
 // ==================== CLOUDPHONE STATUS (public) ====================
-const CLOUD_STATUS_TTL_MS = 60 * 1000;
-const CLOUD_STATUS_JOB_KV = 'hanami_cloud_status_job';
-const CLOUD_STATUS_STALE_MS = 10 * 60 * 1000;
+const CLOUD_STATUS_TTL_MS = 5 * 1000;
+const CLOUD_STATUS_JOB_KV = 'hanami_cloud_status_job'; // tên KV cũ, giữ nguyên để không đổi schema
+const CLOUD_STATUS_STALE_MS = 30 * 1000;
+const VMOS_STATUS_TTL_MS = 5 * 1000;
 let cloudStatusCache = null;
 let cloudStatusPromise = null;
 let cloudStatusJobPromise = null;
 let cloudStatusTimer = null;
+let vmosOfficialCache = null;
+let vmosOfficialPromise = null;
 
 function normalizeMeowsDevice(entry) {
     const raw = String((entry && entry.status) || '').toLowerCase();
@@ -908,13 +919,204 @@ function withTimeout(promise, ms, label) {
     return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
 }
 
-/** Đưa trạng thái lưu trong gist về đúng shape mà web/bot đang dùng. */
+/** Chữ ký API VMOS Cloud V2: SHA256(secretKey + timestamp + path + query/body). */
+function vmosApiSign(secretKey, timestamp, path, queryOrBody) {
+    return crypto.createHash('sha256')
+        .update(`${secretKey}${timestamp}${path}${queryOrBody || ''}`)
+        .digest('hex');
+}
+
+/**
+ * Gọi API chính chủ VMOS Cloud để đọc tồn kho máy.
+ * Không tạo máy, không dùng tài khoản Hanami. Chỉ đọc getCloudGoodList.
+ */
+async function fetchVmosCloudStock({
+    fetcher = (url, options) => fetch(url, options),
+    accessKey = process.env.VMOS_ACCESS_KEY,
+    secretKey = process.env.VMOS_SECRET_KEY,
+    androidVersion = VMOS_CLOUD_ANDROID_VERSION,
+} = {}) {
+    if (!accessKey || !secretKey) {
+        throw new Error('Chưa cấu hình VMOS_ACCESS_KEY / VMOS_SECRET_KEY.');
+    }
+    const path = VMOS_CLOUD_GOODS_PATH;
+    const query = `androidVersion=${encodeURIComponent(androidVersion)}`;
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const sign = vmosApiSign(secretKey, timestamp, path, query);
+    const url = `${VMOS_API_BASE}${path}?${query}`;
+
+    let response;
+    let raw;
+    try {
+        response = await fetcher(url, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                'X-Access-Key': accessKey,
+                'X-Timestamp': timestamp,
+                'X-Sign': sign,
+                'User-Agent': 'ASYNCTAS-CloudStatus/1.0',
+            },
+            signal: AbortSignal.timeout(VMOS_API_TIMEOUT_MS),
+            timeout: VMOS_API_TIMEOUT_MS,
+        });
+        raw = await response.text();
+    } catch (e) {
+        throw new Error(`Không gọi được VMOS Cloud API: ${String(e.message || e).slice(0, 160)}`);
+    }
+
+    let payload;
+    try {
+        payload = raw ? JSON.parse(raw) : null;
+    } catch (e) {
+        throw new Error(`VMOS Cloud API trả dữ liệu không hợp lệ (HTTP ${response.status}).`);
+    }
+    if (payload && Number(payload.code) !== 200) {
+        const code = payload.code === undefined ? response.status : payload.code;
+        throw new Error(`VMOS Cloud API lỗi ${code}: ${String(payload.msg || payload.message || '').slice(0, 160)}`);
+    }
+    if (!payload || Number(payload.code) !== 200) {
+        throw new Error(`VMOS Cloud API trả HTTP ${response.status} không phải JSON hợp lệ.`);
+    }
+
+    const configs = Array.isArray(payload.data && payload.data.configs) ? payload.data.configs : [];
+    if (!configs.length) throw new Error('VMOS Cloud API không trả cấu hình máy nào.');
+
+    let availableConfigs = 0;
+    let soldOutConfigs = 0;
+    let countryCount = 0;
+    let availableCountryCount = 0;
+    let vietnamAvailable = false;
+    const countries = new Set();
+    const availableCountries = new Set();
+
+    for (const config of configs) {
+        if (config.sellOutFlag) {
+            soldOutConfigs++;
+            continue;
+        }
+        availableConfigs++;
+        for (const country of (Array.isArray(config.countryList) ? config.countryList : [])) {
+            const code = country.armCountryCode;
+            if (!code) continue;
+            countries.add(code);
+            if (!country.sellOutFlag) {
+                availableCountries.add(code);
+                if (code === 'VN') vietnamAvailable = true;
+            }
+        }
+    }
+
+    return {
+        totalConfigs: configs.length,
+        availableConfigs,
+        soldOutConfigs,
+        countryCount: countries.size,
+        availableCountryCount: availableCountries.size,
+        vietnamAvailable,
+        androidVersion,
+        checkedAt: new Date().toISOString(),
+    };
+}
+
+function vmosStockToState(stock) {
+    const total = Number(stock.totalConfigs) || 0;
+    const available = Number(stock.availableConfigs) || 0;
+    const hasMachine = available > 0;
+    return {
+        source: VMOS_CLOUD_SOURCE,
+        status: hasMachine ? 'online' : 'offline',
+        message: hasMachine
+            ? `Có máy — VMOS Cloud API: ${available}/${total} cấu hình, ${Number(stock.availableCountryCount) || 0}/${Number(stock.countryCount) || 0} quốc gia còn sẵn.`
+            : `VMOS Cloud API: ${total} cấu hình đang hết máy.`,
+        hasMachine,
+        retryable: false,
+        outOfStock: !hasMachine,
+        checkedAt: stock.checkedAt || new Date().toISOString(),
+        totalConfigs: total,
+        availableConfigs: available,
+        soldOutConfigs: Number(stock.soldOutConfigs) || 0,
+        countryCount: Number(stock.countryCount) || 0,
+        availableCountryCount: Number(stock.availableCountryCount) || 0,
+        vietnamAvailable: !!stock.vietnamAvailable,
+        androidVersion: stock.androidVersion || VMOS_CLOUD_ANDROID_VERSION,
+        account: '',
+        accountIndex: 0,
+        nextAccountIndex: 0,
+        accountCount: 0,
+        accountMode: 'api',
+        lastBuyAt: null,
+        stale: false,
+        refreshing: false,
+    };
+}
+
+function vmosErrorState(error, saved = null) {
+    const base = vmosStateFromGist(saved, { stale: true });
+    return {
+        ...base,
+        source: VMOS_CLOUD_SOURCE,
+        status: saved && saved.hasMachine ? 'online' : 'offline',
+        message: `Lỗi VMOS Cloud API: ${String(error && error.message || error).slice(0, 160)} — sẽ thử lại sau 5 giây.`,
+        hasMachine: !!(saved && saved.hasMachine),
+        retryable: true,
+        outOfStock: false,
+        stale: true,
+        refreshing: false,
+    };
+}
+
+/**
+ * Trạng thái VMOS lấy từ API chính chủ, cache 5s (single-flight).
+ * force=1 hoặc user gọi sau 5s -> fetch lại ngay; không đụng vào Hanami.
+ */
+async function getVmosCloudOfficialState({
+    force = false,
+    stockFetcher = fetchVmosCloudStock,
+    ttlMs = VMOS_STATUS_TTL_MS,
+    store = gistStore,
+} = {}) {
+    const now = Date.now();
+    if (!force && vmosOfficialCache && now - vmosOfficialCache.at < ttlMs) {
+        return vmosOfficialCache.value;
+    }
+    if (vmosOfficialPromise) return vmosOfficialPromise;
+
+    vmosOfficialPromise = (async () => {
+        let value;
+        try {
+            value = vmosStockToState(await stockFetcher());
+        } catch (e) {
+            let saved = null;
+            try {
+                saved = await withTimeout(store.readCloudStatus(), 3000, 'Đọc gist VMOS');
+            } catch (readError) { /* không làm hỏng status vì lỗi gist */ }
+            value = vmosErrorState(e, saved);
+        }
+        vmosOfficialCache = { at: Date.now(), value };
+        cloudStatusCache = null; // bắt buộc getCloudStatus trả kết quả mới sau khi API vừa đổi
+        return value;
+    })();
+
+    try {
+        return await vmosOfficialPromise;
+    } finally {
+        vmosOfficialPromise = null;
+    }
+}
+
+/** Dùng cho scheduler: luôn gọi lại API chính chủ mỗi tick 5s. */
+function refreshVmosCloudStatus(options = {}) {
+    return getVmosCloudOfficialState({ ...options, force: true });
+}
+
+/** Đưa trạng thái lưu trong gist về đúng shape mà web/bot đang dùng (chỉ làm fallback khi API lỗi). */
 function vmosStateFromGist(saved, { stale = false, refreshing = false } = {}) {
     if (!saved || typeof saved !== 'object') {
         return {
-            source: 'hanami',
+            source: VMOS_CLOUD_SOURCE,
             status: 'offline',
-            message: 'Đang chờ kết quả kiểm tra VMOS định kỳ (mỗi 5 phút)...',
+            message: 'Đang chờ kết quả kiểm tra VMOS Cloud API (mỗi 5 giây)...',
             hasMachine: false,
             retryable: true,
             outOfStock: false,
@@ -926,7 +1128,7 @@ function vmosStateFromGist(saved, { stale = false, refreshing = false } = {}) {
     }
     const checkedAt = saved.checkedAt || saved.savedAt || null;
     return {
-        source: 'hanami',
+        source: saved.source || VMOS_CLOUD_SOURCE,
         status: saved.status || (saved.hasMachine ? 'online' : 'offline'),
         message: String(saved.message || ''),
         hasMachine: !!saved.hasMachine,
@@ -937,7 +1139,14 @@ function vmosStateFromGist(saved, { stale = false, refreshing = false } = {}) {
         accountIndex: Number(saved.accountIndex) || 0,
         nextAccountIndex: Number.isInteger(saved.nextAccountIndex) ? saved.nextAccountIndex : 0,
         accountCount: Number(saved.accountCount) || 0,
-        accountMode: saved.accountMode || 'auto',
+        accountMode: saved.accountMode || 'api',
+        totalConfigs: Number(saved.totalConfigs) || 0,
+        availableConfigs: Number(saved.availableConfigs) || 0,
+        soldOutConfigs: Number(saved.soldOutConfigs) || 0,
+        countryCount: Number(saved.countryCount) || 0,
+        availableCountryCount: Number(saved.availableCountryCount) || 0,
+        vietnamAvailable: !!saved.vietnamAvailable,
+        androidVersion: saved.androidVersion || VMOS_CLOUD_ANDROID_VERSION,
         checkedAt,
         stale,
         refreshing,
@@ -945,11 +1154,18 @@ function vmosStateFromGist(saved, { stale = false, refreshing = false } = {}) {
 }
 
 /**
- * Trạng thái cloudphone public: VSPhone lấy trực tiếp, VMOS CHỈ đọc gist.
- * Không gọi Hanami khi user xem — job nền đã thử từ trước (mỗi 5 phút).
- * `force=1` chỉ báo xin làm mới nền, không chờ probe (tránh user phải đợi lâu).
+ * Trạng thái cloudphone public: VSPhone lấy từ Meows, VMOS luôn lấy từ API chính chủ.
+ * Cache 5s: user gọi lại sau 5s tự fetch; force=1 fetch ngay. Không dùng Hanami.
+ * Gist chỉ là fallback khi API lỗi, không phải nguồn chính.
  */
-async function getCloudStatus({ force = false, statusFetcher = fetchMeowsCloudStatus, store = gistStore, refresh = runCloudStatusProbeJob } = {}) {
+async function getCloudStatus({
+    force = false,
+    statusFetcher = fetchMeowsCloudStatus,
+    vmosFetcher = fetchVmosCloudStock,
+    vmosStateFetcher = getVmosCloudOfficialState,
+    store = gistStore,
+    ttlMs = VMOS_STATUS_TTL_MS,
+} = {}) {
     const now = Date.now();
     if (!force && cloudStatusCache && now - cloudStatusCache.at < CLOUD_STATUS_TTL_MS) {
         return cloudStatusCache.value;
@@ -957,27 +1173,13 @@ async function getCloudStatus({ force = false, statusFetcher = fetchMeowsCloudSt
     if (cloudStatusPromise) return cloudStatusPromise;
 
     cloudStatusPromise = (async () => {
-        const { meows, source, errors } = await statusFetcher();
+        const [{ meows, source, errors }, vmos] = await Promise.all([
+            statusFetcher(),
+            vmosStateFetcher({ force, stockFetcher: vmosFetcher, ttlMs, store }),
+        ]);
 
-        let saved = null;
-        try {
-            saved = await withTimeout(store.readCloudStatus(), 5000, 'Đọc trạng thái VMOS từ gist');
-        } catch (e) {
-            errors.push(`VMOS gist: ${e.message}`);
-        }
-
-        let refreshing = false;
-        if (force) {
-            refreshing = true;
-            Promise.resolve()
-                .then(() => refresh({ minIntervalMs: 60 * 1000 }))
-                .catch(e => console.error('[cloud-status] xin làm mới nền lỗi:', e.message));
-        }
-
-        const checkedAt = saved && (saved.checkedAt || saved.savedAt);
-        const stale = !checkedAt || Date.now() - Date.parse(checkedAt) > CLOUD_STATUS_STALE_MS;
-        meows.vmos = { ...meows.vmos, ...vmosStateFromGist(saved, { stale, refreshing }) };
-        if (meows.vmos.retryable && meows.vmos.message) errors.push(`Hanami: ${meows.vmos.message}`);
+        meows.vmos = { ...meows.vmos, ...vmos, refreshing: !!force };
+        if (meows.vmos.retryable && meows.vmos.message) errors.push(`VMOS Cloud API: ${meows.vmos.message}`);
 
         const value = {
             checkedAt: new Date().toISOString(),
@@ -998,8 +1200,15 @@ async function getCloudStatus({ force = false, statusFetcher = fetchMeowsCloudSt
     }
 }
 
-/** Job nền: thử mua VM bằng Hanami rồi lưu kết quả vào gist (secret). */
-async function runCloudStatusProbeJob({ minIntervalMs = 4 * 60 * 1000, probe = probeVmosCloudStatus, store = gistStore, dbLayer = db } = {}) {
+/** Job nền: đọc tồn kho từ API chính chủ rồi lưu vào gist (secret). Gist vẫn ghi 5p/lần. */
+async function runCloudStatusProbeJob({
+    minIntervalMs = 4 * 60 * 1000,
+    force = true,
+    fetcher = fetchVmosCloudStock,
+    stateFetcher = getVmosCloudOfficialState,
+    store = gistStore,
+    dbLayer = db,
+} = {}) {
     if (cloudStatusJobPromise) return cloudStatusJobPromise;
 
     const now = Date.now();
@@ -1014,27 +1223,19 @@ async function runCloudStatusProbeJob({ minIntervalMs = 4 * 60 * 1000, probe = p
     cloudStatusJobPromise = (async () => {
         let state;
         try {
-            state = await probe({ force: true });
+            state = await stateFetcher({ force, stockFetcher: fetcher, store });
         } catch (e) {
-            state = {
-                source: 'hanami',
-                status: 'offline',
-                message: `Lỗi kiểm tra VMOS: ${String(e.message || e).slice(0, 180)}`,
-                hasMachine: false,
-                retryable: true,
-                outOfStock: false,
-            };
+            state = vmosErrorState(e);
         }
         const value = {
             ...(state && typeof state === 'object' ? state : {}),
-            source: 'hanami',
+            source: VMOS_CLOUD_SOURCE,
             checkedAt: (state && state.checkedAt) || new Date().toISOString(),
             savedAt: new Date().toISOString(),
         };
         try {
             await store.writeCloudStatus(value);
-            // Job vừa ghi trạng thái mới: xoá cache view để lần xem tiếp theo lấy gist mới.
-            cloudStatusCache = null;
+            cloudStatusCache = null; // job vừa ghi gist: lần xem tiếp theo lấy kết quả mới
         } catch (e) {
             console.error('[cloud-status] ghi gist lỗi:', e.message);
         }
@@ -1048,12 +1249,18 @@ async function runCloudStatusProbeJob({ minIntervalMs = 4 * 60 * 1000, probe = p
     }
 }
 
-/** Chạy ngay lúc khởi động rồi lặp mỗi 5 phút; mỗi lần là 1 probe Hanami + 1 lần ghi gist. */
-function startVmosCloudStatusScheduler({ intervalMs = 5 * 60 * 1000, run = runCloudStatusProbeJob } = {}) {
+/** Chạy ngay lúc khởi động, fetch API chính chủ mỗi 5s; gist vẫn được ghi mỗi 5p. */
+function startVmosCloudStatusScheduler({
+    intervalMs = 5 * 1000,
+    fetcher = fetchVmosCloudStock,
+    run = runCloudStatusProbeJob,
+    refresh = refreshVmosCloudStatus,
+} = {}) {
     if (cloudStatusTimer) return { started: false, reason: 'already_running' };
     const execute = () => Promise.resolve()
-        .then(() => run({ minIntervalMs: Math.max(0, intervalMs - 30 * 1000) }))
-        .catch(e => console.error('[cloud-status] probe nền lỗi:', e.message));
+        .then(() => refresh({ stockFetcher: fetcher }))
+        .then(() => run({ force: false, fetcher, minIntervalMs: 4 * 60 * 1000 }))
+        .catch(e => console.error('[cloud-status] làm mới nền lỗi:', e.message));
     execute();
     cloudStatusTimer = setInterval(execute, intervalMs);
     if (cloudStatusTimer.unref) cloudStatusTimer.unref();
@@ -1067,7 +1274,7 @@ function stopVmosCloudStatusScheduler() {
     return true;
 }
 
-// ==================== VMOS CLOUD STATUS QUA HANAMI ====================
+// ==================== HANAMI PROBE CŨ (chỉ giữ cho luồng mua/test, KHÔNG dùng cho status) ====================
 let hanamiProbeCache = null;
 let hanamiProbePromise = null;
 
@@ -1326,6 +1533,15 @@ module.exports = {
     extractMeowsInfo,
     getVsphoneShareLink,
     normalizeStatusProxy,
+    VMOS_API_BASE,
+    VMOS_CLOUD_GOODS_PATH,
+    VMOS_CLOUD_ANDROID_VERSION,
+    VMOS_CLOUD_SOURCE,
+    vmosApiSign,
+    fetchVmosCloudStock,
+    vmosStockToState,
+    getVmosCloudOfficialState,
+    refreshVmosCloudStatus,
     getCloudStatus,
     probeVmosCloudStatus,
     runCloudStatusProbeJob,

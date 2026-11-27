@@ -33,8 +33,8 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
 - Số dư coin hiển thị ở góc trên; nút bấm trực quan cho mọi chức năng.
 - **Shop**: mua hàng, xem đồ đã mua, copy tài khoản.
 - **Giftcode**: nhập mã quà để nhận coin (mã tạo từ lệnh `/gen`).
-- **Buy Device**: mua cloud (Hanami), reg tài khoản và mua nhanh (UGPhone 490 xu / VSPhone VIP 150 xu).
-- **Cloud Status** (hiển thị cho mọi người, không cần đăng nhập): trạng thái **VMOS Cloud** và **VSPhone**. VSPhone lấy từ `GET https://meows.vn/api/cloud-status`; riêng **VMOS Cloud dùng Hanami** chạy job nền **mỗi 5 phút**: thử mua bằng tài khoản tự lấy qua API `get-key` (hoặc override `HANAMI_TEST_ACCOUNTS` / Admin Hub → Kinh tế → "Kho test VMOS Cloud"), rồi lưu kết quả vào gist secret `asynctas-cloud-status.json`. Khi user xem (`GET /api/status/cloud` hoặc `/cloudstatus`) chỉ **đọc từ gist**, không gọi Hanami — hết tình trạng bấm xem là chờ lâu. Chỉ cụm thông báo hết máy chính xác mới đánh dấu hết máy; lỗi khác giữ nguyên tài khoản và thử lại ở lần sau; chỉ sang tài khoản khác sau lần mua thành công. Riêng cụm **"Đã có lỗi xảy ra khi thực hiện câu lệnh."** thì tự gọi lại sau **1 giây** — áp dụng cho cả job nền lẫn lúc user bấm mua cloud (web/bot/plugin). Không retry khi đã thành công, hết máy hay gặp lỗi khác. Nút "Làm mới" (`?force=1`) chỉ xin job chạy lại trong nền, không bắt user đợi. Web tự làm mới mỗi 60s. `retryable: true` = đang thử lại (🟡), `offline` = hết máy (🔴).
+- **Buy Device**: mua cloud (Hanami), reg tài khoản và mua nhanh (UGPhone 490 xu / VSPhone VIP 150 xu). Riêng cụm **"Đã có lỗi xảy ra khi thực hiện câu lệnh."** thì tự gọi lại sau **1 giây** khi user bấm mua cloud (web/bot/plugin); không retry khi đã thành công/hết máy/lỗi khác.
+- **Cloud Status** (hiển thị cho mọi người, không cần đăng nhập): trạng thái **VMOS Cloud** và **VSPhone**. VSPhone lấy từ `GET https://meows.vn/api/cloud-status`. Riêng **VMOS Cloud luôn gọi API chính chủ VMOS Cloud** (`getCloudGoodList?androidVersion=13`, ký V2 bằng `VMOS_ACCESS_KEY` / `VMOS_SECRET_KEY`), **không dùng Hanami để lấy status nữa**. Tồn kho đọc qua `sellOutFlag` / `countryList`: còn cấu hình hoặc quốc gia sẵn → `online`; tất cả `soldOut` → `offline` / hết máy. API được fetch **mỗi 5 giây** (job nền + cache 5s); `GET /api/status/cloud` hoặc `/cloudstatus` tự fetch lại khi quá 5s, `?force=1` fetch ngay. Gist secret `asynctas-cloud-status.json` vẫn ghi **mỗi 5 phút** để fallback khi API lỗi; `source` luôn là `vmoscloud`. Web tự làm mới mỗi **5s**. `retryable: true` = API lỗi tạm thời, đang giữ trạng thái trước (🟡); `offline` = hết máy (🔴).
 - **Nạp coin**: gồm 2 tab trong cùng view — **Nạp thẻ cào** (nhập `mã thẻ | seri | nhà cung cấp`) và **Nạp ngân hàng** (tối thiểu 10.000đ/lần, lấy mã nạp + VietQR, tự kiểm tra 15s). Cả hai dùng API REST v3 (`CARD2K_API_KEY` chỉ nằm ở server) và webhook là nguồn cộng xu chính: thẻ chỉ cộng khi `status=success`, ngân hàng chỉ cộng khi `status=completed` + `paid_amount>0`; `pending`/`wrong_value`/lỗi khác để admin duyệt. Mỗi thẻ chỉ gửi 1 lần; mỗi kết nối chỉ có 1 mã nạp hiệu lực trong 30 phút. Xu cập nhật tại chỗ, không reload trang.
 - **Nhiệm vụ**: lấy link vượt link theo từng provider, theo dõi lượt trong ngày & trong tuần. 3 dịch vụ dùng chung cấu hình `economy.js` (Admin Hub → Kinh tế): Link4M 409 xu, LayMa 450 xu (2 lượt/ngày), **bbmkts 259 xu (1 lượt/ngày)**. 2ktraffic đã bị ẩn. Token bbmkts lấy từ `BBMKTS_API_TOKEN` (alias `VUOTNHANH_API_TOKEN`). Web và bot cùng đọc một cấu hình nên reward luôn đồng nhất.
 - **Điểm danh mỗi ngày**: nút claim nhận random **10–100 xu** (cùng bucket với `/daily` Discord và plugin). Nếu đã vượt **≥ 1 link** thì mỗi ngày lấy được **1 trong 2**: tài khoản VMOS free hoặc VSPhone thường free — không trừ xu.
@@ -46,7 +46,7 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
   - **Shop**: tạo sản phẩm, upload kho lên GitHub Gist, đặt giá (nhập `$` để dùng ACOIN), thêm kho, sửa/xoá.
   - **Plugin**: dán link raw script → tự lưu Gist → lưu gist_id vào DB → load chạy ngay (không deploy lại). Plugin viết bằng **JavaScript/CommonJS**, có API nội bộ bot/web, event bus và gọi API chéo plugin. Xem [docs/PLUGINS.md](docs/PLUGINS.md).
   - **Cookie**: nhập/lưu cookie dùng cho 2 dịch vụ mua nhanh; tự chuẩn hoá `.COOKIESECURITY=<cookie>`, đổi không cần deploy.
-  - **Kinh tế**: sửa thưởng vượt link, giá tạo tài khoản, bảng xu nạp thẻ và tỷ giá ACOIN (lưu vào KV `economy_config`); kho test Hanami; đơn thẻ chờ duyệt; nút **migration x10** cho tài khoản cũ (bấm thủ công, chỉ chạy 1 lần, không tự chạy lúc deploy).
+  - **Kinh tế**: sửa thưởng vượt link, giá tạo tài khoản, bảng xu nạp thẻ và tỷ giá ACOIN (lưu vào KV `economy_config`); kho test Hanami; đơn thẻ chờ duyệt; nút **migration x10** cho tài khoản cũ (bấm thủ công, chỉ chạy 1 lần, không tự chạy lúc deploy). Kho test Hanami chỉ còn dùng cho luồng **mua** cloud, không dùng cho Cloud Status.
   - Các tab còn lại: Market, Seller, Thưởng tuần, Gmail. Thưởng tuần lưu KV `weekly_rewards`, có hiệu lực kỳ sau.
 
 ### Thưởng bảng xếp hạng vượt link (tự động mỗi Chủ nhật)
@@ -197,22 +197,22 @@ Script: [`scripts/render-start.sh`](./scripts/render-start.sh). Nó tự tải `
 
 Script sẽ **health check qua chính SOCKS5** trước khi bật proxy:
 
-- Tunnel OK → tự set `MEOWS_API_PROXY=socks5h://127.0.0.1:1080`, Cloud Status hiện `· warp`.
+- Tunnel OK → tự set `MEOWS_API_PROXY=socks5h://127.0.0.1:1080`, phần **VSPhone** trên Cloud Status hiện `· warp`; VMOS Cloud đi thẳng API chính chủ.
 - Không handshake được (Render chặn UDP ra cổng WireGuard) → tự bỏ proxy, bot chạy bình thường với chain cũ (Worker → direct → reader). **App không bao giờ treo vì WARP.**
 
 Muốn tự đăng ký WARP ngay trên Render (không cần secret) thì thêm `WGCF_AUTO_REGISTER=1` — nhưng mỗi deploy sẽ ra identity mới, không khuyến khích.
 
-**Cách ly**: `wireproxy` là userspace, **không sửa routing table**. Nên chỉ request nào dùng `SocksProxyAgent` mới đi WARP — ở đây là luồng mua nhanh (status + mua nhanh). Discord gateway, Supabase, web UI, gift code... vẫn đi IP Render bình thường. Hanami mặc định **không** đi WARP; bật nếu cần: `HANAMI_USE_PROXY=1`.
+**Cách ly**: `wireproxy` là userspace, **không sửa routing table**. Nên chỉ request nào dùng `SocksProxyAgent` mới đi WARP — ở đây là luồng mua nhanh (status VSPhone + mua nhanh). Discord gateway, Supabase, web UI, gift code... vẫn đi IP Render bình thường. VMOS Cloud Status gọi `https://api.vmoscloud.com` trực tiếp, không qua WARP. Hanami mặc định **không** đi WARP; bật nếu cần: `HANAMI_USE_PROXY=1`.
 
 Ưu tiên env: `MEOWS_API_PROXY` → `MEOWS_STATUS_PROXY` → ô trong DB → gọi trực tiếp.
 
 **Mua máy dùng chung chain với status**: `worker`/`warp` → `direct` (**không dùng `www`**, vì API mua chỉ có trên domain chính và `www` dễ trả 404). Chỉ retry khi bị Cloudflare chặn (403/Just a moment), Worker trả 404 (bản cũ/sai route) hoặc lỗi mạng; **không retry sau khi API đã trả response hợp lệ** để tránh mua trùng/trừ coin trùng. Reader proxy chỉ dùng cho GET (status), không dùng cho POST mua hàng. Thông báo lỗi sẽ kèm `[nguồn: ...]` và danh sách các nguồn đã thử.
 
-Ô thời gian trên **Cloud Status** hiện `worker` / `warp` / `www` / `proxy` tương ứng nguồn đang dùng.
+Ô thời gian phần **VSPhone** trên Cloud Status hiện `worker` / `warp` / `www` / `proxy` tương ứng nguồn đang dùng; phần VMOS hiện giờ `VMOS ...` lấy từ `checkedAt` của API chính chủ.
 
 ## Biến môi trường
 Xem `.env.example`. Các biến quan trọng: `DISCORD_TOKEN`, `ADMIN_DISCORD_ID`,
-`SUPABASE_URL`, `SUPABASE_KEY`, `RENDER_DOMAIN`, `GITHUB_TOKEN`, `HANAMI_TOKEN`, `LINK4M_API_KEY`, `LAYMA_TOKEN`, `BBMKTS_API_TOKEN` (hoặc alias `VUOTNHANH_API_TOKEN`), `MEOWS_API_PROXY` / `MEOWS_STATUS_PROXY` (tuỳ chọn, Worker hoặc SOCKS5/WARP), `MEOWS_PROXY_KEY` (tuỳ chọn, secret của Worker).
+`SUPABASE_URL`, `SUPABASE_KEY`, `RENDER_DOMAIN`, `GITHUB_TOKEN`, `HANAMI_TOKEN`, `LINK4M_API_KEY`, `LAYMA_TOKEN`, `BBMKTS_API_TOKEN` (hoặc alias `VUOTNHANH_API_TOKEN`), `MEOWS_API_PROXY` / `MEOWS_STATUS_PROXY` (tuỳ chọn, Worker hoặc SOCKS5/WARP, chỉ ảnh hưởng VSPhone/mua nhanh), `MEOWS_PROXY_KEY` (tuỳ chọn, secret của Worker), `VMOS_ACCESS_KEY` / `VMOS_SECRET_KEY` (bắt buộc để Cloud Status đọc API chính chủ VMOS Cloud).
 
 ## Bảo mật
 - Token GitHub/Hanami chỉ nằm ở server, không bao giờ gửi xuống trình duyệt.
