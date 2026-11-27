@@ -14,6 +14,9 @@ const CLOUD_NAMES = { UG: 'UGPhone', VM: 'VMOS', VS: 'VSPhone' };
 // Chỉ cụm NÀY (xuất hiện trong JSON hoặc response) mới được coi là hết máy.
 // Mọi lỗi khác là lỗi tạm thời khi thực hiện lệnh -> gửi lại, giữ nguyên tài khoản test.
 const HANAMI_OUT_OF_STOCK = 'Vui lòng đăng nhập vào acc và sử dụng lại câu lệnh. Nếu đăng nhập rồi mà vẫn gặp lỗi này thì có thể gói trial đang tạm thời hết hàng, vui lòng thử lại sau.';
+// Lỗi "Đã có lỗi xảy ra khi thực hiện câu lệnh." là lỗi nhất thời: thử lại sau 1s.
+const HANAMI_COMMAND_ERROR_MS = 1000;
+const HANAMI_COMMAND_ERROR_RETRIES = 1;
 const HANAMI_PROBE_TTL_MS = 5 * 60 * 1000;
 const HANAMI_PROBE_KV = 'hanami_cloud_probe';
 const HANAMI_TEST_ACCOUNTS_KV = 'hanami_test_accounts';
@@ -63,6 +66,19 @@ function isHanamiOutOfStock(...values) {
         || collectStrings(values).some(text => normalizeSpaces(text).includes(needle));
 }
 
+/** Bỏ dấu để nhận cả "Đã có lỗi xảy ra khi thực hiện câu lệnh." và các biến thể không dấu. */
+function normalizeHanamiText(value) {
+    return String(value || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** CHỈ cụm lỗi thực hiện câu lệnh mới được auto retry; không đụng vào cụm hết máy. */
+function isHanamiCommandError(...values) {
+    const pattern = /\bco loi( xay ra)? khi thuc hien cau lenh\b/;
+    return collectStrings(values).some(text => pattern.test(normalizeHanamiText(text)));
+}
+
 function hanamiLooksSuccess(data, raw) {
     if (isHanamiOutOfStock(data, raw)) return false;
     if (!data || typeof data !== 'object') return false;
@@ -71,7 +87,8 @@ function hanamiLooksSuccess(data, raw) {
     return !!(data.data && (data.data.account || data.data.email || data.data.device || data.data.machine));
 }
 
-async function buyHanami(cloudId, server, inputData) {
+/** Một lần gọi Hanami (không retry). Dùng trực tiếp cho probe vì probe tự quản lý retry. */
+async function buyHanamiOnce(cloudId, server, inputData) {
     const body = { token: process.env.HANAMI_TOKEN, cloud_id: cloudId, input_data: inputData };
     if (server) body.server = server;
     const result = await requestWithFallback(HANAMI_URL, {
@@ -88,7 +105,7 @@ async function buyHanami(cloudId, server, inputData) {
         console.error(`[buycloud] Hanami trả về không phải JSON (HTTP ${result.status}):`, raw.slice(0, 300));
         const snippet = raw.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
         const message = `Hanami trả về HTML thay vì JSON (HTTP ${result.status}): ${snippet.replace(/`/g, "'")}`;
-        return { ok: false, message, raw, data: null, source: result.source, outOfStock: false, retryable: true };
+        return { ok: false, message, raw, data: null, source: result.source, outOfStock: false, retryable: true, attempts: 1 };
     }
     const outOfStock = isHanamiOutOfStock(data, raw);
     const ok = result.ok && hanamiLooksSuccess(data, raw);
@@ -102,7 +119,26 @@ async function buyHanami(cloudId, server, inputData) {
         outOfStock,
         // code !== 0 / HTTP lỗi / HTML / mạng đều là lỗi khi thực hiện lệnh -> gửi lại.
         retryable: !ok && !outOfStock,
+        attempts: 1,
     };
+}
+
+/**
+ * Mua cloud qua Hanami. Với cụm "Đã có lỗi xảy ra khi thực hiện câu lệnh."
+ * thì tự gọi lại sau 1s (dùng cho cả web/bot khi user mua và plugin).
+ * Không retry khi đã thành công, hết máy hay lỗi khác để tránh mua trùng.
+ */
+async function buyHanami(cloudId, server, inputData, { autoRetry = true, retries = HANAMI_COMMAND_ERROR_RETRIES, delayMs = HANAMI_COMMAND_ERROR_MS } = {}) {
+    let result = await buyHanamiOnce(cloudId, server, inputData);
+    const needsRetry = value => !value.ok && !value.outOfStock && isHanamiCommandError(value.message, value.data, value.raw);
+    const times = Math.max(0, Number(retries) || 0);
+    for (let i = 0; i < times && autoRetry && needsRetry(result); i++) {
+        await waitMs(Math.max(0, Number(delayMs) || 0));
+        result = await buyHanamiOnce(cloudId, server, inputData);
+        result.attempts = i + 2;
+        result.autoRetried = true;
+    }
+    return result;
 }
 
 /** Đăng ký 1 tài khoản VMOS. Trả về { account, mail, password }. */
@@ -1206,12 +1242,13 @@ async function probeVmosCloudStatus({ force = false, buy = buyHanami, fetchAccou
         let result = null;
         for (let attempt = 0; attempt < 2; attempt++) {
             try {
-                result = await buy('VM', account.server, account.inputData);
+                // Probe tự retry ở dưới, nên tắt auto retry bên trong buyHanami để không gọi trùng.
+                result = await buy('VM', account.server, account.inputData, { autoRetry: false });
             } catch (e) {
                 result = { ok: false, message: e.message, outOfStock: false, retryable: true };
             }
             if (result.ok || result.outOfStock) break;
-            if (attempt === 0) await waitMs(1500); // lỗi khi thực hiện lệnh -> gửi lại ngay cùng tài khoản
+            if (attempt === 0) await waitMs(HANAMI_COMMAND_ERROR_MS); // lỗi khi thực hiện lệnh -> gửi lại sau 1s cùng tài khoản
         }
 
         if (result.ok) {
@@ -1272,6 +1309,8 @@ module.exports = {
     DEVICE_LOGOS,
     vsphoneReady,
     buyHanami,
+    buyHanamiOnce,
+    isHanamiCommandError,
     regVmosAccount,
     regVsphoneAccount,
     normalizeMeowsCookie,
