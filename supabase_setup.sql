@@ -301,7 +301,7 @@ create table if not exists gmail_tasks (
   username text default '',
   email text not null,
   password text not null,
-  reward bigint not null default 180,
+  reward bigint not null default 1800,
   status text not null default 'pending',
   pinned boolean not null default false,
   reject_reason text,
@@ -437,7 +437,9 @@ alter table gmail_tasks add column if not exists user_key text;
 alter table gmail_tasks add column if not exists username text default '';
 alter table gmail_tasks add column if not exists email text;
 alter table gmail_tasks add column if not exists password text;
-alter table gmail_tasks add column if not exists reward bigint not null default 180;
+alter table gmail_tasks add column if not exists reward bigint not null default 1800;
+alter table gmail_tasks alter column reward set default 1800;
+update gmail_tasks set reward = 1800 where status = 'pending';
 alter table gmail_tasks add column if not exists status text not null default 'pending';
 alter table gmail_tasks add column if not exists pinned boolean not null default false;
 alter table gmail_tasks add column if not exists reject_reason text;

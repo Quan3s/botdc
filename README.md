@@ -47,7 +47,7 @@ shop lưu kho trên GitHub Gist, nhiệm vụ vượt link, bảng xếp hạng 
   - **Plugin**: dán link raw script → tự lưu Gist → lưu gist_id vào DB → load chạy ngay (không deploy lại). Plugin viết bằng **JavaScript/CommonJS**, có API nội bộ bot/web, event bus và gọi API chéo plugin. Xem [docs/PLUGINS.md](docs/PLUGINS.md).
   - **Cookie**: nhập/lưu cookie dùng cho 2 dịch vụ mua nhanh; tự chuẩn hoá `.COOKIESECURITY=<cookie>`, đổi không cần deploy.
   - **Kinh tế**: sửa thưởng vượt link, giá tạo tài khoản, bảng xu nạp thẻ và tỷ giá ACOIN (lưu vào KV `economy_config`); kho test Hanami; đơn thẻ chờ duyệt; nút **migration x10** cho tài khoản cũ (bấm thủ công, chỉ chạy 1 lần, không tự chạy lúc deploy). Kho test Hanami chỉ còn dùng cho luồng **mua** cloud, không dùng cho Cloud Status.
-  - Các tab còn lại: Market, Seller, Thưởng tuần, Gmail. Thưởng tuần lưu KV `weekly_rewards`, có hiệu lực kỳ sau.
+  - Các tab còn lại: Market, Seller, Thưởng tuần, Gmail. Mỗi tài khoản Google/Gmail hợp lệ được duyệt cộng **1800 coin** (mức thưởng lấy từ `gmail-tasks.js`, áp dụng cả task pending cũ). Thưởng tuần lưu KV `weekly_rewards`, có hiệu lực kỳ sau.
 
 ### Thưởng bảng xếp hạng vượt link (tự động mỗi Chủ nhật)
 | Hạng | Thưởng |

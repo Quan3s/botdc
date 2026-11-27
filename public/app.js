@@ -2678,7 +2678,7 @@ async function loadLeaderboard() {
     if (state.lbTab === 'acoin') { const data = await api('/api/leaderboard/acoin'); renderLb(root, data.leaderboard, t('lb.acoinUnit')); return; }
     if (state.lbTab === 'gmail') {
       const data = await api('/api/leaderboard/gmail');
-      setText(note, t('lb.gmailNote', { reward: num(data.reward || 180) }));
+      setText(note, t('lb.gmailNote', { reward: num(data.reward || 1800) }));
       note.classList.remove('hidden');
       renderLb(root, data.leaderboard, t('lb.gmailUnit'));
       return;
@@ -2909,7 +2909,7 @@ function renderAdminGmail() {
 function gmailApproveModal(task) {
   openModal({
     title: t('gmail.approveTitle'),
-    body: `<p class="muted">${esc(t('gmail.approveConfirm', { email: task.email, reward: num(task.reward || 180) }))}</p>`,
+    body: `<p class="muted">${esc(t('gmail.approveConfirm', { email: task.email, reward: num(task.reward || 1800) }))}</p>`,
     actions: [
       { label: t('auth.cancel'), onClick: closeModal },
       {
@@ -2918,7 +2918,7 @@ function gmailApproveModal(task) {
           try {
             await api(`/api/admin/gmail/${task.id}/approve`, { method: 'POST' });
             closeModal();
-            toast(t('gmail.approvedToast', { email: task.email, reward: num(task.reward || 180) }));
+            toast(t('gmail.approvedToast', { email: task.email, reward: num(task.reward || 1800) }));
             await Promise.all([loadAdminGmail(), loadAdminUsers()]);
           } catch (err) { btn.disabled = false; toast(err.message, 'error'); }
         },

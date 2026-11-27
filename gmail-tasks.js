@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const db = require('./database');
 const gistStore = require('./gist-store');
 
-const REWARD = 180;
+const REWARD = 1800;
 const PASSWORD = 'Domixi3667khoga@';
 const PREFIX = 'gmail_task:';
 const SYSTEM_ID = 'system';
@@ -52,7 +52,7 @@ function toTask(row, storage) {
         username: String(row.username || ''),
         email: String(row.email || '').toLowerCase(),
         password: String(row.password || ''),
-        reward: Number(row.reward) || REWARD,
+        reward: REWARD, // luôn dùng mức thưởng hiện hành, kể cả task pending cũ
         status: row.status === 'approved' || row.status === 'rejected' ? row.status : 'pending',
         pinned: row.pinned === true || row.pinned === 'true',
         rejectReason: row.reject_reason != null ? row.reject_reason : (row.rejectReason || null),

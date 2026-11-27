@@ -1199,7 +1199,7 @@ router.get('/api/leaderboard/links/all', requireAuth, ah(async (req, res) => {
     res.json({ leaderboard: await decorate(top, 'count'), rewards: null });
 }));
 
-/** BXH Gmail đã duyệt: mỗi Gmail hợp lệ = 1 điểm (180 coin). */
+/** BXH Gmail đã duyệt: mỗi Gmail hợp lệ = 1 điểm (1800 coin). */
 router.get('/api/leaderboard/gmail', requireAuth, ah(async (req, res) => {
     const top = await gmailTasks.leaderboard(10);
     res.json({
