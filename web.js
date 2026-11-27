@@ -1871,9 +1871,18 @@ router.post('/api/topup/bank/request', requireAuth, ah(async (req, res) => {
         return res.status(429).json({ error: 'Lấy mã nạp quá nhanh, thử lại sau 1 phút.' });
     }
 
+    const amount = parseInt(req.body.amount, 10);
+    if (!Number.isFinite(amount) || amount < 10000) {
+        return res.status(400).json({ error: 'Nạp ngân hàng tối thiểu 10.000đ/lần.' });
+    }
+
     const sent = await card2k.requestDeposit();
     if (!sent.ok) {
         return res.status(400).json({ error: `Lấy mã nạp thất bại: ${sent.message}`, code: sent.code });
+    }
+    const providerMin = Number(sent.data.min_amount) || 10000;
+    if (amount < providerMin) {
+        return res.status(400).json({ error: `Card2K yêu cầu nạp tối thiểu ${providerMin.toLocaleString('vi-VN')}đ/lần.` });
     }
     const code = String(sent.data.code || '');
     if (!code) return res.status(502).json({ error: 'Card2K không trả mã nạp.' });
