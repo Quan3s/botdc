@@ -50,6 +50,9 @@ const VSPHONE_CLOUD_GOODS_PATH = '/vsphone/api/padApi/getCloudGoodList';
 const VSPHONE_CLOUD_ANDROID_VERSION = '13';
 const VSPHONE_API_TIMEOUT_MS = 10000;
 const VSPHONE_CLOUD_SOURCE = 'vsphone';
+// Portal thực tế yêu cầu chữ ký V4 (Authorization), dù doc V2 nói dùng X-Sign.
+const VSPHONE_API_HOST = 'api.vsphone.com';
+const VSPHONE_CONTENT_TYPE = 'application/json;charset=UTF-8';
 
 function vsphoneReady() {
     return !!(process.env.VSPHONE_API_URL && process.env.VSPHONE_API_KEY);
@@ -1125,11 +1128,60 @@ function refreshVmosCloudStatus(options = {}) {
     return getVmosCloudOfficialState({ ...options, force: true });
 }
 
-/** Chữ ký VSPhone V2: SHA256(secretKey + timestamp + path + rawQuery). Cùng cơ chế VMOS. */
+/** Helper V2 cũ (docs cũ). Giữ lại để test/đối chiếu; luồng status dùng V4 bên dưới. */
 function vsphoneApiSign(secretKey, timestamp, path, queryOrBody) {
     return crypto.createHash('sha256')
         .update(`${secretKey}${timestamp}${path}${queryOrBody || ''}`)
         .digest('hex');
+}
+
+function sha256Hex(value) {
+    return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function hmacSha256(key, value) {
+    return crypto.createHmac('sha256', key).update(value, 'utf8').digest();
+}
+
+/**
+ * Chữ ký VSPhone V4 (Authorization) theo example Node/Go trong docs chính chủ.
+ * GET ký raw query string; PUT/POST ký raw body. Ở đây chỉ cần GET tồn kho.
+ */
+function vsphoneV4Headers({ accessKey, secretKey, query = '', body = null, now = new Date() } = {}) {
+    if (!accessKey || !secretKey) throw new Error('Thiếu accessKey/secretKey VSPhone.');
+    const xDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    const shortDate = xDate.slice(0, 8);
+    const service = 'armcloud-paas';
+    const credentialScope = `${shortDate}/${service}/request`;
+    const payload = body != null ? String(body) : String(query || '');
+    const payloadHash = sha256Hex(payload);
+    const canonical = [
+        `host:${VSPHONE_API_HOST}`,
+        `x-date:${xDate}`,
+        `content-type:${VSPHONE_CONTENT_TYPE}`,
+        'signedHeaders:content-type;host;x-content-sha256;x-date',
+        `x-content-sha256:${payloadHash}`,
+    ].join('\n');
+    const stringToSign = [
+        'HMAC-SHA256',
+        xDate,
+        credentialScope,
+        sha256Hex(canonical),
+    ].join('\n');
+    const kDate = hmacSha256(secretKey, shortDate);
+    const kService = hmacSha256(kDate, service);
+    const signingKey = hmacSha256(kService, 'request');
+    const signature = crypto.createHmac('sha256', signingKey).update(stringToSign, 'utf8').digest('hex');
+    const authorization = `HMAC-SHA256 Credential=${accessKey}/${credentialScope}, `
+        + 'SignedHeaders=content-type;host;x-content-sha256;x-date, '
+        + `Signature=${signature}`;
+
+    return {
+        'content-type': VSPHONE_CONTENT_TYPE,
+        'x-date': xDate,
+        'x-host': VSPHONE_API_HOST,
+        authorization,
+    };
 }
 
 function vsphoneFlagTrue(value) {
@@ -1188,14 +1240,13 @@ async function fetchVsphoneCloudStock({
     accessKey = process.env.VSPHONE_ACCESS_KEY,
     secretKey = process.env.VSPHONE_SECRET_KEY,
     androidVersion = VSPHONE_CLOUD_ANDROID_VERSION,
+    now = new Date(),
 } = {}) {
     if (!accessKey || !secretKey) {
         throw new Error('Chưa cấu hình VSPHONE_ACCESS_KEY / VSPHONE_SECRET_KEY.');
     }
     const path = VSPHONE_CLOUD_GOODS_PATH;
     const query = `androidVersion=${encodeURIComponent(androidVersion)}`;
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const sign = vsphoneApiSign(secretKey, timestamp, path, query);
     const url = `${VSPHONE_API_BASE}${path}?${query}`;
 
     let response;
@@ -1205,9 +1256,7 @@ async function fetchVsphoneCloudStock({
             method: 'GET',
             headers: {
                 Accept: 'application/json',
-                'X-Access-Key': accessKey,
-                'X-Timestamp': timestamp,
-                'X-Sign': sign,
+                ...vsphoneV4Headers({ accessKey, secretKey, query, now }),
                 'User-Agent': 'ASYNCTAS-CloudStatus/1.0',
             },
             signal: AbortSignal.timeout(VSPHONE_API_TIMEOUT_MS),
@@ -1228,7 +1277,7 @@ async function fetchVsphoneCloudStock({
         const code = payload && payload.code !== undefined ? payload.code : response.status;
         const detail = String((payload && (payload.msg || payload.message)) || '').slice(0, 160);
         const authHint = [2019, 2031, 2032, 2033].includes(Number(code))
-            ? ' (kiểm tra VSPHONE_ACCESS_KEY / VSPHONE_SECRET_KEY thời gian hệ thống)' : '';
+            ? ' (kiểm tra VSPHONE_ACCESS_KEY / VSPHONE_SECRET_KEY, thời gian hệ thống và IP whitelist)' : '';
         throw new Error(`VSPhone Cloud API lỗi ${code}: ${detail}${authHint}`);
     }
 
@@ -1897,8 +1946,11 @@ module.exports = {
     VSPHONE_CLOUD_GOODS_PATH,
     VSPHONE_CLOUD_ANDROID_VERSION,
     VSPHONE_CLOUD_SOURCE,
+    VSPHONE_API_HOST,
+    VSPHONE_CONTENT_TYPE,
     vsphoneOfficialReady,
     vsphoneApiSign,
+    vsphoneV4Headers,
     fetchVsphoneCloudStock,
     vsphoneStockToState,
     getVsphoneCloudOfficialState,
