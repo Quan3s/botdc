@@ -2223,8 +2223,8 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// VMOS Cloud Status: thử mua nền mỗi 5 phút rồi lưu gist.
-// Web và bot lệnh /cloudstatus chỉ đọc gist, không gọi Hanami lúc user xem.
+// Cloud Status: fetch API chính chủ VMOS + VSPhone mỗi 5s, gist vẫn ghi mỗi 5p để fallback.
+// Web và bot lệnh /cloudstatus không gọi Hanami lúc user xem.
 if (process.env.DISABLE_CLOUD_STATUS_PROBE !== '1') {
     services.startVmosCloudStatusScheduler();
 }

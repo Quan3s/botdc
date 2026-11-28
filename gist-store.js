@@ -16,7 +16,7 @@ const KINDS = {
     chat: { kv: 'gist_chat', file: 'asynctas-chat.json', days: 30, field: 'messages', local: 'gist-chat.json' },
     orders: { kv: 'gist_orders', file: 'asynctas-orders.json', days: 7, field: 'orders', local: 'gist-orders.json' },
     links: { kv: 'gist_links', file: 'asynctas-links.json', days: 7, field: 'links', local: 'gist-links.json' },
-    // Trạng thái VMOS Cloud do job nền ghi mỗi 5 phút; web/bot chỉ đọc từ đây.
+    // Trạng thái VMOS + VSPhone do job nền ghi mỗi 5 phút; web/bot chỉ đọc làm fallback.
     cloudstatus: { kv: 'gist_cloud_status', file: 'asynctas-cloud-status.json', days: null, field: 'items', local: 'gist-cloud-status.json' },
 };
 const ALIASES = {

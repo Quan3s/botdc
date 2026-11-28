@@ -44,8 +44,20 @@ const VMOS_CLOUD_ANDROID_VERSION = '13';
 const VMOS_API_TIMEOUT_MS = 10000;
 const VMOS_CLOUD_SOURCE = 'vmoscloud';
 
+// VSPhone Cloud Status dùng API chính chủ giống VMOS; VSPHONE_API_KEY chỉ dùng cho mua nhanh.
+const VSPHONE_API_BASE = 'https://api.vsphone.com';
+const VSPHONE_CLOUD_GOODS_PATH = '/vsphone/api/padApi/getCloudGoodList';
+const VSPHONE_CLOUD_ANDROID_VERSION = '13';
+const VSPHONE_API_TIMEOUT_MS = 10000;
+const VSPHONE_CLOUD_SOURCE = 'vsphone';
+
 function vsphoneReady() {
     return !!(process.env.VSPHONE_API_URL && process.env.VSPHONE_API_KEY);
+}
+
+/** Key API chính chủ VSPhone (khác với VSPHONE_API_KEY dùng cho mua nhanh). */
+function vsphoneOfficialReady() {
+    return !!(process.env.VSPHONE_ACCESS_KEY && process.env.VSPHONE_SECRET_KEY);
 }
 
 /** Gom mọi chuỗi trong JSON (kể cả nested) để nhận diện thông báo hết máy. */
@@ -718,12 +730,15 @@ const CLOUD_STATUS_TTL_MS = 5 * 1000;
 const CLOUD_STATUS_JOB_KV = 'hanami_cloud_status_job'; // tên KV cũ, giữ nguyên để không đổi schema
 const CLOUD_STATUS_STALE_MS = 30 * 1000;
 const VMOS_STATUS_TTL_MS = 5 * 1000;
+const VSPHONE_STATUS_TTL_MS = 5 * 1000;
 let cloudStatusCache = null;
 let cloudStatusPromise = null;
 let cloudStatusJobPromise = null;
 let cloudStatusTimer = null;
 let vmosOfficialCache = null;
 let vmosOfficialPromise = null;
+let vsphoneOfficialCache = null;
+let vsphoneOfficialPromise = null;
 
 function normalizeMeowsDevice(entry) {
     const raw = String((entry && entry.status) || '').toLowerCase();
@@ -1110,6 +1125,299 @@ function refreshVmosCloudStatus(options = {}) {
     return getVmosCloudOfficialState({ ...options, force: true });
 }
 
+/** Chữ ký VSPhone V2: SHA256(secretKey + timestamp + path + rawQuery). Cùng cơ chế VMOS. */
+function vsphoneApiSign(secretKey, timestamp, path, queryOrBody) {
+    return crypto.createHash('sha256')
+        .update(`${secretKey}${timestamp}${path}${queryOrBody || ''}`)
+        .digest('hex');
+}
+
+function vsphoneFlagTrue(value) {
+    if (typeof value === 'string') return ['1', 'true', 'yes', 'y'].includes(value.trim().toLowerCase());
+    return value === true || Number(value) === 1;
+}
+
+/** VSPhone trả data[] -> cloudGoodsInfo.configs[]; một số bản trả data.configs[]. */
+function collectVsphoneConfigs(payload) {
+    const data = payload && payload.data;
+    const groups = Array.isArray(data) ? data : (data && typeof data === 'object' ? [data] : []);
+    const configs = [];
+    for (const group of groups) {
+        if (!group || typeof group !== 'object') continue;
+        const goods = group.cloudGoodsInfo && typeof group.cloudGoodsInfo === 'object' ? group.cloudGoodsInfo : null;
+        const candidates = [goods && goods.configs, group.configs, goods && goods.goods];
+        for (const list of candidates) {
+            if (!Array.isArray(list)) continue;
+            configs.push(...list.filter(item => item && typeof item === 'object'));
+            break;
+        }
+    }
+    return configs;
+}
+
+function collectVsphoneCountries(config, group) {
+    const goods = group && group.cloudGoodsInfo && typeof group.cloudGoodsInfo === 'object' ? group.cloudGoodsInfo : null;
+    const lists = [config && config.countryList, goods && goods.countryList, group && group.countryList];
+    const rows = [];
+    for (const list of lists) {
+        if (Array.isArray(list)) {
+            rows.push(...list.filter(item => item && typeof item === 'object'));
+            break;
+        }
+    }
+    return rows.map(row => ({
+        code: String(row.armCountryCode || row.countryCode || row.code || '').toUpperCase(),
+        soldOut: vsphoneFlagTrue(row.sellOutFlag) || vsphoneFlagTrue(row.soldOut),
+    })).filter(row => row.code);
+}
+
+function vsphoneConfigSoldOut(config) {
+    if (!config || typeof config !== 'object') return true;
+    if (vsphoneFlagTrue(config.sellOutFlag) || vsphoneFlagTrue(config.soldOut)) return true;
+    // Một số response không có sellOutFlag nhưng goodTimes rỗng = hết khung giờ.
+    if (Array.isArray(config.goodTimes) && config.goodTimes.length === 0) return true;
+    return false;
+}
+
+/**
+ * Gọi API chính chủ VSPhone Cloud để đọc tồn kho máy.
+ * Không dùng VSPHONE_API_KEY (chỉ dùng cho mua nhanh) và không đụng Hanami.
+ */
+async function fetchVsphoneCloudStock({
+    fetcher = (url, options) => fetch(url, options),
+    accessKey = process.env.VSPHONE_ACCESS_KEY,
+    secretKey = process.env.VSPHONE_SECRET_KEY,
+    androidVersion = VSPHONE_CLOUD_ANDROID_VERSION,
+} = {}) {
+    if (!accessKey || !secretKey) {
+        throw new Error('Chưa cấu hình VSPHONE_ACCESS_KEY / VSPHONE_SECRET_KEY.');
+    }
+    const path = VSPHONE_CLOUD_GOODS_PATH;
+    const query = `androidVersion=${encodeURIComponent(androidVersion)}`;
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const sign = vsphoneApiSign(secretKey, timestamp, path, query);
+    const url = `${VSPHONE_API_BASE}${path}?${query}`;
+
+    let response;
+    let raw;
+    try {
+        response = await fetcher(url, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                'X-Access-Key': accessKey,
+                'X-Timestamp': timestamp,
+                'X-Sign': sign,
+                'User-Agent': 'ASYNCTAS-CloudStatus/1.0',
+            },
+            signal: AbortSignal.timeout(VSPHONE_API_TIMEOUT_MS),
+            timeout: VSPHONE_API_TIMEOUT_MS,
+        });
+        raw = await response.text();
+    } catch (e) {
+        throw new Error(`Không gọi được VSPhone Cloud API: ${String(e.message || e).slice(0, 160)}`);
+    }
+
+    let payload;
+    try {
+        payload = raw ? JSON.parse(raw) : null;
+    } catch (e) {
+        throw new Error(`VSPhone Cloud API trả dữ liệu không hợp lệ (HTTP ${response.status}).`);
+    }
+    if (!payload || Number(payload.code) !== 200) {
+        const code = payload && payload.code !== undefined ? payload.code : response.status;
+        const detail = String((payload && (payload.msg || payload.message)) || '').slice(0, 160);
+        const authHint = [2019, 2031, 2032, 2033].includes(Number(code))
+            ? ' (kiểm tra VSPHONE_ACCESS_KEY / VSPHONE_SECRET_KEY thời gian hệ thống)' : '';
+        throw new Error(`VSPhone Cloud API lỗi ${code}: ${detail}${authHint}`);
+    }
+
+    const data = payload.data;
+    const groups = Array.isArray(data) ? data : (data && typeof data === 'object' ? [data] : []);
+    const configs = collectVsphoneConfigs(payload);
+    if (!groups.length || !configs.length) throw new Error('VSPhone Cloud API không trả cấu hình máy nào.');
+
+    let availableConfigs = 0;
+    let soldOutConfigs = 0;
+    let countryCount = 0;
+    let availableCountryCount = 0;
+    let vietnamAvailable = false;
+    const countries = new Set();
+    const availableCountries = new Set();
+
+    for (let i = 0; i < groups.length; i++) {
+        const group = groups[i];
+        const goods = group && group.cloudGoodsInfo && typeof group.cloudGoodsInfo === 'object' ? group.cloudGoodsInfo : null;
+        const candidates = [goods && goods.configs, group && group.configs, goods && goods.goods];
+        const list = candidates.find(item => Array.isArray(item)) || [];
+        for (const config of list) {
+            const configCountries = collectVsphoneCountries(config, group);
+            for (const country of configCountries) countries.add(country.code);
+
+            if (vsphoneConfigSoldOut(config)) {
+                soldOutConfigs++;
+                continue;
+            }
+            availableConfigs++;
+            for (const country of configCountries) {
+                if (country.soldOut) continue;
+                availableCountries.add(country.code);
+                if (country.code === 'VN') vietnamAvailable = true;
+            }
+        }
+    }
+
+    return {
+        totalConfigs: configs.length,
+        availableConfigs,
+        soldOutConfigs,
+        countryCount: countries.size,
+        availableCountryCount: availableCountries.size,
+        vietnamAvailable,
+        androidVersion,
+        checkedAt: new Date().toISOString(),
+    };
+}
+
+function vsphoneStockToState(stock) {
+    const total = Number(stock.totalConfigs) || 0;
+    const available = Number(stock.availableConfigs) || 0;
+    const hasMachine = available > 0;
+    return {
+        source: VSPHONE_CLOUD_SOURCE,
+        status: hasMachine ? 'online' : 'offline',
+        message: hasMachine
+            ? `Có máy — VSPhone Cloud API: ${available}/${total} cấu hình, ${Number(stock.availableCountryCount) || 0}/${Number(stock.countryCount) || 0} quốc gia còn sẵn.`
+            : `VSPhone Cloud API: ${total} cấu hình đang hết máy.`,
+        hasMachine,
+        retryable: false,
+        outOfStock: !hasMachine,
+        checkedAt: stock.checkedAt || new Date().toISOString(),
+        totalConfigs: total,
+        availableConfigs: available,
+        soldOutConfigs: Number(stock.soldOutConfigs) || 0,
+        countryCount: Number(stock.countryCount) || 0,
+        availableCountryCount: Number(stock.availableCountryCount) || 0,
+        vietnamAvailable: !!stock.vietnamAvailable,
+        androidVersion: stock.androidVersion || VSPHONE_CLOUD_ANDROID_VERSION,
+        account: '',
+        accountIndex: 0,
+        nextAccountIndex: 0,
+        accountCount: 0,
+        accountMode: 'api',
+        lastBuyAt: null,
+        stale: false,
+        refreshing: false,
+    };
+}
+
+/** Fallback VSPhone nằm trong field `vsphone` của gist cloud-status (VMOS vẫn là top-level). */
+function vsphoneStateFromGist(saved, { stale = false, refreshing = false } = {}) {
+    const fallback = saved && saved.vsphone && typeof saved.vsphone === 'object'
+        ? saved.vsphone
+        : (saved && saved.source === VSPHONE_CLOUD_SOURCE ? saved : null);
+    if (!fallback) {
+        return {
+            source: VSPHONE_CLOUD_SOURCE,
+            status: 'offline',
+            message: 'Đang chờ kết quả kiểm tra VSPhone Cloud API (mỗi 5 giây)...',
+            hasMachine: false,
+            retryable: true,
+            outOfStock: false,
+            lastBuyAt: null,
+            checkedAt: null,
+            stale: true,
+            refreshing,
+        };
+    }
+    const checkedAt = fallback.checkedAt || fallback.savedAt || null;
+    return {
+        source: fallback.source || VSPHONE_CLOUD_SOURCE,
+        status: fallback.status || (fallback.hasMachine ? 'online' : 'offline'),
+        message: String(fallback.message || ''),
+        hasMachine: !!fallback.hasMachine,
+        retryable: !!fallback.retryable,
+        outOfStock: !!fallback.outOfStock,
+        lastBuyAt: Number(fallback.lastBuyAt) || null,
+        account: String(fallback.account || ''),
+        accountIndex: Number(fallback.accountIndex) || 0,
+        nextAccountIndex: Number.isInteger(fallback.nextAccountIndex) ? fallback.nextAccountIndex : 0,
+        accountCount: Number(fallback.accountCount) || 0,
+        accountMode: fallback.accountMode || 'api',
+        totalConfigs: Number(fallback.totalConfigs) || 0,
+        availableConfigs: Number(fallback.availableConfigs) || 0,
+        soldOutConfigs: Number(fallback.soldOutConfigs) || 0,
+        countryCount: Number(fallback.countryCount) || 0,
+        availableCountryCount: Number(fallback.availableCountryCount) || 0,
+        vietnamAvailable: !!fallback.vietnamAvailable,
+        androidVersion: fallback.androidVersion || VSPHONE_CLOUD_ANDROID_VERSION,
+        checkedAt,
+        stale,
+        refreshing,
+    };
+}
+
+function vsphoneErrorState(error, saved = null) {
+    const base = vsphoneStateFromGist(saved, { stale: true });
+    return {
+        ...base,
+        source: VSPHONE_CLOUD_SOURCE,
+        status: base.hasMachine ? 'online' : 'offline',
+        message: `Lỗi VSPhone Cloud API: ${String(error && error.message || error).slice(0, 160)} — sẽ thử lại sau 5 giây.`,
+        hasMachine: !!base.hasMachine,
+        retryable: true,
+        outOfStock: false,
+        stale: true,
+        refreshing: false,
+    };
+}
+
+/**
+ * Trạng thái VSPhone lấy từ API chính chủ, cache 5s (single-flight).
+ * Không có AK/SK thì trả null để getCloudStatus giữ nguyên nguồn Meows cũ.
+ */
+async function getVsphoneCloudOfficialState({
+    force = false,
+    stockFetcher = fetchVsphoneCloudStock,
+    ttlMs = VSPHONE_STATUS_TTL_MS,
+    store = gistStore,
+    enabled = vsphoneOfficialReady(),
+} = {}) {
+    if (!enabled) return null;
+    const now = Date.now();
+    if (!force && vsphoneOfficialCache && now - vsphoneOfficialCache.at < ttlMs) {
+        return vsphoneOfficialCache.value;
+    }
+    if (vsphoneOfficialPromise) return vsphoneOfficialPromise;
+
+    vsphoneOfficialPromise = (async () => {
+        let value;
+        try {
+            value = vsphoneStockToState(await stockFetcher());
+        } catch (e) {
+            let saved = null;
+            try {
+                saved = await withTimeout(store.readCloudStatus(), 3000, 'Đọc gist VSPhone');
+            } catch (readError) { /* không làm hỏng status vì lỗi gist */ }
+            value = vsphoneErrorState(e, saved);
+        }
+        vsphoneOfficialCache = { at: Date.now(), value };
+        cloudStatusCache = null; // bắt buộc getCloudStatus trả kết quả mới sau khi API vừa đổi
+        return value;
+    })();
+
+    try {
+        return await vsphoneOfficialPromise;
+    } finally {
+        vsphoneOfficialPromise = null;
+    }
+}
+
+/** Dùng cho scheduler: luôn gọi lại API chính chủ VSPhone mỗi tick 5s. */
+function refreshVsphoneCloudStatus(options = {}) {
+    return getVsphoneCloudOfficialState({ ...options, force: true });
+}
+
 /** Đưa trạng thái lưu trong gist về đúng shape mà web/bot đang dùng (chỉ làm fallback khi API lỗi). */
 function vmosStateFromGist(saved, { stale = false, refreshing = false } = {}) {
     if (!saved || typeof saved !== 'object') {
@@ -1154,17 +1462,20 @@ function vmosStateFromGist(saved, { stale = false, refreshing = false } = {}) {
 }
 
 /**
- * Trạng thái cloudphone public: VSPhone lấy từ Meows, VMOS luôn lấy từ API chính chủ.
+ * Trạng thái cloudphone public: VMOS + VSPhone lấy từ API chính chủ (khi có key).
  * Cache 5s: user gọi lại sau 5s tự fetch; force=1 fetch ngay. Không dùng Hanami.
- * Gist chỉ là fallback khi API lỗi, không phải nguồn chính.
+ * Thiếu key VSPhone -> giữ nguyên nguồn Meows cũ. Gist chỉ là fallback khi API lỗi.
  */
 async function getCloudStatus({
     force = false,
     statusFetcher = fetchMeowsCloudStatus,
     vmosFetcher = fetchVmosCloudStock,
     vmosStateFetcher = getVmosCloudOfficialState,
+    vsphoneFetcher = fetchVsphoneCloudStock,
+    vsphoneStateFetcher = getVsphoneCloudOfficialState,
     store = gistStore,
     ttlMs = VMOS_STATUS_TTL_MS,
+    vsphoneTtlMs = VSPHONE_STATUS_TTL_MS,
 } = {}) {
     const now = Date.now();
     if (!force && cloudStatusCache && now - cloudStatusCache.at < CLOUD_STATUS_TTL_MS) {
@@ -1173,13 +1484,26 @@ async function getCloudStatus({
     if (cloudStatusPromise) return cloudStatusPromise;
 
     cloudStatusPromise = (async () => {
-        const [{ meows, source, errors }, vmos] = await Promise.all([
+        const [{ meows, source, errors }, vmos, vsphone] = await Promise.all([
             statusFetcher(),
             vmosStateFetcher({ force, stockFetcher: vmosFetcher, ttlMs, store }),
+            vsphoneStateFetcher({ force, stockFetcher: vsphoneFetcher, ttlMs: vsphoneTtlMs, store }),
         ]);
 
         meows.vmos = { ...meows.vmos, ...vmos, refreshing: !!force };
         if (meows.vmos.retryable && meows.vmos.message) errors.push(`VMOS Cloud API: ${meows.vmos.message}`);
+
+        if (vsphone && typeof vsphone === 'object') {
+            meows.vsphone = {
+                ...meows.vsphone,
+                ...vsphone,
+                lastBuyAt: vsphone.lastBuyAt || meows.vsphone.lastBuyAt || null,
+                refreshing: !!force,
+            };
+            if (meows.vsphone.retryable && meows.vsphone.message) {
+                errors.push(`VSPhone Cloud API: ${meows.vsphone.message}`);
+            }
+        }
 
         const value = {
             checkedAt: new Date().toISOString(),
@@ -1200,12 +1524,14 @@ async function getCloudStatus({
     }
 }
 
-/** Job nền: đọc tồn kho từ API chính chủ rồi lưu vào gist (secret). Gist vẫn ghi 5p/lần. */
+/** Job nền: đọc tồn kho API chính chủ (VMOS + VSPhone) rồi lưu gist (secret). Gist vẫn ghi 5p/lần. */
 async function runCloudStatusProbeJob({
     minIntervalMs = 4 * 60 * 1000,
     force = true,
     fetcher = fetchVmosCloudStock,
     stateFetcher = getVmosCloudOfficialState,
+    vsphoneFetcher = fetchVsphoneCloudStock,
+    vsphoneStateFetcher = getVsphoneCloudOfficialState,
     store = gistStore,
     dbLayer = db,
 } = {}) {
@@ -1227,12 +1553,32 @@ async function runCloudStatusProbeJob({
         } catch (e) {
             state = vmosErrorState(e);
         }
+
+        let saved = null;
+        try {
+            saved = await withTimeout(store.readCloudStatus(), 3000, 'Đọc gist cloud-status');
+        } catch (e) { /* không làm hỏng job vì lỗi gist */ }
+
+        let vsphoneState = null;
+        try {
+            vsphoneState = await vsphoneStateFetcher({ force, stockFetcher: vsphoneFetcher, store });
+        } catch (e) {
+            vsphoneState = vsphoneErrorState(e, saved);
+        }
+        if (!vsphoneState || typeof vsphoneState !== 'object') {
+            vsphoneState = saved && saved.vsphone && typeof saved.vsphone === 'object' ? saved.vsphone : null;
+        } else {
+            vsphoneState = { ...vsphoneState, savedAt: new Date().toISOString() };
+        }
+
+        const savedAt = new Date().toISOString();
         const value = {
             ...(state && typeof state === 'object' ? state : {}),
             source: VMOS_CLOUD_SOURCE,
-            checkedAt: (state && state.checkedAt) || new Date().toISOString(),
-            savedAt: new Date().toISOString(),
+            checkedAt: (state && state.checkedAt) || savedAt,
+            savedAt,
         };
+        if (vsphoneState) value.vsphone = vsphoneState;
         try {
             await store.writeCloudStatus(value);
             cloudStatusCache = null; // job vừa ghi gist: lần xem tiếp theo lấy kết quả mới
@@ -1249,17 +1595,22 @@ async function runCloudStatusProbeJob({
     }
 }
 
-/** Chạy ngay lúc khởi động, fetch API chính chủ mỗi 5s; gist vẫn được ghi mỗi 5p. */
+/** Chạy ngay lúc khởi động, fetch API chính chủ VMOS + VSPhone mỗi 5s; gist vẫn ghi mỗi 5p. */
 function startVmosCloudStatusScheduler({
     intervalMs = 5 * 1000,
     fetcher = fetchVmosCloudStock,
+    vsphoneFetcher = fetchVsphoneCloudStock,
     run = runCloudStatusProbeJob,
     refresh = refreshVmosCloudStatus,
+    vsphoneRefresh = refreshVsphoneCloudStatus,
 } = {}) {
     if (cloudStatusTimer) return { started: false, reason: 'already_running' };
     const execute = () => Promise.resolve()
-        .then(() => refresh({ stockFetcher: fetcher }))
-        .then(() => run({ force: false, fetcher, minIntervalMs: 4 * 60 * 1000 }))
+        .then(() => Promise.all([
+            refresh({ stockFetcher: fetcher }),
+            vsphoneRefresh({ stockFetcher: vsphoneFetcher }),
+        ]))
+        .then(() => run({ force: false, fetcher, vsphoneFetcher, minIntervalMs: 4 * 60 * 1000 }))
         .catch(e => console.error('[cloud-status] làm mới nền lỗi:', e.message));
     execute();
     cloudStatusTimer = setInterval(execute, intervalMs);
@@ -1542,6 +1893,17 @@ module.exports = {
     vmosStockToState,
     getVmosCloudOfficialState,
     refreshVmosCloudStatus,
+    VSPHONE_API_BASE,
+    VSPHONE_CLOUD_GOODS_PATH,
+    VSPHONE_CLOUD_ANDROID_VERSION,
+    VSPHONE_CLOUD_SOURCE,
+    vsphoneOfficialReady,
+    vsphoneApiSign,
+    fetchVsphoneCloudStock,
+    vsphoneStockToState,
+    getVsphoneCloudOfficialState,
+    refreshVsphoneCloudStatus,
+    vsphoneStateFromGist,
     getCloudStatus,
     probeVmosCloudStatus,
     runCloudStatusProbeJob,
